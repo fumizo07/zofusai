@@ -10,31 +10,45 @@
             max-width: 900px;
             margin: 0 auto;
             padding: 16px;
-            line-height: 1.6;
+            line-height: 1.7;
         }
         h1 {
             font-size: 1.4rem;
+            margin-bottom: 8px;
+        }
+        h2 {
+            font-size: 1.1rem;
+            margin-top: 16px;
+            margin-bottom: 8px;
         }
         form {
             margin-bottom: 16px;
+            padding: 8px 12px;
+            border-radius: 6px;
+            background: #f8f9fa;
+        }
+        label {
+            font-size: 0.85rem;
+            font-weight: 600;
         }
         input[type="text"] {
             width: 100%;
-            padding: 8px;
+            padding: 6px 8px;
             box-sizing: border-box;
-            font-size: 1rem;
-            margin-bottom: 8px;
+            font-size: 0.95rem;
+            margin: 4px 0 10px;
         }
         button {
-            padding: 8px 16px;
-            font-size: 1rem;
+            padding: 6px 14px;
+            font-size: 0.95rem;
             cursor: pointer;
         }
         .result {
             border: 1px solid #ddd;
             border-radius: 6px;
-            padding: 8px 12px;
-            margin-bottom: 12px;
+            padding: 10px 12px;
+            margin-bottom: 14px;
+            background: #fff;
         }
         .result-id {
             font-weight: bold;
@@ -47,7 +61,7 @@
             margin-top: 2px;
         }
         .result-text {
-            margin-top: 6px;
+            margin-top: 8px;
             white-space: pre-wrap;
         }
         .no-result {
@@ -55,7 +69,8 @@
             font-size: 0.9rem;
         }
         .section-title {
-            margin-top: 8px;
+            margin-top: 10px;
+            margin-bottom: 4px;
             font-size: 0.85rem;
             font-weight: bold;
             color: #444;
@@ -80,6 +95,7 @@
         .tree-meta {
             color: #555;
             font-size: 0.8rem;
+            margin-bottom: 1px;
         }
         .tree-body {
             white-space: pre-wrap;
@@ -97,16 +113,22 @@
         mark {
             background: #ffec99;
         }
+        .top-links {
+            margin-bottom: 8px;
+            font-size: 0.9rem;
+        }
     </style>
 </head>
 <body>
     <h1>My Personal Baku Search（仮）</h1>
 
-    <p><a href="/admin/fetch">掲示板スレッドを取り込む（管理用）</a></p>
+    <p class="top-links">
+        <a href="/admin/fetch">掲示板スレッドを取り込む（管理用）</a>
+    </p>
 
     <!-- 検索フォーム -->
     <form method="get" action="/">
-        <label for="q">キーワード：</label>
+        <label for="q">キーワード：</label><br>
         <input
             type="text"
             id="q"
@@ -115,7 +137,7 @@
             placeholder="例：爆サイ, アンカー など"
         >
 
-        <label for="thread_filter">スレURL（任意）：</label>
+        <label for="thread_filter">スレURL（任意）：</label><br>
         <input
             type="text"
             id="thread_filter"
@@ -136,8 +158,14 @@
                 <div class="result">
                     <!-- ヒットしたレス本体 -->
                     <div class="result-id">
-                        {% if post.post_no %}レス #{{ post.post_no }}{% else %}ID {{ post.id }}{% endif %}
-                        {% if post.posted_at %} ／ {{ post.posted_at }}{% endif %}
+                        {% if post.post_no %}
+                            レス #{{ post.post_no }}
+                        {% else %}
+                            ID {{ post.id }}
+                        {% endif %}
+                        {% if post.posted_at %}
+                            ／ {{ post.posted_at }}
+                        {% endif %}
                     </div>
                     <div class="result-meta">
                         <small>{{ post.thread_url }}</small>
@@ -149,7 +177,9 @@
                     {% if post.memo %}
                         <div class="memo">メモ：{{ post.memo }}</div>
                     {% endif %}
-                    <div class="result-text">{{ highlight(post.body, keyword) }}</div>
+
+                    <!-- ★ ここで - を付けて、前後の空白・改行をJinja側で削る -->
+                    <div class="result-text">{{- highlight(post.body, keyword) -}}</div>
 
                     <!-- 返信ツリー（先に表示） -->
                     <div class="section-title">このレスへの返信ツリー</div>
@@ -157,10 +187,16 @@
                         {% for node in item.tree %}
                             <div class="tree-item" style="margin-left: {{ node.depth * 20 }}px;">
                                 <div class="tree-meta">
-                                    {% if node.post.post_no %}#{{ node.post.post_no }}{% else %}ID {{ node.post.id }}{% endif %}
-                                    {% if node.post.posted_at %} ／ {{ node.post.posted_at }}{% endif %}
+                                    {% if node.post.post_no %}
+                                        #{{ node.post.post_no }}
+                                    {% else %}
+                                        ID {{ node.post.id }}
+                                    {% endif %}
+                                    {% if node.post.posted_at %}
+                                        ／ {{ node.post.posted_at }}
+                                    {% endif %}
                                 </div>
-                                <div class="tree-body">{{ highlight(node.post.body, keyword) }}</div>
+                                <div class="tree-body">{{- highlight(node.post.body, keyword) -}}</div>
                             </div>
                         {% endfor %}
                     {% else %}
@@ -172,9 +208,15 @@
                         <div class="section-title">このレスの前後（コンテキスト）</div>
                         {% for c in item.context %}
                             <div class="context-line {% if c.id == post.id %}context-line-root{% endif %}">
-                                {% if c.post_no %}#{{ c.post_no }}{% else %}ID {{ c.id }}{% endif %}
-                                {% if c.posted_at %} ／ {{ c.posted_at }}{% endif %}
-                                ：{{ highlight(c.body, keyword) }}
+                                {% if c.post_no %}
+                                    #{{ c.post_no }}
+                                {% else %}
+                                    ID {{ c.id }}
+                                {% endif %}
+                                {% if c.posted_at %}
+                                    ／ {{ c.posted_at }}
+                                {% endif %}
+                                ：{{- highlight(c.body, keyword) -}}
                             </div>
                         {% endfor %}
                     {% endif %}
