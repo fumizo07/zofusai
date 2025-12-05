@@ -1,5 +1,7 @@
+import re
 import time
-from typing import List
+from dataclasses import dataclass
+from typing import List, Optional
 
 import requests
 from bs4 import BeautifulSoup
@@ -10,21 +12,64 @@ class ScrapingError(Exception):
     pass
 
 
-def fetch_posts_from_thread(url: str) -> List[str]:
-    """
-    指定されたURLからHTMLを取得し、
-    「投稿っぽいテキスト」のリストを返します。
+@dataclass
+class ScrapedPost:
+    post_no: Optional[int]
+    posted_at: Optional[str]
+    body: str
+    anchors: List[int]
 
-    ★重要★
-    実際の掲示板ごとに HTML の構造が違うので、
-    下の「TODO: セレクタを調整」の部分は自分で調整が必要です。
-    最初は雑に <p> や <div> から取ってきて、
-    後で「投稿だけ」に絞り込むイメージです。
+
+anchor_pattern = re.compile(r">>(\d+)")
+
+
+def extract_anchors(text: str) -> List[int]:
+    """
+    本文中の >>123 のようなアンカーをすべて整数リストで返す。
+    重複は一応削除しておきます。
+    """
+    nums = [int(m.group(1)) for m in anchor_pattern.finditer(text)]
+    # 重複を除去してソート
+    return sorted(set(nums))
+
+
+def parse_int_from_text(text: str) -> Optional[int]:
+    """
+    '#55' や 'res55_block' のような文字列から 55 を取り出す補助関数。
+    """
+    m = re.search(r"(\d+)", text)
+    if not m:
+        return None
+    try:
+        return int(m.group(1))
+    except ValueError:
+        return None
+
+
+def fetch_posts_from_thread(url: str) -> List[ScrapedPost]:
+    """
+    指定された爆サイのスレURLからレス一覧を取得して返す。
+
+    - PC版:
+        <dl id="res_list">
+          <div class="article res_list_article" id="res530"> ... </div>
+        </dl>
+
+    - スマホ版:
+        <ul id="res_list">
+          <li id="res530_block" class="res_block"> ... </li>
+        </ul>
+
+    本文、レス番号、投稿日時、アンカーを抽出します。
     """
 
     headers = {
-        # ここは自分の用途に合わせて書き換えてください
-        "User-Agent": "PersonalSearchBot/0.1 (+your-email-or-site)"
+        # ある程度ブラウザに寄せたUser-Agentにしておく
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/123.0 Safari/537.36"
+        )
     }
 
     try:
@@ -38,34 +83,77 @@ def fetch_posts_from_thread(url: str) -> List[str]:
     html = resp.text
     soup = BeautifulSoup(html, "html.parser")
 
-    posts: List[str] = []
+    # --- レスの外側要素（PC版・スマホ版）を拾う ---
 
-    # ======================================================
-    # TODO: ここを実際の掲示板構造に合わせて調整する
-    # ======================================================
+    # PC版: <dl id="res_list"> 内の div.article.res_list_article
+    res_elems = soup.select("dl#res_list div.article.res_list_article")
 
-    # 1. まずは雑に <p> タグを全部拾う簡易版
-    #    → 実際には「レス1件分を囲っている div や li」を対象にします。
-    for p in soup.find_all("p"):
-        text = p.get_text(strip=True)
-        if not text:
+    # スマホ版: <ul id="res_list"> 内の li.res_block
+    if not res_elems:
+        res_elems = soup.select("ul#res_list li.res_block")
+
+    if not res_elems:
+        raise ScrapingError("レス要素が見つかりませんでした。HTML構造とセレクタを確認してください。")
+
+    posts: List[ScrapedPost] = []
+
+    for el in res_elems:
+        # --- レス番号 ---
+
+        # まずは span.resnumb a のテキスト（例: "#55"）
+        post_no: Optional[int] = None
+        resno_a = el.select_one("span.resnumb a")
+        if resno_a:
+            post_no = parse_int_from_text(resno_a.get_text(strip=True))
+
+        # 取れなければ id属性から取得（res55 や res55_block）
+        if post_no is None:
+            el_id = el.get("id") or ""
+            post_no = parse_int_from_text(el_id)
+
+        # --- 投稿日時 ---
+
+        time_tag = el.select_one("span[itemprop='commentTime']")
+        posted_at = time_tag.get_text(strip=True) if time_tag else None
+
+        # --- 本文 ---
+
+        # PC版: dd.body > div.resbody
+        body_tag = el.select_one("dd.body > div.resbody")
+        # スマホ版などで若干違う場合に備えてフォールバックも用意
+        if body_tag is None:
+            body_tag = el.select_one("div.resbody")
+
+        if not body_tag:
+            # 本文がないレスはスキップ
             continue
 
-        # ノイズ除去のため、極端に短いものは除外する例
-        if len(text) < 5:
+        body_text = body_tag.get_text(separator="\n", strip=True)
+        if not body_text:
             continue
 
-        posts.append(text)
+        # --- アンカー抽出（>>123） ---
 
-    # 2. あまりに多すぎる時は上限をかけておく（暴走防止）
-    MAX_POSTS = 500
+        anchors = extract_anchors(body_text)
+
+        posts.append(
+            ScrapedPost(
+                post_no=post_no,
+                posted_at=posted_at,
+                body=body_text,
+                anchors=anchors,
+            )
+        )
+
+    # あまりに多すぎる場合は安全のため上限
+    MAX_POSTS = 1000
     if len(posts) > MAX_POSTS:
         posts = posts[:MAX_POSTS]
 
-    # マナーとして、連続アクセスする場合は少し待つ
+    # マナーとしてほんの少し待つ（連続アクセス時の保険）
     time.sleep(1)
 
     if not posts:
-        raise ScrapingError("投稿らしきテキストが見つかりませんでした。HTML構造とセレクタを確認してください。")
+        raise ScrapingError("投稿らしきテキストが見つかりませんでした。")
 
     return posts
