@@ -55,7 +55,8 @@
     <a href="/" class="back">← 検索画面に戻る</a>
     <h1>掲示板スレッド取り込み（簡易版）</h1>
 
-    <form method="get" action="/admin/fetch">
+    <!-- ★重要：必ず method="post" action="/admin/fetch" にしてください -->
+    <form method="post" action="/admin/fetch">
         <label for="url">スレッドURL：</label>
         <input
             type="text"
