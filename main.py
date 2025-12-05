@@ -348,7 +348,7 @@ def show_search_page(
                         block = {
                             "thread_url": thread_url,
                             "thread_title": title,
-                            "items": [],
+                            "entries": [],   # ← ここを items ではなく entries に
                         }
                         thread_map[thread_url] = block
                         thread_results.append(block)
@@ -390,7 +390,7 @@ def show_search_page(
                                 if p.post_no is not None and p.post_no in num_set
                             ]
 
-                    block["items"].append(
+                    block["entries"].append(  # ← ここも entries
                         {
                             "root": root,
                             "context": context_posts,
