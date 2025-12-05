@@ -158,18 +158,18 @@ def on_startup():
 def show_search_page(
     request: Request,
     q: str = "",
-    thread: str = "",
+    thread_filter: str = "",
     db: Session = Depends(get_db),
 ):
     """
     ルート画面。
     クエリパラメータ:
       - q: 検索キーワード（必須）
-      - thread: スレURLフィルタ（任意。空欄なら全スレ対象）
+      - thread_filter: スレURLフィルタ（任意。空欄なら全スレ対象）
     各ヒットごとに「前後数レス」と「返信ツリー」を構築して渡す。
     """
     keyword = q.strip()
-    thread_filter = thread.strip()
+    thread_filter = thread_filter.strip()
     result_items: List[dict] = []
 
     if keyword:
@@ -232,13 +232,13 @@ def show_search_page(
 
 
 @app.get("/api/search")
-def api_search(q: str, thread: str = "", db: Session = Depends(get_db)):
+def api_search(q: str, thread_filter: str = "", db: Session = Depends(get_db)):
     """
     JSONで結果を返すAPI版。
     例: /api/search?q=爆サイ&thread=スレURL
     """
     keyword = q.strip()
-    thread_filter = thread.strip()
+    thread_filter = thread_filter.strip()
     if not keyword:
         return []
 
