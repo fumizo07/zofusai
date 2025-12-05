@@ -53,15 +53,33 @@ def get_db():
         db.close()
 
 
-# ====== テキストハイライト ======
+# ====== テキスト整形＆ハイライト ======
+
+def _normalize_lines(text_value: str) -> str:
+    """
+    各行ごとに、先頭の空白・全角スペース・NBSPなどを削る。
+    「                        >>251」のような行を「>>251」にするのが目的。
+    """
+    lines = text_value.splitlines()
+    cleaned_lines = []
+    for line in lines:
+        # 行頭の空白（\s）、全角スペース(U+3000)、NBSP(U+00A0)をまとめて除去
+        line = re.sub(r'^[\s\u3000\xa0]+', '', line)
+        cleaned_lines.append(line)
+    return "\n".join(cleaned_lines)
+
 
 def highlight_text(text_value: Optional[str], keyword: str) -> Markup:
     """
     本文中の検索語を <mark> で囲んで強調表示する。
-    HTMLエスケープもここでまとめて行う。
+    表示の前に行頭スペースを削って整形する。
     """
     if text_value is None:
         text_value = ""
+
+    # ここで表示用に「行頭スペース」を全部削る（DBの中身は変えない）
+    text_value = _normalize_lines(text_value)
+
     if not keyword:
         return Markup(escape(text_value))
 
