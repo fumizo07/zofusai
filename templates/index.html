@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <title>Personal Search</title>
+    <title>My Personal Baku Search</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <style>
         body {
@@ -93,6 +93,9 @@
             color: #555;
             margin-top: 2px;
         }
+        mark {
+            background: #ffec99;
+        }
     </style>
 </head>
 <body>
@@ -102,7 +105,8 @@
         <a href="/admin/fetch">掲示板スレッドを取り込む（管理用）</a>
     </p>
 
-        <form method="get" action="/">
+    <!-- ★重要：action="/" 固定、name="thread_filter" 固定 -->
+    <form method="get" action="/">
         <label for="q">キーワード：</label>
         <input
             type="text"
@@ -112,10 +116,10 @@
             placeholder="例：爆サイ, アンカー など"
         >
 
-        <label for="thread">スレURL（任意）：</label>
+        <label for="thread_filter">スレURL（任意）：</label>
         <input
             type="text"
-            id="thread"
+            id="thread_filter"
             name="thread_filter"
             value="{{ thread_filter or '' }}"
             placeholder="空欄なら全スレ対象"
@@ -123,7 +127,6 @@
 
         <button type="submit">検索</button>
     </form>
-
 
     {% if keyword %}
         <h2>「{{ keyword }}」の検索結果（{{ results|length }}件）</h2>
