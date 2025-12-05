@@ -7,7 +7,7 @@ from fastapi import FastAPI, Request, Depends, Form
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
-from sqlalchemy import Column, Integer, Text, create_engine, func, text as sa_text
+from sqlalchemy import Column, Integer, Text, create_engine, func, text
 from sqlalchemy.orm import declarative_base, sessionmaker, Session
 
 from markupsafe import Markup, escape
@@ -55,17 +55,17 @@ def get_db():
 
 # ====== テキストハイライト ======
 
-def highlight_text(text: Optional[str], keyword: str) -> Markup:
+def highlight_text(text_value: Optional[str], keyword: str) -> Markup:
     """
     本文中の検索語を <mark> で囲んで強調表示する。
     HTMLエスケープもここでまとめて行う。
     """
-    if text is None:
-        text = ""
+    if text_value is None:
+        text_value = ""
     if not keyword:
-        return Markup(escape(text))
+        return Markup(escape(text_value))
 
-    escaped = escape(text)
+    escaped = escape(text_value)
     pattern = re.compile(re.escape(keyword))
 
     def repl(match):
@@ -145,14 +145,12 @@ def on_startup():
     Base.metadata.create_all(bind=engine)
 
     # Postgres に対して DDL を確実にコミットするため engine.begin() を使う
-    from sqlalchemy import text as _text
-
     with engine.begin() as conn:
-        # Postgres は IF NOT EXISTS が使えるので try/except なしでOK
-        conn.execute(_text("ALTER TABLE thread_posts ADD COLUMN IF NOT EXISTS tags TEXT"))
-        conn.execute(_text("ALTER TABLE thread_posts ADD COLUMN IF NOT EXISTS memo TEXT"))
+        conn.execute(text("ALTER TABLE thread_posts ADD COLUMN IF NOT EXISTS tags TEXT"))
+        conn.execute(text("ALTER TABLE thread_posts ADD COLUMN IF NOT EXISTS memo TEXT"))
 
 
+# ====== 検索画面 ======
 
 @app.get("/", response_class=HTMLResponse)
 def show_search_page(
@@ -231,11 +229,13 @@ def show_search_page(
     )
 
 
+# ====== API 検索 ======
+
 @app.get("/api/search")
 def api_search(q: str, thread_filter: str = "", db: Session = Depends(get_db)):
     """
     JSONで結果を返すAPI版。
-    例: /api/search?q=爆サイ&thread=スレURL
+    例: /api/search?q=爆サイ&thread_filter=スレURL
     """
     keyword = q.strip()
     thread_filter = thread_filter.strip()
@@ -290,7 +290,7 @@ def fetch_thread_post(
 ):
     """
     フォームから送信された URL を元にスクレイピングして DB に保存。
-    すでに保存済みの thread_url については「最大レス番号」以降だけを追加する。
+    すでに保存されている thread_url については「最大レス番号」以降だけを追加する。
     """
     imported: Optional[int] = None
     error: str = ""
@@ -311,6 +311,7 @@ def fetch_thread_post(
             scraped_posts = fetch_posts_from_thread(url)
             count = 0
             for sp in scraped_posts:
+                # 本文はスクレイパー側で行単位のスペース除去済みだが、念のため strip
                 body = (sp.body or "").strip()
                 if not body:
                     continue
