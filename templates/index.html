@@ -7,7 +7,7 @@
     <style>
         body {
             font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-            max-width: 800px;
+            max-width: 900px;
             margin: 0 auto;
             padding: 16px;
             line-height: 1.6;
@@ -34,20 +34,54 @@
             border: 1px solid #ddd;
             border-radius: 6px;
             padding: 8px 12px;
-            margin-bottom: 8px;
+            margin-bottom: 12px;
         }
         .result-id {
             font-weight: bold;
             font-size: 0.9rem;
-            color: #555;
+            color: #333;
+        }
+        .result-meta {
+            font-size: 0.8rem;
+            color: #666;
+            margin-top: 2px;
         }
         .result-text {
-            margin-top: 4px;
+            margin-top: 6px;
             white-space: pre-wrap;
         }
         .no-result {
             color: #777;
             font-size: 0.9rem;
+        }
+        .section-title {
+            margin-top: 8px;
+            font-size: 0.85rem;
+            font-weight: bold;
+            color: #444;
+        }
+        .context-line {
+            font-size: 0.85rem;
+            border-left: 2px solid #eee;
+            padding-left: 6px;
+            margin: 2px 0;
+        }
+        .context-line-root {
+            background: #fffbe6;
+            font-weight: bold;
+        }
+        .tree-item {
+            border-left: 2px solid #ddd;
+            padding-left: 6px;
+            margin: 3px 0;
+            font-size: 0.85rem;
+        }
+        .tree-meta {
+            color: #555;
+            font-size: 0.8rem;
+        }
+        .tree-body {
+            white-space: pre-wrap;
         }
     </style>
 </head>
@@ -74,8 +108,10 @@
         <h2>「{{ keyword }}」の検索結果（{{ results|length }}件）</h2>
 
         {% if results %}
-            {% for post in results %}
+            {% for item in results %}
+                {% set post = item.root %}
                 <div class="result">
+                    <!-- ヒットしたレス本体 -->
                     <div class="result-id">
                         {% if post.post_no %}
                             レス #{{ post.post_no }}
@@ -88,10 +124,53 @@
                     </div>
                     <div class="result-meta">
                         <small>{{ post.thread_url }}</small>
-                        │
-                        <a href="/post/{{ post.id }}">このレスをツリー表示</a>
+                        │ <a href="/post/{{ post.id }}">別ページでツリー表示</a>
                     </div>
-                    <div class="result-text">{{ post.body }}</div>
+                    <div class="result-text">
+                        {{ post.body }}
+                    </div>
+
+                    <!-- 前後数レスのコンテキスト -->
+                    {% if item.context %}
+                        <div class="section-title">このレスの前後（コンテキスト）</div>
+                        {% for c in item.context %}
+                            <div class="context-line {% if c.id == post.id %}context-line-root{% endif %}">
+                                {% if c.post_no %}
+                                    #{{ c.post_no }}
+                                {% else %}
+                                    ID {{ c.id }}
+                                {% endif %}
+                                {% if c.posted_at %}
+                                    ／ {{ c.posted_at }}
+                                {% endif %}
+                                ： {{ c.body }}
+                            </div>
+                        {% endfor %}
+                    {% endif %}
+
+                    <!-- 返信ツリー -->
+                    <div class="section-title">このレスへの返信ツリー</div>
+                    {% if item.tree %}
+                        {% for node in item.tree %}
+                            <div class="tree-item" style="margin-left: {{ node.depth * 20 }}px;">
+                                <div class="tree-meta">
+                                    {% if node.post.post_no %}
+                                        #{{ node.post.post_no }}
+                                    {% else %}
+                                        ID {{ node.post.id }}
+                                    {% endif %}
+                                    {% if node.post.posted_at %}
+                                        ／ {{ node.post.posted_at }}
+                                    {% endif %}
+                                </div>
+                                <div class="tree-body">
+                                    {{ node.post.body }}
+                                </div>
+                            </div>
+                        {% endfor %}
+                    {% else %}
+                        <p class="no-result">このレスへの返信（アンカー）は見つかりませんでした。</p>
+                    {% endif %}
                 </div>
             {% endfor %}
         {% else %}
