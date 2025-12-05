@@ -29,7 +29,6 @@ def extract_anchors(text: str) -> List[int]:
     重複は一応削除しておきます。
     """
     nums = [int(m.group(1)) for m in anchor_pattern.finditer(text)]
-    # 重複を除去してソート
     return sorted(set(nums))
 
 
@@ -46,25 +45,36 @@ def parse_int_from_text(text: str) -> Optional[int]:
         return None
 
 
-def fetch_posts_from_thread(url: str) -> List[ScrapedPost]:
+def make_page_url(base_url: str, page: int) -> str:
     """
-    指定された爆サイのスレURLからレス一覧を取得して返す。
+    スレURLからページ指定付きURLを作る。
 
-    - PC版:
-        <dl id="res_list">
-          <div class="article res_list_article" id="res530"> ... </div>
-        </dl>
-
-    - スマホ版:
-        <ul id="res_list">
-          <li id="res530_block" class="res_block"> ... </li>
-        </ul>
-
-    本文、レス番号、投稿日時、アンカーを抽出します。
+    - page == 1 のときは base_url をそのまま使う
+    - page >= 2 のときは
+        base_url が p=◯ を含んでいれば書き換え、
+        含んでいなければ末尾に /p=◯/ を付ける
     """
+    url = base_url
+    # クエリパラメータはとりあえず無視（ほぼ付かない想定）
+    if page == 1:
+        return url
 
+    if "p=" in url:
+        # 既に p=◯ があれば差し替え
+        return re.sub(r"p=\d+", f"p={page}", url)
+    else:
+        # なければ末尾に追加
+        if not url.endswith("/"):
+            url += "/"
+        return url + f"p={page}/"
+
+
+def _fetch_single_page(url: str) -> List[ScrapedPost]:
+    """
+    指定URL（1ページ分）からレス一覧を取得。
+    レスがない場合は空リストを返す（エラーにはしない）。
+    """
     headers = {
-        # ある程度ブラウザに寄せたUser-Agentにしておく
         "User-Agent": (
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
             "AppleWebKit/537.36 (KHTML, like Gecko) "
@@ -93,46 +103,37 @@ def fetch_posts_from_thread(url: str) -> List[ScrapedPost]:
         res_elems = soup.select("ul#res_list li.res_block")
 
     if not res_elems:
-        raise ScrapingError("レス要素が見つかりませんでした。HTML構造とセレクタを確認してください。")
+        # このページにはレスがない
+        return []
 
     posts: List[ScrapedPost] = []
 
     for el in res_elems:
         # --- レス番号 ---
-
-        # まずは span.resnumb a のテキスト（例: "#55"）
         post_no: Optional[int] = None
         resno_a = el.select_one("span.resnumb a")
         if resno_a:
             post_no = parse_int_from_text(resno_a.get_text(strip=True))
 
-        # 取れなければ id属性から取得（res55 や res55_block）
         if post_no is None:
             el_id = el.get("id") or ""
             post_no = parse_int_from_text(el_id)
 
         # --- 投稿日時 ---
-
         time_tag = el.select_one("span[itemprop='commentTime']")
         posted_at = time_tag.get_text(strip=True) if time_tag else None
 
         # --- 本文 ---
-
-        # PC版: dd.body > div.resbody
         body_tag = el.select_one("dd.body > div.resbody")
-        # スマホ版などで若干違う場合に備えてフォールバックも用意
         if body_tag is None:
             body_tag = el.select_one("div.resbody")
 
         if not body_tag:
-            # 本文がないレスはスキップ
             continue
 
         body_text = body_tag.get_text(separator="\n", strip=True)
         if not body_text:
             continue
-
-        # --- アンカー抽出（>>123） ---
 
         anchors = extract_anchors(body_text)
 
@@ -145,15 +146,35 @@ def fetch_posts_from_thread(url: str) -> List[ScrapedPost]:
             )
         )
 
-    # あまりに多すぎる場合は安全のため上限
-    MAX_POSTS = 1000
-    if len(posts) > MAX_POSTS:
-        posts = posts[:MAX_POSTS]
+    return posts
 
-    # マナーとしてほんの少し待つ（連続アクセス時の保険）
-    time.sleep(1)
 
-    if not posts:
+def fetch_posts_from_thread(url: str, max_pages: int = 20) -> List[ScrapedPost]:
+    """
+    スレURLから最大 max_pages ページまで巡回してレスを取得する。
+
+    - 1ページ目: 渡された URL をそのまま使う
+    - 2ページ目以降: /p=2/, /p=3/, ... のように URL を変えて取得
+    - あるページでレスが 0 件になったらそこで打ち切り
+    """
+    all_posts: List[ScrapedPost] = []
+
+    for page in range(1, max_pages + 1):
+        page_url = make_page_url(url, page)
+        posts = _fetch_single_page(page_url)
+
+        if not posts:
+            # 1ページ目からして空なら「そもそもスレを読めていない」と判断
+            if page == 1:
+                raise ScrapingError("投稿らしきテキストが見つかりませんでした。")
+            break
+
+        all_posts.extend(posts)
+
+        # マナーとしてちょっと待つ（爆速連打防止）
+        time.sleep(1)
+
+    if not all_posts:
         raise ScrapingError("投稿らしきテキストが見つかりませんでした。")
 
-    return posts
+    return all_posts
