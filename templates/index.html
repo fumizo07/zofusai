@@ -80,7 +80,8 @@
             border-left: 2px solid #eee;
             padding-left: 6px;
             margin: 2px 0;
-            white-space: pre-wrap;
+            /* ★ コンテキストは一行表示にしたいので white-space は normal のまま（デフォルト） */
+            white-space: normal;
         }
         .context-line-root {
             background: #fffbe6;
@@ -178,7 +179,7 @@
                         <div class="memo">メモ：{{ post.memo }}</div>
                     {% endif %}
 
-                    <!-- ★ ここで - を付けて、前後の空白・改行をJinja側で削る -->
+                    <!-- 本文（改行は維持） -->
                     <div class="result-text">{{- highlight(post.body, keyword) -}}</div>
 
                     <!-- 返信ツリー（先に表示） -->
@@ -203,7 +204,7 @@
                         <p class="no-result">このレスへの返信（アンカー）は見つかりませんでした。</p>
                     {% endif %}
 
-                    <!-- 前後数レスのコンテキスト（後に表示） -->
+                    <!-- このレスの前後（コンテキスト） → 1行＋本文改行もスペース化 -->
                     {% if item.context %}
                         <div class="section-title">このレスの前後（コンテキスト）</div>
                         {% for c in item.context %}
@@ -216,7 +217,7 @@
                                 {% if c.posted_at %}
                                     ／ {{ c.posted_at }}
                                 {% endif %}
-                                ：{{- highlight(c.body, keyword) -}}
+                                ：{{- highlight(c.body|replace('\n', ' '), keyword) -}}
                             </div>
                         {% endfor %}
                     {% endif %}
