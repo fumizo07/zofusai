@@ -65,7 +65,7 @@
             id="q"
             name="q"
             value="{{ keyword or '' }}"
-            placeholder="例：テスト など"
+            placeholder="例：テスト, アンカー など"
         >
         <button type="submit">検索</button>
     </form>
@@ -88,6 +88,8 @@
                     </div>
                     <div class="result-meta">
                         <small>{{ post.thread_url }}</small>
+                        │
+                        <a href="/post/{{ post.id }}">このレスをツリー表示</a>
                     </div>
                     <div class="result-text">{{ post.body }}</div>
                 </div>
