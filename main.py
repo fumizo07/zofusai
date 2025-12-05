@@ -1,14 +1,16 @@
 import os
 import re
-from typing import List, Optional
-from collections import defaultdict 
+from typing import List, Optional, Dict
+from collections import defaultdict
 
 from fastapi import FastAPI, Request, Depends, Form
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
-from sqlalchemy import Column, Integer, Text, create_engine
+from sqlalchemy import Column, Integer, Text, create_engine, func, text as sa_text
 from sqlalchemy.orm import declarative_base, sessionmaker, Session
+
+from markupsafe import Markup, escape
 
 from scraper import fetch_posts_from_thread, ScrapingError
 
@@ -38,6 +40,9 @@ class ThreadPost(Base):
     body = Column(Text, nullable=False)                    # 本文
     # 「,55,60,130,」のようにカンマ区切りで保持（後でツリー用に使う）
     anchors = Column(Text, nullable=True)
+    # 自分用のタグ・メモ
+    tags = Column(Text, nullable=True)
+    memo = Column(Text, nullable=True)
 
 
 def get_db():
@@ -46,6 +51,83 @@ def get_db():
         yield db
     finally:
         db.close()
+
+
+# ====== テキストハイライト ======
+
+def highlight_text(text: Optional[str], keyword: str) -> Markup:
+    """
+    本文中の検索語を <mark> で囲んで強調表示する。
+    HTMLエスケープもここでまとめて行う。
+    """
+    if text is None:
+        text = ""
+    if not keyword:
+        return Markup(escape(text))
+
+    escaped = escape(text)
+    pattern = re.compile(re.escape(keyword))
+
+    def repl(match):
+        return Markup(f"<mark>{match.group(0)}</mark>")
+
+    highlighted = pattern.sub(lambda m: repl(m), escaped)
+    return Markup(highlighted)
+
+
+# ====== ツリー構築用のヘルパー ======
+
+def parse_anchors_csv(s: Optional[str]) -> List[int]:
+    """
+    anchors カラムの文字列（例：",55,60,130,"）から整数リストを取り出す。
+    """
+    if not s:
+        return []
+    nums: List[int] = []
+    for part in s.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        if part.isdigit():
+            nums.append(int(part))
+    return sorted(set(nums))
+
+
+def build_reply_tree(all_posts: List[ThreadPost], root: ThreadPost) -> List[dict]:
+    """
+    1スレ内の全レスから、
+    「root.post_no にアンカーを飛ばしているレス」を起点に木構造を作る。
+
+    戻り値は
+      [{"post": ThreadPost, "depth": 0}, {"post": ThreadPost, "depth": 1}, ...]
+    というリスト（表示しやすいようにフラット＋深さ情報）。
+    """
+    # 「どのレスにアンカーしているか」→「その返信のリスト」
+    replies: Dict[int, List[ThreadPost]] = defaultdict(list)
+    for p in all_posts:
+        for a in parse_anchors_csv(p.anchors):
+            replies[a].append(p)
+
+    result: List[dict] = []
+    visited_ids: set[int] = set()
+
+    def dfs(post: ThreadPost, depth: int) -> None:
+        if post.id in visited_ids:
+            return
+        visited_ids.add(post.id)
+        # ルート自身は別枠表示なのでここでは追加しない
+        if post.id != root.id:
+            result.append({"post": post, "depth": depth})
+        if post.post_no is None:
+            return
+        for child in replies.get(post.post_no, []):
+            dfs(child, depth + 1)
+
+    if root.post_no is not None:
+        for child in replies.get(root.post_no, []):
+            dfs(child, 0)
+
+    return result
 
 
 # ====== FastAPI アプリ本体 ======
@@ -58,51 +140,66 @@ templates = Jinja2Templates(directory="templates")
 def on_startup():
     """
     アプリ起動時にテーブルを自動作成。
-    ※サンプルデータ投入はやめて、実際の取り込みだけにします。
+    ついでに tags, memo カラムが無い場合は追加する。
     """
     Base.metadata.create_all(bind=engine)
 
+    # 既存DBに tags, memo カラムが無い場合に備えて ALTER TABLE を一度だけ試す
+    with engine.connect() as conn:
+        try:
+            conn.execute(sa_text("ALTER TABLE thread_posts ADD COLUMN tags TEXT"))
+        except Exception:
+            pass
+        try:
+            conn.execute(sa_text("ALTER TABLE thread_posts ADD COLUMN memo TEXT"))
+        except Exception:
+            pass
+
 
 @app.get("/", response_class=HTMLResponse)
-def show_search_page(request: Request, q: str = "", db: Session = Depends(get_db)):
+def show_search_page(
+    request: Request,
+    q: str = "",
+    thread: str = "",
+    db: Session = Depends(get_db),
+):
     """
     ルート画面。
-    クエリパラメータ q があれば thread_posts.body を LIKE 検索。
-    さらに、各ヒットごとに「前後数レス」と「返信ツリー」を構築して渡す。
+    クエリパラメータ:
+      - q: 検索キーワード（必須）
+      - thread: スレURLフィルタ（任意。空欄なら全スレ対象）
+    各ヒットごとに「前後数レス」と「返信ツリー」を構築して渡す。
     """
     keyword = q.strip()
+    thread_filter = thread.strip()
     result_items: List[dict] = []
 
     if keyword:
-        # ヒットしたレス一覧
-        hits: List[ThreadPost] = (
-            db.query(ThreadPost)
-            .filter(ThreadPost.body.contains(keyword))
-            .order_by(ThreadPost.id.asc())
-            .all()
-        )
+        query = db.query(ThreadPost).filter(ThreadPost.body.contains(keyword))
+        if thread_filter:
+            # 完全一致だとURLのブレが怖いので contains にしておく
+            query = query.filter(ThreadPost.thread_url.contains(thread_filter))
+
+        hits: List[ThreadPost] = query.order_by(ThreadPost.id.asc()).all()
 
         if hits:
-            # スレURLごとにグルーピング
-            by_thread: dict[str, List[ThreadPost]] = {}
-            for p in hits:
-                by_thread.setdefault(p.thread_url, []).append(p)
-
-            # スレごとに全レスを一度だけ取得して、コンテキストとツリーを構築
-            all_posts_by_thread: dict[str, List[ThreadPost]] = {}
-            for thread_url in by_thread.keys():
-                all_posts = (
-                    db.query(ThreadPost)
-                    .filter(ThreadPost.thread_url == thread_url)
-                    .order_by(ThreadPost.post_no.asc())
-                    .all()
-                )
-                all_posts_by_thread[thread_url] = all_posts
+            # スレURLごとに全レスキャッシュ
+            all_posts_by_thread: Dict[str, List[ThreadPost]] = {}
 
             for root in hits:
-                all_posts = all_posts_by_thread.get(root.thread_url, [])
+                thread_url = root.thread_url
+                if thread_url not in all_posts_by_thread:
+                    all_posts = (
+                        db.query(ThreadPost)
+                        .filter(ThreadPost.thread_url == thread_url)
+                        .order_by(ThreadPost.post_no.asc())
+                        .all()
+                    )
+                    all_posts_by_thread[thread_url] = all_posts
+                else:
+                    all_posts = all_posts_by_thread[thread_url]
 
-                # 前後コンテキスト（例：±2レス）
+                # 前後コンテキスト（±2レス）
                 context_posts: List[ThreadPost] = []
                 if root.post_no is not None and all_posts:
                     start_no = max(1, root.post_no - 2)
@@ -110,8 +207,7 @@ def show_search_page(request: Request, q: str = "", db: Session = Depends(get_db
                     context_posts = [
                         p
                         for p in all_posts
-                        if p.post_no is not None
-                        and start_no <= p.post_no <= end_no
+                        if p.post_no is not None and start_no <= p.post_no <= end_no
                     ]
 
                 # 返信ツリー
@@ -130,28 +226,29 @@ def show_search_page(request: Request, q: str = "", db: Session = Depends(get_db
         {
             "request": request,
             "keyword": keyword,
+            "thread_filter": thread_filter,
             "results": result_items,
+            "highlight": highlight_text,
         },
     )
 
 
-
 @app.get("/api/search")
-def api_search(q: str, db: Session = Depends(get_db)):
+def api_search(q: str, thread: str = "", db: Session = Depends(get_db)):
     """
     JSONで結果を返すAPI版。
-    例: /api/search?q=テスト
+    例: /api/search?q=爆サイ&thread=スレURL
     """
     keyword = q.strip()
+    thread_filter = thread.strip()
     if not keyword:
         return []
 
-    posts = (
-        db.query(ThreadPost)
-        .filter(ThreadPost.body.contains(keyword))
-        .order_by(ThreadPost.id.asc())
-        .all()
-    )
+    query = db.query(ThreadPost).filter(ThreadPost.body.contains(keyword))
+    if thread_filter:
+        query = query.filter(ThreadPost.thread_url.contains(thread_filter))
+
+    posts = query.order_by(ThreadPost.id.asc()).all()
     return [
         {
             "id": p.id,
@@ -160,6 +257,8 @@ def api_search(q: str, db: Session = Depends(get_db)):
             "posted_at": p.posted_at,
             "body": p.body,
             "anchors": p.anchors,
+            "tags": p.tags,
+            "memo": p.memo,
         }
         for p in posts
     ]
@@ -193,6 +292,7 @@ def fetch_thread_post(
 ):
     """
     フォームから送信された URL を元にスクレイピングして DB に保存。
+    すでに保存済みの thread_url については「最大レス番号」以降だけを追加する。
     """
     imported: Optional[int] = None
     error: str = ""
@@ -201,11 +301,24 @@ def fetch_thread_post(
 
     if url:
         try:
+            # 既に保存されている最大レス番号を取得
+            last_no = (
+                db.query(func.max(ThreadPost.post_no))
+                .filter(ThreadPost.thread_url == url)
+                .scalar()
+            )
+            if last_no is None:
+                last_no = 0
+
             scraped_posts = fetch_posts_from_thread(url)
             count = 0
             for sp in scraped_posts:
                 body = (sp.body or "").strip()
                 if not body:
+                    continue
+
+                # すでに取得済みのレス番号まではスキップ
+                if sp.post_no is not None and sp.post_no <= last_no:
                     continue
 
                 # アンカーリストを ",55,60," のような文字列に変換
@@ -214,7 +327,7 @@ def fetch_thread_post(
                 else:
                     anchors_str = None
 
-                # ===== 重複チェック =====
+                # 念のため重複チェック（URL + post_no）
                 existing = None
                 if sp.post_no is not None:
                     existing = (
@@ -226,7 +339,6 @@ def fetch_thread_post(
                         .first()
                     )
                 else:
-                    # 念のため post_no が無い場合は本文でざっくり判定
                     existing = (
                         db.query(ThreadPost)
                         .filter(
@@ -244,7 +356,7 @@ def fetch_thread_post(
                         existing.anchors = anchors_str
                     continue
 
-                # ===== 新規行として追加 =====
+                # 新規行として追加
                 db.add(
                     ThreadPost(
                         thread_url=url,
@@ -258,7 +370,6 @@ def fetch_thread_post(
 
             db.commit()
             imported = count
-
         except ScrapingError as e:
             db.rollback()
             error = str(e)
@@ -277,167 +388,45 @@ def fetch_thread_post(
             "error": error,
         },
     )
-# ====== ツリー構築用のヘルパー ======
-
-def parse_anchors_csv(s: Optional[str]) -> List[int]:
-    """
-    anchors カラムの文字列（例：",55,60,130,"）から整数リストを取り出す。
-    """
-    if not s:
-        return []
-    nums: List[int] = []
-    for part in s.split(","):
-        part = part.strip()
-        if not part:
-            continue
-        if part.isdigit():
-            nums.append(int(part))
-    # 重複排除してソート
-    return sorted(set(nums))
 
 
-def build_reply_tree(all_posts: List[ThreadPost], root: ThreadPost) -> List[dict]:
-    """
-    1スレ内の全レスから、
-    「root.post_no にアンカーを飛ばしているレス」を起点に木構造を作る。
+# ====== タグ・メモ編集用エンドポイント ======
 
-    戻り値は
-      [{"post": ThreadPost, "depth": 0}, {"post": ThreadPost, "depth": 1}, ...]
-    というリスト（表示しやすいようにフラット＋深さ情報）。
-    """
-    # post_no -> ThreadPost
-    by_no: dict[int, ThreadPost] = {}
-    for p in all_posts:
-        if p.post_no is not None:
-            by_no[p.post_no] = p
-
-    # 「どのレスにアンカーしているか」→「その返信のリスト」
-    # target_no -> [ThreadPost, ...]
-    replies = defaultdict(list)
-    for p in all_posts:
-        for a in parse_anchors_csv(p.anchors):
-            replies[a].append(p)
-
-    result: List[dict] = []
-    visited_ids: set[int] = set()
-
-    def dfs(post: ThreadPost, depth: int) -> None:
-        if post.id in visited_ids:
-            return
-        visited_ids.add(post.id)
-        if post.id != root.id:  # ルートは別枠で表示するので除外
-            result.append({"post": post, "depth": depth})
-        # 自分のレス番号に対する返信をたどる
-        if post.post_no is None:
-            return
-        for child in replies.get(post.post_no, []):
-            dfs(child, depth + 1)
-
-    # ルートに対する返信を起点に DFS
-    if root.post_no is not None:
-        for child in replies.get(root.post_no, []):
-            dfs(child, 0)
-
-    return result
-
-
-# ====== レスツリー表示用エンドポイント ======
-
-@app.get("/post/{post_id}", response_class=HTMLResponse)
-def show_post_tree(
+@app.get("/post/{post_id}/edit", response_class=HTMLResponse)
+def edit_post_get(
     request: Request,
     post_id: int,
     db: Session = Depends(get_db),
 ):
     """
-    指定IDのレスをルートとして、
-    同じスレ内でそのレスにアンカーしている返信ツリーを表示する。
+    指定IDのレスに対してタグ・メモを編集する画面（GET）。
     """
-    root_post = db.query(ThreadPost).filter(ThreadPost.id == post_id).first()
-    if not root_post:
-        return templates.TemplateResponse(
-            "post.html",
-            {
-                "request": request,
-                "root_post": None,
-                "tree_items": [],
-            },
-        )
-
-    # 同じスレURLの全レスを取得（レス番号順）
-    all_posts = (
-        db.query(ThreadPost)
-        .filter(ThreadPost.thread_url == root_post.thread_url)
-        .order_by(ThreadPost.post_no.asc())
-        .all()
-    )
-
-    tree_items = build_reply_tree(all_posts, root_post)
-
+    post = db.query(ThreadPost).filter(ThreadPost.id == post_id).first()
     return templates.TemplateResponse(
-        "post.html",
+        "edit_post.html",
         {
             "request": request,
-            "root_post": root_post,
-            "tree_items": tree_items,
+            "post": post,
         },
     )
-from collections import defaultdict
 
-def parse_anchors_csv(s: Optional[str]) -> List[int]:
+
+@app.post("/post/{post_id}/edit")
+def edit_post_post(
+    request: Request,
+    post_id: int,
+    tags: str = Form(""),
+    memo: str = Form(""),
+    db: Session = Depends(get_db),
+):
     """
-    anchors カラムの文字列（例：",55,60,130,"）から整数リストを取り出す。
+    タグ・メモの更新処理（POST）。
     """
-    if not s:
-        return []
-    nums: List[int] = []
-    for part in s.split(","):
-        part = part.strip()
-        if not part:
-            continue
-        if part.isdigit():
-            nums.append(int(part))
-    return sorted(set(nums))
+    post = db.query(ThreadPost).filter(ThreadPost.id == post_id).first()
+    if post:
+        post.tags = tags.strip() or None
+        post.memo = memo.strip() or None
+        db.commit()
 
-
-def build_reply_tree(all_posts: List[ThreadPost], root: ThreadPost) -> List[dict]:
-    """
-    1スレ内の全レスから、
-    「root.post_no にアンカーを飛ばしているレス」を起点に木構造を作る。
-
-    戻り値は
-      [{"post": ThreadPost, "depth": 0}, {"post": ThreadPost, "depth": 1}, ...]
-    というリスト（表示しやすいようにフラット＋深さ情報）。
-    """
-    # post_no -> ThreadPost
-    by_no: dict[int, ThreadPost] = {}
-    for p in all_posts:
-        if p.post_no is not None:
-            by_no[p.post_no] = p
-
-    # 「どのレスにアンカーしているか」→「その返信のリスト」
-    replies = defaultdict(list)
-    for p in all_posts:
-        for a in parse_anchors_csv(p.anchors):
-            replies[a].append(p)
-
-    result: List[dict] = []
-    visited_ids: set[int] = set()
-
-    def dfs(post: ThreadPost, depth: int) -> None:
-        if post.id in visited_ids:
-            return
-        visited_ids.add(post.id)
-        # ルート自身は別枠表示なのでここでは追加しない
-        if post.id != root.id:
-            result.append({"post": post, "depth": depth})
-        if post.post_no is None:
-            return
-        for child in replies.get(post.post_no, []):
-            dfs(child, depth + 1)
-
-    if root.post_no is not None:
-        for child in replies.get(root.post_no, []):
-            dfs(child, 0)
-
-    return result
+    # 編集後はトップページに戻る
+    return RedirectResponse(url="/", status_code=303)
