@@ -1,4 +1,5 @@
 import os
+import re
 from typing import List, Optional
 
 from fastapi import FastAPI, Request, Depends, Form
@@ -23,15 +24,19 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
 
-class Post(Base):
+class ThreadPost(Base):
     """
-    投稿テーブル（posts）
-    今は text だけですが、あとでスレURLやレス番号などを追加していきます。
+    掲示板のレス1件を表すテーブル。
     """
-    __tablename__ = "posts"
+    __tablename__ = "thread_posts"
 
     id = Column(Integer, primary_key=True, index=True)
-    text = Column(Text, nullable=False)
+    thread_url = Column(Text, nullable=False, index=True)  # 取得元スレURL
+    post_no = Column(Integer, nullable=True, index=True)   # レス番号（55など）
+    posted_at = Column(Text, nullable=True)                # 投稿日時（文字列）
+    body = Column(Text, nullable=False)                    # 本文
+    # 「,55,60,130,」のようにカンマ区切りで保持（後でツリー用に使う）
+    anchors = Column(Text, nullable=True)
 
 
 def get_db():
@@ -51,38 +56,28 @@ templates = Jinja2Templates(directory="templates")
 @app.on_event("startup")
 def on_startup():
     """
-    アプリ起動時にテーブルを自動作成し、
-    posts テーブルが空ならテスト投稿を3件だけ入れておきます。
+    アプリ起動時にテーブルを自動作成。
+    ※サンプルデータ投入はやめて、実際の取り込みだけにします。
     """
     Base.metadata.create_all(bind=engine)
-
-    db = SessionLocal()
-    try:
-        count = db.query(Post).count()
-        if count == 0:
-            samples = [
-                Post(text="これはDBに保存されたテスト投稿1です。キーワード：テスト"),
-                Post(text="これはDBに保存されたテスト投稿2です。キーワード：検索ツール"),
-                Post(text="これはDBに保存されたテスト投稿3です。アンカー >>1 の例。"),
-            ]
-            db.add_all(samples)
-            db.commit()
-    finally:
-        db.close()
 
 
 @app.get("/", response_class=HTMLResponse)
 def show_search_page(request: Request, q: str = "", db: Session = Depends(get_db)):
     """
     ルート画面。
-    クエリパラメータ q があれば posts テーブルを LIKE 検索して結果を表示します。
-    例: /?q=テスト
+    クエリパラメータ q があれば thread_posts.body を LIKE 検索。
     """
     keyword = q.strip()
-    results: List[Post] = []
+    results: List[ThreadPost] = []
 
     if keyword:
-        results = db.query(Post).filter(Post.text.contains(keyword)).all()
+        results = (
+            db.query(ThreadPost)
+            .filter(ThreadPost.body.contains(keyword))
+            .order_by(ThreadPost.id.asc())
+            .all()
+        )
 
     return templates.TemplateResponse(
         "index.html",
@@ -104,8 +99,23 @@ def api_search(q: str, db: Session = Depends(get_db)):
     if not keyword:
         return []
 
-    posts = db.query(Post).filter(Post.text.contains(keyword)).all()
-    return [{"id": p.id, "text": p.text} for p in posts]
+    posts = (
+        db.query(ThreadPost)
+        .filter(ThreadPost.body.contains(keyword))
+        .order_by(ThreadPost.id.asc())
+        .all()
+    )
+    return [
+        {
+            "id": p.id,
+            "thread_url": p.thread_url,
+            "post_no": p.post_no,
+            "posted_at": p.posted_at,
+            "body": p.body,
+            "anchors": p.anchors,
+        }
+        for p in posts
+    ]
 
 
 # ====== 取り込み画面（GET） ======
@@ -114,7 +124,6 @@ def api_search(q: str, db: Session = Depends(get_db)):
 def fetch_thread_get(request: Request):
     """
     取り込み画面の表示専用。
-    URLパラメータ無しでテンプレートを描画する。
     """
     return templates.TemplateResponse(
         "fetch.html",
@@ -145,14 +154,32 @@ def fetch_thread_post(
 
     if url:
         try:
-            texts = fetch_posts_from_thread(url)
-            for text in texts:
-                text = text.strip()
-                if not text:
+            scraped_posts = fetch_posts_from_thread(url)
+            count = 0
+            for sp in scraped_posts:
+                body = (sp.body or "").strip()
+                if not body:
                     continue
-                db.add(Post(text=text))
+
+                # アンカーリストを ",55,60," のような文字列に変換
+                if sp.anchors:
+                    anchors_str = "," + ",".join(str(a) for a in sp.anchors) + ","
+                else:
+                    anchors_str = None
+
+                db.add(
+                    ThreadPost(
+                        thread_url=url,
+                        post_no=sp.post_no,
+                        posted_at=sp.posted_at,
+                        body=body,
+                        anchors=anchors_str,
+                    )
+                )
+                count += 1
+
             db.commit()
-            imported = len(texts)
+            imported = count
         except ScrapingError as e:
             db.rollback()
             error = str(e)
