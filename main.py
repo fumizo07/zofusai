@@ -1,7 +1,7 @@
 import os
 from typing import List, Optional
 
-from fastapi import FastAPI, Request, Depends
+from fastapi import FastAPI, Request, Depends, Form
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
@@ -108,15 +108,40 @@ def api_search(q: str, db: Session = Depends(get_db)):
     return [{"id": p.id, "text": p.text} for p in posts]
 
 
+# ====== 取り込み画面（GET） ======
+
 @app.get("/admin/fetch", response_class=HTMLResponse)
-def fetch_thread(request: Request, url: str = "", db: Session = Depends(get_db)):
+def fetch_thread_get(request: Request):
     """
-    簡易取り込み画面。
-    /admin/fetch?url=... にアクセスすると、そのURLから投稿を取得してDBに保存します。
-    フォーム（fetch.html）は method="get" なので、URLを入れて送信すると同じ処理です。
+    取り込み画面の表示専用。
+    URLパラメータ無しでテンプレートを描画する。
+    """
+    return templates.TemplateResponse(
+        "fetch.html",
+        {
+            "request": request,
+            "url": "",
+            "imported": None,
+            "error": "",
+        },
+    )
+
+
+# ====== 取り込み処理（POST） ======
+
+@app.post("/admin/fetch", response_class=HTMLResponse)
+def fetch_thread_post(
+    request: Request,
+    url: str = Form(""),
+    db: Session = Depends(get_db),
+):
+    """
+    フォームから送信された URL を元にスクレイピングして DB に保存。
     """
     imported: Optional[int] = None
     error: str = ""
+
+    url = (url or "").strip()
 
     if url:
         try:
@@ -134,6 +159,8 @@ def fetch_thread(request: Request, url: str = "", db: Session = Depends(get_db))
         except Exception as e:
             db.rollback()
             error = f"想定外のエラーが発生しました: {e}"
+    else:
+        error = "URLが入力されていません。"
 
     return templates.TemplateResponse(
         "fetch.html",
