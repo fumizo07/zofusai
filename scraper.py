@@ -47,7 +47,7 @@ def parse_int_from_text(text: str) -> Optional[int]:
 
 def make_page_url(base_url: str, page: int) -> str:
     """
-    スレURLからページ指定付きURLを作る。
+    爆サイのスレURLからページ指定付きURLを作る。
 
     - page == 1 のときは base_url をそのまま使う
     - page >= 2 のときは
@@ -55,7 +55,6 @@ def make_page_url(base_url: str, page: int) -> str:
         含んでいなければ末尾に /p=◯/ を付ける
     """
     url = base_url
-    # クエリパラメータはとりあえず無視（ほぼ付かない想定）
     if page == 1:
         return url
 
@@ -63,7 +62,6 @@ def make_page_url(base_url: str, page: int) -> str:
         # 既に p=◯ があれば差し替え
         return re.sub(r"p=\d+", f"p={page}", url)
     else:
-        # なければ末尾に追加
         if not url.endswith("/"):
             url += "/"
         return url + f"p={page}/"
@@ -132,8 +130,8 @@ def _fetch_single_page(url: str) -> List[ScrapedPost]:
             continue
 
         raw_text = body_tag.get_text(separator="\n", strip=True)
-        # 各行の先頭・末尾スペースも削ることで
-        # 「        >>251」のような変なインデントをなくす
+
+        # 各行ごとに strip して先頭の変なスペースを消す
         lines = [line.strip() for line in raw_text.splitlines()]
         body_text = "\n".join(line for line in lines if line)
 
@@ -152,7 +150,6 @@ def _fetch_single_page(url: str) -> List[ScrapedPost]:
         )
 
     return posts
-
 
 
 def fetch_posts_from_thread(url: str, max_pages: int = 20) -> List[ScrapedPost]:
