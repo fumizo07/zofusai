@@ -68,26 +68,72 @@ def show_search_page(request: Request, q: str = "", db: Session = Depends(get_db
     """
     ルート画面。
     クエリパラメータ q があれば thread_posts.body を LIKE 検索。
+    さらに、各ヒットごとに「前後数レス」と「返信ツリー」を構築して渡す。
     """
     keyword = q.strip()
-    results: List[ThreadPost] = []
+    result_items: List[dict] = []
 
     if keyword:
-        results = (
+        # ヒットしたレス一覧
+        hits: List[ThreadPost] = (
             db.query(ThreadPost)
             .filter(ThreadPost.body.contains(keyword))
             .order_by(ThreadPost.id.asc())
             .all()
         )
 
+        if hits:
+            # スレURLごとにグルーピング
+            by_thread: dict[str, List[ThreadPost]] = {}
+            for p in hits:
+                by_thread.setdefault(p.thread_url, []).append(p)
+
+            # スレごとに全レスを一度だけ取得して、コンテキストとツリーを構築
+            all_posts_by_thread: dict[str, List[ThreadPost]] = {}
+            for thread_url in by_thread.keys():
+                all_posts = (
+                    db.query(ThreadPost)
+                    .filter(ThreadPost.thread_url == thread_url)
+                    .order_by(ThreadPost.post_no.asc())
+                    .all()
+                )
+                all_posts_by_thread[thread_url] = all_posts
+
+            for root in hits:
+                all_posts = all_posts_by_thread.get(root.thread_url, [])
+
+                # 前後コンテキスト（例：±2レス）
+                context_posts: List[ThreadPost] = []
+                if root.post_no is not None and all_posts:
+                    start_no = max(1, root.post_no - 2)
+                    end_no = root.post_no + 2
+                    context_posts = [
+                        p
+                        for p in all_posts
+                        if p.post_no is not None
+                        and start_no <= p.post_no <= end_no
+                    ]
+
+                # 返信ツリー
+                tree_items = build_reply_tree(all_posts, root)
+
+                result_items.append(
+                    {
+                        "root": root,
+                        "context": context_posts,
+                        "tree": tree_items,
+                    }
+                )
+
     return templates.TemplateResponse(
         "index.html",
         {
             "request": request,
             "keyword": keyword,
-            "results": results,
+            "results": result_items,
         },
     )
+
 
 
 @app.get("/api/search")
