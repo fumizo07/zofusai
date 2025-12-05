@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <title>スレッド取り込み | Personal Search</title>
+    <title>スレッド取り込み | My Personal Baku Search</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <style>
         body {
@@ -55,7 +55,7 @@
     <a href="/" class="back">← 検索画面に戻る</a>
     <h1>掲示板スレッド取り込み（簡易版）</h1>
 
-    <!-- ★重要：必ず method="post" action="/admin/fetch" にしてください -->
+    <!-- ★重要：method="post" action="/admin/fetch" 固定 -->
     <form method="post" action="/admin/fetch">
         <label for="url">スレッドURL：</label>
         <input
@@ -63,7 +63,7 @@
             id="url"
             name="url"
             value="{{ url or '' }}"
-            placeholder="例：https://example.com/thr_res/..."
+            placeholder="例：https://bakusai.com/thr_res/..."
         >
         <button type="submit">このURLから投稿を取り込む</button>
     </form>
