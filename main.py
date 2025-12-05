@@ -91,7 +91,7 @@ def highlight_text(text_value: Optional[str], keyword: str) -> Markup:
         return Markup(f"<mark>{match.group(0)}</mark>")
 
     highlighted = pattern.sub(lambda m: repl(m), escaped)
-    return Markup(highlighted)
+    return highlighted
 
 
 def simplify_thread_title(title: str) -> str:
@@ -247,7 +247,7 @@ def fetch_thread_into_db(db: Session, url: str) -> int:
             )
 
         if existing:
-            # 既存行があれば、足りない情報だけ更新してスキップ
+            # 既存行があれば、足りない情報だけ更新
             if not existing.posted_at and sp.posted_at:
                 existing.posted_at = sp.posted_at
             if not existing.anchors and anchors_str:
@@ -288,7 +288,7 @@ def show_search_page(
     トップ画面。
     クエリパラメータ:
       - q: 検索キーワード
-      - thread_filter: スレURLフィルタ（任意）
+      - thread_filter: スレURL / タイトル フィルタ（任意）
       - tags: タグフィルタ（カンマ区切り）
       - tag_mode: "or" または "and"
     検索結果はスレ単位でまとめて返す。
@@ -310,8 +310,15 @@ def show_search_page(
 
             if keyword:
                 query = query.filter(ThreadPost.body.contains(keyword))
+
             if thread_filter:
-                query = query.filter(ThreadPost.thread_url.contains(thread_filter))
+                # URL かタイトルのどちらかに含まれていればヒット
+                query = query.filter(
+                    or_(
+                        ThreadPost.thread_url.contains(thread_filter),
+                        ThreadPost.thread_title.contains(thread_filter),
+                    )
+                )
 
             # タグフィルタ
             tags_list: List[str] = []
@@ -348,7 +355,7 @@ def show_search_page(
                         block = {
                             "thread_url": thread_url,
                             "thread_title": title,
-                            "entries": [],   # ← ここを items ではなく entries に
+                            "entries": [],
                         }
                         thread_map[thread_url] = block
                         thread_results.append(block)
@@ -364,11 +371,11 @@ def show_search_page(
                     else:
                         all_posts = all_posts_by_thread[thread_url]
 
-                    # 前後コンテキスト（±2レス）
+                    # 前後コンテキスト（±5レス）
                     context_posts: List[ThreadPost] = []
                     if root.post_no is not None and all_posts:
-                        start_no = max(1, root.post_no - 2)
-                        end_no = root.post_no + 2
+                        start_no = max(1, root.post_no - 5)
+                        end_no = root.post_no + 5
                         context_posts = [
                             p
                             for p in all_posts
@@ -390,7 +397,7 @@ def show_search_page(
                                 if p.post_no is not None and p.post_no in num_set
                             ]
 
-                    block["entries"].append(  # ← ここも entries
+                    block["entries"].append(
                         {
                             "root": root,
                             "context": context_posts,
@@ -441,7 +448,12 @@ def api_search(
 
     query = db.query(ThreadPost).filter(ThreadPost.body.contains(keyword))
     if thread_filter:
-        query = query.filter(ThreadPost.thread_url.contains(thread_filter))
+        query = query.filter(
+            or_(
+                ThreadPost.thread_url.contains(thread_filter),
+                ThreadPost.thread_title.contains(thread_filter),
+            )
+        )
 
     posts = query.order_by(ThreadPost.id.asc()).all()
     return [
@@ -536,6 +548,33 @@ def refetch_thread_from_search(
 
     try:
         fetch_thread_into_db(db, url)
+    except Exception:
+        db.rollback()
+    return RedirectResponse(url=back_url, status_code=303)
+
+
+# ====== 検索画面から「このスレだけ削除」 ======
+
+@app.post("/admin/delete_thread")
+def delete_thread_from_search(
+    request: Request,
+    url: str = Form(""),
+    db: Session = Depends(get_db),
+):
+    """
+    検索結果画面から「このスレだけ削除」するためのエンドポイント。
+    指定URLのスレに属するレスをすべて削除する。
+    """
+    back_url = request.headers.get("referer") or "/"
+    url = (url or "").strip()
+    if not url:
+        return RedirectResponse(url=back_url, status_code=303)
+
+    try:
+        db.query(ThreadPost).filter(ThreadPost.thread_url == url).delete(
+            synchronize_session=False
+        )
+        db.commit()
     except Exception:
         db.rollback()
     return RedirectResponse(url=back_url, status_code=303)
