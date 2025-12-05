@@ -294,9 +294,10 @@ def show_search_page(
       - tag_mode: "or" または "and"
     検索結果はスレ単位でまとめて返す。
     """
-    keyword = q.strip()
-    thread_filter = thread_filter.strip()
-    tags_input = tags.strip()
+    # ★ None が来ても必ず空文字にしてから strip する
+    keyword = (q or "").strip()
+    thread_filter = (thread_filter or "").strip()
+    tags_input = (tags or "").strip()
     tag_mode = (tag_mode or "or").lower()
 
     thread_results: List[dict] = []
@@ -422,8 +423,8 @@ def api_search(
     JSONで結果を返すAPI版（簡易）。
     例: /api/search?q=テスト&thread_filter=スレURL
     """
-    keyword = q.strip()
-    thread_filter = thread_filter.strip()
+    keyword = (q or "").strip()
+    thread_filter = (thread_filter or "").strip()
     if not keyword:
         return []
 
@@ -565,8 +566,8 @@ def edit_post_post(
     """
     post = db.query(ThreadPost).filter(ThreadPost.id == post_id).first()
     if post:
-        post.tags = tags.strip() or None
-        post.memo = memo.strip() or None
+        post.tags = (tags or "").strip() or None
+        post.memo = (memo or "").strip() or None
         db.commit()
 
     back_url = request.headers.get("referer") or "/"
