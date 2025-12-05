@@ -83,24 +83,44 @@
         .tree-body {
             white-space: pre-wrap;
         }
+        .tags {
+            font-size: 0.8rem;
+            color: #0b7285;
+            margin-top: 4px;
+        }
+        .memo {
+            font-size: 0.8rem;
+            color: #555;
+            margin-top: 2px;
+        }
     </style>
 </head>
 <body>
-    <h1>Personal Search</h1>
+    <h1>My Personal Baku Search（仮）</h1>
 
     <p>
         <a href="/admin/fetch">掲示板スレッドを取り込む（管理用）</a>
     </p>
 
     <form method="get" action="/">
-        <label for="q">キーワードで検索：</label>
+        <label for="q">キーワード：</label>
         <input
             type="text"
             id="q"
             name="q"
             value="{{ keyword or '' }}"
-            placeholder="例：テスト, アンカー など"
+            placeholder="例：爆サイ, アンカー など"
         >
+
+        <label for="thread">スレURL（任意）：</label>
+        <input
+            type="text"
+            id="thread"
+            name="thread"
+            value="{{ thread_filter or '' }}"
+            placeholder="空欄なら全スレ対象"
+        >
+
         <button type="submit">検索</button>
     </form>
 
@@ -124,31 +144,19 @@
                     </div>
                     <div class="result-meta">
                         <small>{{ post.thread_url }}</small>
-                        │ <a href="/post/{{ post.id }}">別ページでツリー表示</a>
+                        │ <a href="/post/{{ post.id }}/edit">タグ・メモ編集</a>
                     </div>
-                    <div class="result-text">
-                        {{ post.body }}
-                    </div>
-
-                    <!-- 前後数レスのコンテキスト -->
-                    {% if item.context %}
-                        <div class="section-title">このレスの前後（コンテキスト）</div>
-                        {% for c in item.context %}
-                            <div class="context-line {% if c.id == post.id %}context-line-root{% endif %}">
-                                {% if c.post_no %}
-                                    #{{ c.post_no }}
-                                {% else %}
-                                    ID {{ c.id }}
-                                {% endif %}
-                                {% if c.posted_at %}
-                                    ／ {{ c.posted_at }}
-                                {% endif %}
-                                ： {{ c.body }}
-                            </div>
-                        {% endfor %}
+                    {% if post.tags %}
+                        <div class="tags">タグ：{{ post.tags }}</div>
                     {% endif %}
+                    {% if post.memo %}
+                        <div class="memo">メモ：{{ post.memo }}</div>
+                    {% endif %}
+                    <div class="result-text">
+                        {{ highlight(post.body, keyword) }}
+                    </div>
 
-                    <!-- 返信ツリー -->
+                    <!-- 返信ツリー（先に表示） -->
                     <div class="section-title">このレスへの返信ツリー</div>
                     {% if item.tree %}
                         {% for node in item.tree %}
@@ -164,12 +172,30 @@
                                     {% endif %}
                                 </div>
                                 <div class="tree-body">
-                                    {{ node.post.body }}
+                                    {{ highlight(node.post.body, keyword) }}
                                 </div>
                             </div>
                         {% endfor %}
                     {% else %}
                         <p class="no-result">このレスへの返信（アンカー）は見つかりませんでした。</p>
+                    {% endif %}
+
+                    <!-- 前後数レスのコンテキスト（後に表示） -->
+                    {% if item.context %}
+                        <div class="section-title">このレスの前後（コンテキスト）</div>
+                        {% for c in item.context %}
+                            <div class="context-line {% if c.id == post.id %}context-line-root{% endif %}">
+                                {% if c.post_no %}
+                                    #{{ c.post_no }}
+                                {% else %}
+                                    ID {{ c.id }}
+                                {% endif %}
+                                {% if c.posted_at %}
+                                    ／ {{ c.posted_at }}
+                                {% endif %}
+                                ： {{ highlight(c.body, keyword) }}
+                            </div>
+                        {% endfor %}
                     {% endif %}
                 </div>
             {% endfor %}
