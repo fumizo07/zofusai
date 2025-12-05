@@ -1,5 +1,5 @@
 import os
-from typing import List
+from typing import List, Optional
 
 from fastapi import FastAPI, Request, Depends
 from fastapi.responses import HTMLResponse
@@ -8,30 +8,25 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy import Column, Integer, Text, create_engine
 from sqlalchemy.orm import declarative_base, sessionmaker, Session
 
+from scraper import fetch_posts_from_thread, ScrapingError
+
 # ====== データベース設定 ======
 
-# Render の Environment で設定した DATABASE_URL を取得
 DATABASE_URL = os.getenv("DATABASE_URL")
 
 if not DATABASE_URL:
-    # ローカル開発用に SQLite を使いたい場合はここに
-    # DATABASE_URL = "sqlite:///./test.db"
-    # のように書いてもよいですが、
-    # Render 上では必ず環境変数をセットしてください。
     raise RuntimeError("DATABASE_URL が設定されていません。RenderのEnvironmentを確認してください。")
 
-# SQLAlchemy エンジンとセッション
 engine = create_engine(DATABASE_URL, pool_pre_ping=True)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
-# モデルのベースクラス
 Base = declarative_base()
 
 
 class Post(Base):
     """
     投稿テーブル（posts）
-    今は text だけですが、あとからスレURLやレス番号などを追加していきます。
+    今は text だけですが、あとでスレURLやレス番号などを追加していきます。
     """
     __tablename__ = "posts"
 
@@ -40,10 +35,6 @@ class Post(Base):
 
 
 def get_db():
-    """
-    リクエストごとに DB セッションを開いて閉じるための依存関係。
-    FastAPI の Depends で使います。
-    """
     db = SessionLocal()
     try:
         yield db
@@ -63,14 +54,12 @@ def on_startup():
     アプリ起動時にテーブルを自動作成し、
     posts テーブルが空ならテスト投稿を3件だけ入れておきます。
     """
-    # テーブル作成（既にあれば何もしない）
     Base.metadata.create_all(bind=engine)
 
     db = SessionLocal()
     try:
         count = db.query(Post).count()
         if count == 0:
-            # 初回だけテストデータを投入
             samples = [
                 Post(text="これはDBに保存されたテスト投稿1です。キーワード：テスト"),
                 Post(text="これはDBに保存されたテスト投稿2です。キーワード：検索ツール"),
@@ -93,7 +82,6 @@ def show_search_page(request: Request, q: str = "", db: Session = Depends(get_db
     results: List[Post] = []
 
     if keyword:
-        # 非常に単純な部分一致検索
         results = db.query(Post).filter(Post.text.contains(keyword)).all()
 
     return templates.TemplateResponse(
@@ -118,3 +106,41 @@ def api_search(q: str, db: Session = Depends(get_db)):
 
     posts = db.query(Post).filter(Post.text.contains(keyword)).all()
     return [{"id": p.id, "text": p.text} for p in posts]
+
+
+@app.get("/admin/fetch", response_class=HTMLResponse)
+def fetch_thread(request: Request, url: str = "", db: Session = Depends(get_db)):
+    """
+    簡易取り込み画面。
+    /admin/fetch?url=... にアクセスすると、そのURLから投稿を取得してDBに保存します。
+    フォーム（fetch.html）は method="get" なので、URLを入れて送信すると同じ処理です。
+    """
+    imported: Optional[int] = None
+    error: str = ""
+
+    if url:
+        try:
+            texts = fetch_posts_from_thread(url)
+            for text in texts:
+                text = text.strip()
+                if not text:
+                    continue
+                db.add(Post(text=text))
+            db.commit()
+            imported = len(texts)
+        except ScrapingError as e:
+            db.rollback()
+            error = str(e)
+        except Exception as e:
+            db.rollback()
+            error = f"想定外のエラーが発生しました: {e}"
+
+    return templates.TemplateResponse(
+        "fetch.html",
+        {
+            "request": request,
+            "url": url,
+            "imported": imported,
+            "error": error,
+        },
+    )
