@@ -7,19 +7,19 @@ from fastapi import FastAPI, Request, Depends, Form
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
-from sqlalchemy import Column, Integer, Text, create_engine, func, text
+from sqlalchemy import Column, Integer, Text, create_engine, func, text, or_
 from sqlalchemy.orm import declarative_base, sessionmaker, Session
 
 from markupsafe import Markup, escape
 
-from scraper import fetch_posts_from_thread, ScrapingError
+from scraper import fetch_posts_from_thread, ScrapingError, get_thread_title
 
 # ====== データベース設定 ======
 
 DATABASE_URL = os.getenv("DATABASE_URL")
 
 if not DATABASE_URL:
-    raise RuntimeError("DATABASE_URL が設定されていません。RenderのEnvironmentを確認してください。")
+    raise RuntimeError("DATABASE_URL が設定されていません。環境変数 DATABASE_URL を確認してください。")
 
 engine = create_engine(DATABASE_URL, pool_pre_ping=True)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
@@ -34,10 +34,11 @@ class ThreadPost(Base):
     __tablename__ = "thread_posts"
 
     id = Column(Integer, primary_key=True, index=True)
-    thread_url = Column(Text, nullable=False, index=True)  # 取得元スレURL
-    post_no = Column(Integer, nullable=True, index=True)   # レス番号（55など）
-    posted_at = Column(Text, nullable=True)                # 投稿日時（文字列）
-    body = Column(Text, nullable=False)                    # 本文
+    thread_url = Column(Text, nullable=False, index=True)   # 取得元スレURL
+    thread_title = Column(Text, nullable=True)              # スレタイトル（簡易版）
+    post_no = Column(Integer, nullable=True, index=True)    # レス番号（例: 55）
+    posted_at = Column(Text, nullable=True)                 # 投稿日時（文字列）
+    body = Column(Text, nullable=False)                     # 本文
     # 「,55,60,130,」のようにカンマ区切りで保持（後でツリー用に使う）
     anchors = Column(Text, nullable=True)
     # 自分用のタグ・メモ
@@ -77,7 +78,7 @@ def highlight_text(text_value: Optional[str], keyword: str) -> Markup:
     if text_value is None:
         text_value = ""
 
-    # ここで表示用に「行頭スペース」を全部削る（DBの中身は変えない）
+    # 表示用に「行頭スペース」を全部削る（DBの中身は変えない）
     text_value = _normalize_lines(text_value)
 
     if not keyword:
@@ -91,6 +92,19 @@ def highlight_text(text_value: Optional[str], keyword: str) -> Markup:
 
     highlighted = pattern.sub(lambda m: repl(m), escaped)
     return Markup(highlighted)
+
+
+def simplify_thread_title(title: str) -> str:
+    """
+    ページタイトルからサイト名などの余計な部分をざっくり落とす。
+    例: 「〇〇スレッド｜サイト名」 → 「〇〇スレッド」
+    """
+    if not title:
+        return ""
+    for sep in ["｜", "|", " - "]:
+        if sep in title:
+            title = title.split(sep)[0]
+    return title.strip()
 
 
 # ====== ツリー構築用のヘルパー ======
@@ -158,7 +172,7 @@ templates = Jinja2Templates(directory="templates")
 def on_startup():
     """
     アプリ起動時にテーブルを自動作成。
-    ついでに tags, memo カラムが無い場合は追加する。
+    ついでに追加カラムが無い場合は追加する。
     """
     Base.metadata.create_all(bind=engine)
 
@@ -166,6 +180,98 @@ def on_startup():
     with engine.begin() as conn:
         conn.execute(text("ALTER TABLE thread_posts ADD COLUMN IF NOT EXISTS tags TEXT"))
         conn.execute(text("ALTER TABLE thread_posts ADD COLUMN IF NOT EXISTS memo TEXT"))
+        conn.execute(text("ALTER TABLE thread_posts ADD COLUMN IF NOT EXISTS thread_title TEXT"))
+
+
+# ====== スレ取り込みロジック共通化 ======
+
+def fetch_thread_into_db(db: Session, url: str) -> int:
+    """
+    指定URLのスレッドを取得し、DBに保存する共通処理。
+    すでに保存されているレス番号まではスキップし、新しい分だけ追加。
+    """
+    url = (url or "").strip()
+    if not url:
+        return 0
+
+    # 既に保存されている最大レス番号を取得
+    last_no = (
+        db.query(func.max(ThreadPost.post_no))
+        .filter(ThreadPost.thread_url == url)
+        .scalar()
+    )
+    if last_no is None:
+        last_no = 0
+
+    # スレタイトル（ページタイトルなど）を取得
+    thread_title = get_thread_title(url)
+    if thread_title:
+        thread_title = simplify_thread_title(thread_title)
+
+    scraped_posts = fetch_posts_from_thread(url)
+    count = 0
+
+    for sp in scraped_posts:
+        body = (sp.body or "").strip()
+        if not body:
+            continue
+
+        # すでに取得済みのレス番号まではスキップ
+        if sp.post_no is not None and sp.post_no <= last_no:
+            continue
+
+        # アンカーリストを ",55,60," のような文字列に変換
+        if sp.anchors:
+            anchors_str = "," + ",".join(str(a) for a in sp.anchors) + ","
+        else:
+            anchors_str = None
+
+        # 念のため重複チェック（URL + post_no）
+        existing = None
+        if sp.post_no is not None:
+            existing = (
+                db.query(ThreadPost)
+                .filter(
+                    ThreadPost.thread_url == url,
+                    ThreadPost.post_no == sp.post_no,
+                )
+                .first()
+            )
+        else:
+            existing = (
+                db.query(ThreadPost)
+                .filter(
+                    ThreadPost.thread_url == url,
+                    ThreadPost.body == body,
+                )
+                .first()
+            )
+
+        if existing:
+            # 既存行があれば、足りない情報だけ更新してスキップ
+            if not existing.posted_at and sp.posted_at:
+                existing.posted_at = sp.posted_at
+            if not existing.anchors and anchors_str:
+                existing.anchors = anchors_str
+            if thread_title and not existing.thread_title:
+                existing.thread_title = thread_title
+            continue
+
+        # 新規行として追加
+        db.add(
+            ThreadPost(
+                thread_url=url,
+                thread_title=thread_title,
+                post_no=sp.post_no,
+                posted_at=sp.posted_at,
+                body=body,
+                anchors=anchors_str,
+            )
+        )
+        count += 1
+
+    db.commit()
+    return count
 
 
 # ====== 検索画面 ======
@@ -175,33 +281,76 @@ def show_search_page(
     request: Request,
     q: str = "",
     thread_filter: str = "",
+    tags: str = "",
+    tag_mode: str = "or",
     db: Session = Depends(get_db),
 ):
     """
-    ルート画面。
+    トップ画面。
     クエリパラメータ:
-      - q: 検索キーワード（必須）
-      - thread_filter: スレURLフィルタ（任意。空欄なら全スレ対象）
-    各ヒットごとに「前後数レス」と「返信ツリー」を構築して渡す。
+      - q: 検索キーワード
+      - thread_filter: スレURLフィルタ（任意）
+      - tags: タグフィルタ（カンマ区切り）
+      - tag_mode: "or" または "and"
+    検索結果はスレ単位でまとめて返す。
     """
     keyword = q.strip()
     thread_filter = thread_filter.strip()
-    result_items: List[dict] = []
+    tags_input = tags.strip()
+    tag_mode = (tag_mode or "or").lower()
 
-    if keyword:
-        query = db.query(ThreadPost).filter(ThreadPost.body.contains(keyword))
+    thread_results: List[dict] = []
+    hit_count = 0
+
+    # 何かしら条件が入っているときだけ検索
+    if keyword or thread_filter or tags_input:
+        query = db.query(ThreadPost)
+
+        if keyword:
+            query = query.filter(ThreadPost.body.contains(keyword))
         if thread_filter:
-            # 完全一致だとURLのブレが怖いので contains にしておく
             query = query.filter(ThreadPost.thread_url.contains(thread_filter))
 
-        hits: List[ThreadPost] = query.order_by(ThreadPost.id.asc()).all()
+        # タグフィルタ
+        tags_list: List[str] = []
+        if tags_input:
+            tags_list = [t.strip() for t in tags_input.split(",") if t.strip()]
+
+        if tags_list:
+            if tag_mode == "and":
+                # AND 条件: すべてのタグを含む
+                for t in tags_list:
+                    query = query.filter(ThreadPost.tags.contains(t))
+            else:
+                # OR 条件: いずれかのタグを含む
+                or_conditions = [ThreadPost.tags.contains(t) for t in tags_list]
+                query = query.filter(or_(*or_conditions))
+
+        hits: List[ThreadPost] = (
+            query.order_by(ThreadPost.thread_url.asc(), ThreadPost.post_no.asc()).all()
+        )
+        hit_count = len(hits)
 
         if hits:
             # スレURLごとに全レスキャッシュ
             all_posts_by_thread: Dict[str, List[ThreadPost]] = {}
+            # スレURL → スレ結果ブロック
+            thread_map: Dict[str, dict] = {}
 
             for root in hits:
                 thread_url = root.thread_url
+                block = thread_map.get(thread_url)
+                if not block:
+                    title = root.thread_title or thread_url
+                    title = simplify_thread_title(title)
+                    block = {
+                        "thread_url": thread_url,
+                        "thread_title": title,
+                        "items": [],
+                    }
+                    thread_map[thread_url] = block
+                    thread_results.append(block)
+
                 if thread_url not in all_posts_by_thread:
                     all_posts = (
                         db.query(ThreadPost)
@@ -224,14 +373,25 @@ def show_search_page(
                         if p.post_no is not None and start_no <= p.post_no <= end_no
                     ]
 
-                # 返信ツリー
+                # 返信ツリー（このレスに向かってアンカーしている側）
                 tree_items = build_reply_tree(all_posts, root)
 
-                result_items.append(
+                # アンカー先（このレスから >>X している側）
+                anchor_targets: List[ThreadPost] = []
+                if root.anchors:
+                    nums = parse_anchors_csv(root.anchors)
+                    if nums and all_posts:
+                        num_set = set(nums)
+                        anchor_targets = [
+                            p for p in all_posts if p.post_no is not None and p.post_no in num_set
+                        ]
+
+                block["items"].append(
                     {
                         "root": root,
                         "context": context_posts,
                         "tree": tree_items,
+                        "anchor_targets": anchor_targets,
                     }
                 )
 
@@ -241,19 +401,26 @@ def show_search_page(
             "request": request,
             "keyword": keyword,
             "thread_filter": thread_filter,
-            "results": result_items,
+            "tags_input": tags_input,
+            "tag_mode": tag_mode,
+            "results": thread_results,
+            "hit_count": hit_count,
             "highlight": highlight_text,
         },
     )
 
 
-# ====== API 検索 ======
+# ====== API 検索（シンプル版） ======
 
 @app.get("/api/search")
-def api_search(q: str, thread_filter: str = "", db: Session = Depends(get_db)):
+def api_search(
+    q: str,
+    thread_filter: str = "",
+    db: Session = Depends(get_db),
+):
     """
-    JSONで結果を返すAPI版。
-    例: /api/search?q=爆サイ&thread_filter=スレURL
+    JSONで結果を返すAPI版（簡易）。
+    例: /api/search?q=テスト&thread_filter=スレURL
     """
     keyword = q.strip()
     thread_filter = thread_filter.strip()
@@ -269,6 +436,7 @@ def api_search(q: str, thread_filter: str = "", db: Session = Depends(get_db)):
         {
             "id": p.id,
             "thread_url": p.thread_url,
+            "thread_title": p.thread_title,
             "post_no": p.post_no,
             "posted_at": p.posted_at,
             "body": p.body,
@@ -283,15 +451,16 @@ def api_search(q: str, thread_filter: str = "", db: Session = Depends(get_db)):
 # ====== 取り込み画面（GET） ======
 
 @app.get("/admin/fetch", response_class=HTMLResponse)
-def fetch_thread_get(request: Request):
+def fetch_thread_get(request: Request, url: str = ""):
     """
-    取り込み画面の表示専用。
+    スレ取り込み画面の表示専用。
+    クエリパラメータ url があれば初期値として表示。
     """
     return templates.TemplateResponse(
         "fetch.html",
         {
             "request": request,
-            "url": "",
+            "url": url or "",
             "imported": None,
             "error": "",
         },
@@ -308,85 +477,14 @@ def fetch_thread_post(
 ):
     """
     フォームから送信された URL を元にスクレイピングして DB に保存。
-    すでに保存されている thread_url については「最大レス番号」以降だけを追加する。
     """
     imported: Optional[int] = None
     error: str = ""
-
     url = (url or "").strip()
 
     if url:
         try:
-            # 既に保存されている最大レス番号を取得
-            last_no = (
-                db.query(func.max(ThreadPost.post_no))
-                .filter(ThreadPost.thread_url == url)
-                .scalar()
-            )
-            if last_no is None:
-                last_no = 0
-
-            scraped_posts = fetch_posts_from_thread(url)
-            count = 0
-            for sp in scraped_posts:
-                # 本文はスクレイパー側で行単位のスペース除去済みだが、念のため strip
-                body = (sp.body or "").strip()
-                if not body:
-                    continue
-
-                # すでに取得済みのレス番号まではスキップ
-                if sp.post_no is not None and sp.post_no <= last_no:
-                    continue
-
-                # アンカーリストを ",55,60," のような文字列に変換
-                if sp.anchors:
-                    anchors_str = "," + ",".join(str(a) for a in sp.anchors) + ","
-                else:
-                    anchors_str = None
-
-                # 念のため重複チェック（URL + post_no）
-                existing = None
-                if sp.post_no is not None:
-                    existing = (
-                        db.query(ThreadPost)
-                        .filter(
-                            ThreadPost.thread_url == url,
-                            ThreadPost.post_no == sp.post_no,
-                        )
-                        .first()
-                    )
-                else:
-                    existing = (
-                        db.query(ThreadPost)
-                        .filter(
-                            ThreadPost.thread_url == url,
-                            ThreadPost.body == body,
-                        )
-                        .first()
-                    )
-
-                if existing:
-                    # 既存行があれば、足りない情報だけ更新してスキップ
-                    if not existing.posted_at and sp.posted_at:
-                        existing.posted_at = sp.posted_at
-                    if not existing.anchors and anchors_str:
-                        existing.anchors = anchors_str
-                    continue
-
-                # 新規行として追加
-                db.add(
-                    ThreadPost(
-                        thread_url=url,
-                        post_no=sp.post_no,
-                        posted_at=sp.posted_at,
-                        body=body,
-                        anchors=anchors_str,
-                    )
-                )
-                count += 1
-
-            db.commit()
-            imported = count
+            imported = fetch_thread_into_db(db, url)
         except ScrapingError as e:
             db.rollback()
             error = str(e)
@@ -405,6 +503,31 @@ def fetch_thread_post(
             "error": error,
         },
     )
+
+
+# ====== 検索画面から「このスレだけ再取得」 ======
+
+@app.post("/admin/refetch")
+def refetch_thread_from_search(
+    request: Request,
+    url: str = Form(""),
+    db: Session = Depends(get_db),
+):
+    """
+    検索結果画面から「このスレだけ再取得」するためのエンドポイント。
+    終了後は元の画面（Referer）に戻る。
+    """
+    back_url = request.headers.get("referer") or "/"
+    url = (url or "").strip()
+    if not url:
+        return RedirectResponse(url=back_url, status_code=303)
+
+    try:
+        fetch_thread_into_db(db, url)
+    except Exception:
+        # ここではエラー内容は画面に出さず、単に戻る
+        db.rollback()
+    return RedirectResponse(url=back_url, status_code=303)
 
 
 # ====== タグ・メモ編集用エンドポイント ======
@@ -438,6 +561,7 @@ def edit_post_post(
 ):
     """
     タグ・メモの更新処理（POST）。
+    編集後は元の画面（Referer）があればそこに戻る。
     """
     post = db.query(ThreadPost).filter(ThreadPost.id == post_id).first()
     if post:
@@ -445,5 +569,5 @@ def edit_post_post(
         post.memo = memo.strip() or None
         db.commit()
 
-    # 編集後はトップページに戻る
-    return RedirectResponse(url="/", status_code=303)
+    back_url = request.headers.get("referer") or "/"
+    return RedirectResponse(url=back_url, status_code=303)
