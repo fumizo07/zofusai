@@ -144,16 +144,14 @@ def on_startup():
     """
     Base.metadata.create_all(bind=engine)
 
-    # 既存DBに tags, memo カラムが無い場合に備えて ALTER TABLE を一度だけ試す
-    with engine.connect() as conn:
-        try:
-            conn.execute(sa_text("ALTER TABLE thread_posts ADD COLUMN tags TEXT"))
-        except Exception:
-            pass
-        try:
-            conn.execute(sa_text("ALTER TABLE thread_posts ADD COLUMN memo TEXT"))
-        except Exception:
-            pass
+    # Postgres に対して DDL を確実にコミットするため engine.begin() を使う
+    from sqlalchemy import text as _text
+
+    with engine.begin() as conn:
+        # Postgres は IF NOT EXISTS が使えるので try/except なしでOK
+        conn.execute(_text("ALTER TABLE thread_posts ADD COLUMN IF NOT EXISTS tags TEXT"))
+        conn.execute(_text("ALTER TABLE thread_posts ADD COLUMN IF NOT EXISTS memo TEXT"))
+
 
 
 @app.get("/", response_class=HTMLResponse)
