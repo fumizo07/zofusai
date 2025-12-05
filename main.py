@@ -336,3 +336,62 @@ def show_post_tree(
             "tree_items": tree_items,
         },
     )
+from collections import defaultdict
+
+def parse_anchors_csv(s: Optional[str]) -> List[int]:
+    """
+    anchors カラムの文字列（例：",55,60,130,"）から整数リストを取り出す。
+    """
+    if not s:
+        return []
+    nums: List[int] = []
+    for part in s.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        if part.isdigit():
+            nums.append(int(part))
+    return sorted(set(nums))
+
+
+def build_reply_tree(all_posts: List[ThreadPost], root: ThreadPost) -> List[dict]:
+    """
+    1スレ内の全レスから、
+    「root.post_no にアンカーを飛ばしているレス」を起点に木構造を作る。
+
+    戻り値は
+      [{"post": ThreadPost, "depth": 0}, {"post": ThreadPost, "depth": 1}, ...]
+    というリスト（表示しやすいようにフラット＋深さ情報）。
+    """
+    # post_no -> ThreadPost
+    by_no: dict[int, ThreadPost] = {}
+    for p in all_posts:
+        if p.post_no is not None:
+            by_no[p.post_no] = p
+
+    # 「どのレスにアンカーしているか」→「その返信のリスト」
+    replies = defaultdict(list)
+    for p in all_posts:
+        for a in parse_anchors_csv(p.anchors):
+            replies[a].append(p)
+
+    result: List[dict] = []
+    visited_ids: set[int] = set()
+
+    def dfs(post: ThreadPost, depth: int) -> None:
+        if post.id in visited_ids:
+            return
+        visited_ids.add(post.id)
+        # ルート自身は別枠表示なのでここでは追加しない
+        if post.id != root.id:
+            result.append({"post": post, "depth": depth})
+        if post.post_no is None:
+            return
+        for child in replies.get(post.post_no, []):
+            dfs(child, depth + 1)
+
+    if root.post_no is not None:
+        for child in replies.get(root.post_no, []):
+            dfs(child, 0)
+
+    return result
