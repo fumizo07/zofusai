@@ -65,7 +65,7 @@
             id="q"
             name="q"
             value="{{ keyword or '' }}"
-            placeholder="例：test"
+            placeholder="例：テスト など"
         >
         <button type="submit">検索</button>
     </form>
@@ -76,8 +76,20 @@
         {% if results %}
             {% for post in results %}
                 <div class="result">
-                    <div class="result-id">No. {{ post.id }}</div>
-                    <div class="result-text">{{ post.text }}</div>
+                    <div class="result-id">
+                        {% if post.post_no %}
+                            レス #{{ post.post_no }}
+                        {% else %}
+                            ID {{ post.id }}
+                        {% endif %}
+                        {% if post.posted_at %}
+                            ／ {{ post.posted_at }}
+                        {% endif %}
+                    </div>
+                    <div class="result-meta">
+                        <small>{{ post.thread_url }}</small>
+                    </div>
+                    <div class="result-text">{{ post.body }}</div>
                 </div>
             {% endfor %}
         {% else %}
