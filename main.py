@@ -134,7 +134,6 @@ def build_reply_tree(all_posts: List[ThreadPost], root: ThreadPost) -> List[dict
       [{"post": ThreadPost, "depth": 0}, {"post": ThreadPost, "depth": 1}, ...]
     というリスト（表示しやすいようにフラット＋深さ情報）。
     """
-    # 「どのレスにアンカーしているか」→「その返信のリスト」
     replies: Dict[int, List[ThreadPost]] = defaultdict(list)
     for p in all_posts:
         for a in parse_anchors_csv(p.anchors):
@@ -294,7 +293,7 @@ def show_search_page(
       - tag_mode: "or" または "and"
     検索結果はスレ単位でまとめて返す。
     """
-    # ★ None が来ても必ず空文字にしてから strip する
+    # None が来ても必ず空文字にしてから strip する
     keyword = (q or "").strip()
     thread_filter = (thread_filter or "").strip()
     tags_input = (tags or "").strip()
@@ -302,99 +301,110 @@ def show_search_page(
 
     thread_results: List[dict] = []
     hit_count = 0
+    error_message: str = ""
 
-    # 何かしら条件が入っているときだけ検索
-    if keyword or thread_filter or tags_input:
-        query = db.query(ThreadPost)
+    try:
+        # 何かしら条件が入っているときだけ検索
+        if keyword or thread_filter or tags_input:
+            query = db.query(ThreadPost)
 
-        if keyword:
-            query = query.filter(ThreadPost.body.contains(keyword))
-        if thread_filter:
-            query = query.filter(ThreadPost.thread_url.contains(thread_filter))
+            if keyword:
+                query = query.filter(ThreadPost.body.contains(keyword))
+            if thread_filter:
+                query = query.filter(ThreadPost.thread_url.contains(thread_filter))
 
-        # タグフィルタ
-        tags_list: List[str] = []
-        if tags_input:
-            tags_list = [t.strip() for t in tags_input.split(",") if t.strip()]
+            # タグフィルタ
+            tags_list: List[str] = []
+            if tags_input:
+                tags_list = [t.strip() for t in tags_input.split(",") if t.strip()]
 
-        if tags_list:
-            if tag_mode == "and":
-                # AND 条件: すべてのタグを含む
-                for t in tags_list:
-                    query = query.filter(ThreadPost.tags.contains(t))
-            else:
-                # OR 条件: いずれかのタグを含む
-                or_conditions = [ThreadPost.tags.contains(t) for t in tags_list]
-                query = query.filter(or_(*or_conditions))
-
-        hits: List[ThreadPost] = (
-            query.order_by(ThreadPost.thread_url.asc(), ThreadPost.post_no.asc()).all()
-        )
-        hit_count = len(hits)
-
-        if hits:
-            # スレURLごとに全レスキャッシュ
-            all_posts_by_thread: Dict[str, List[ThreadPost]] = {}
-            # スレURL → スレ結果ブロック
-            thread_map: Dict[str, dict] = {}
-
-            for root in hits:
-                thread_url = root.thread_url
-                block = thread_map.get(thread_url)
-                if not block:
-                    title = root.thread_title or thread_url
-                    title = simplify_thread_title(title)
-                    block = {
-                        "thread_url": thread_url,
-                        "thread_title": title,
-                        "items": [],
-                    }
-                    thread_map[thread_url] = block
-                    thread_results.append(block)
-
-                if thread_url not in all_posts_by_thread:
-                    all_posts = (
-                        db.query(ThreadPost)
-                        .filter(ThreadPost.thread_url == thread_url)
-                        .order_by(ThreadPost.post_no.asc())
-                        .all()
-                    )
-                    all_posts_by_thread[thread_url] = all_posts
+            if tags_list:
+                if tag_mode == "and":
+                    # AND 条件: すべてのタグを含む
+                    for t in tags_list:
+                        query = query.filter(ThreadPost.tags.contains(t))
                 else:
-                    all_posts = all_posts_by_thread[thread_url]
+                    # OR 条件: いずれかのタグを含む
+                    or_conditions = [ThreadPost.tags.contains(t) for t in tags_list]
+                    query = query.filter(or_(*or_conditions))
 
-                # 前後コンテキスト（±2レス）
-                context_posts: List[ThreadPost] = []
-                if root.post_no is not None and all_posts:
-                    start_no = max(1, root.post_no - 2)
-                    end_no = root.post_no + 2
-                    context_posts = [
-                        p
-                        for p in all_posts
-                        if p.post_no is not None and start_no <= p.post_no <= end_no
-                    ]
+            hits: List[ThreadPost] = (
+                query.order_by(ThreadPost.thread_url.asc(), ThreadPost.post_no.asc()).all()
+            )
+            hit_count = len(hits)
 
-                # 返信ツリー（このレスに向かってアンカーしている側）
-                tree_items = build_reply_tree(all_posts, root)
+            if hits:
+                # スレURLごとに全レスキャッシュ
+                all_posts_by_thread: Dict[str, List[ThreadPost]] = {}
+                # スレURL → スレ結果ブロック
+                thread_map: Dict[str, dict] = {}
 
-                # アンカー先（このレスから >>X している側）
-                anchor_targets: List[ThreadPost] = []
-                if root.anchors:
-                    nums = parse_anchors_csv(root.anchors)
-                    if nums and all_posts:
-                        num_set = set(nums)
-                        anchor_targets = [
-                            p for p in all_posts if p.post_no is not None and p.post_no in num_set
+                for root in hits:
+                    thread_url = root.thread_url
+                    block = thread_map.get(thread_url)
+                    if not block:
+                        title = root.thread_title or thread_url
+                        title = simplify_thread_title(title)
+                        block = {
+                            "thread_url": thread_url,
+                            "thread_title": title,
+                            "items": [],
+                        }
+                        thread_map[thread_url] = block
+                        thread_results.append(block)
+
+                    if thread_url not in all_posts_by_thread:
+                        all_posts = (
+                            db.query(ThreadPost)
+                            .filter(ThreadPost.thread_url == thread_url)
+                            .order_by(ThreadPost.post_no.asc())
+                            .all()
+                        )
+                        all_posts_by_thread[thread_url] = all_posts
+                    else:
+                        all_posts = all_posts_by_thread[thread_url]
+
+                    # 前後コンテキスト（±2レス）
+                    context_posts: List[ThreadPost] = []
+                    if root.post_no is not None and all_posts:
+                        start_no = max(1, root.post_no - 2)
+                        end_no = root.post_no + 2
+                        context_posts = [
+                            p
+                            for p in all_posts
+                            if p.post_no is not None and start_no <= p.post_no <= end_no
                         ]
 
-                block["items"].append(
-                    {
-                        "root": root,
-                        "context": context_posts,
-                        "tree": tree_items,
-                        "anchor_targets": anchor_targets,
-                    }
-                )
+                    # 返信ツリー（このレスに向かってアンカーしている側）
+                    tree_items = build_reply_tree(all_posts, root)
+
+                    # アンカー先（このレスから >>X している側）
+                    anchor_targets: List[ThreadPost] = []
+                    if root.anchors:
+                        nums = parse_anchors_csv(root.anchors)
+                        if nums and all_posts:
+                            num_set = set(nums)
+                            anchor_targets = [
+                                p
+                                for p in all_posts
+                                if p.post_no is not None and p.post_no in num_set
+                            ]
+
+                    block["items"].append(
+                        {
+                            "root": root,
+                            "context": context_posts,
+                            "tree": tree_items,
+                            "anchor_targets": anchor_targets,
+                        }
+                    )
+
+    except Exception as e:
+        # ここで 500 にはせず、画面上にエラーメッセージを出すだけにする
+        db.rollback()
+        error_message = f"検索中にエラーが発生しました: {e}"
+        thread_results = []
+        hit_count = 0
 
     return templates.TemplateResponse(
         "index.html",
@@ -407,6 +417,7 @@ def show_search_page(
             "results": thread_results,
             "hit_count": hit_count,
             "highlight": highlight_text,
+            "error_message": error_message,
         },
     )
 
@@ -526,7 +537,6 @@ def refetch_thread_from_search(
     try:
         fetch_thread_into_db(db, url)
     except Exception:
-        # ここではエラー内容は画面に出さず、単に戻る
         db.rollback()
     return RedirectResponse(url=back_url, status_code=303)
 
