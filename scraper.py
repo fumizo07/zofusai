@@ -131,7 +131,12 @@ def _fetch_single_page(url: str) -> List[ScrapedPost]:
         if not body_tag:
             continue
 
-        body_text = body_tag.get_text(separator="\n", strip=True)
+        raw_text = body_tag.get_text(separator="\n", strip=True)
+        # 各行の先頭・末尾スペースも削ることで
+        # 「        >>251」のような変なインデントをなくす
+        lines = [line.strip() for line in raw_text.splitlines()]
+        body_text = "\n".join(line for line in lines if line)
+
         if not body_text:
             continue
 
@@ -147,6 +152,7 @@ def _fetch_single_page(url: str) -> List[ScrapedPost]:
         )
 
     return posts
+
 
 
 def fetch_posts_from_thread(url: str, max_pages: int = 20) -> List[ScrapedPost]:
