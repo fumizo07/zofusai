@@ -168,6 +168,37 @@ def fetch_thread_post(
                 else:
                     anchors_str = None
 
+                # ===== 重複チェック =====
+                existing = None
+                if sp.post_no is not None:
+                    existing = (
+                        db.query(ThreadPost)
+                        .filter(
+                            ThreadPost.thread_url == url,
+                            ThreadPost.post_no == sp.post_no,
+                        )
+                        .first()
+                    )
+                else:
+                    # 念のため post_no が無い場合は本文でざっくり判定
+                    existing = (
+                        db.query(ThreadPost)
+                        .filter(
+                            ThreadPost.thread_url == url,
+                            ThreadPost.body == body,
+                        )
+                        .first()
+                    )
+
+                if existing:
+                    # 既存行があれば、足りない情報だけ更新してスキップ
+                    if not existing.posted_at and sp.posted_at:
+                        existing.posted_at = sp.posted_at
+                    if not existing.anchors and anchors_str:
+                        existing.anchors = anchors_str
+                    continue
+
+                # ===== 新規行として追加 =====
                 db.add(
                     ThreadPost(
                         thread_url=url,
@@ -181,6 +212,7 @@ def fetch_thread_post(
 
             db.commit()
             imported = count
+
         except ScrapingError as e:
             db.rollback()
             error = str(e)
