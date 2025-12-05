@@ -187,7 +187,7 @@
             placeholder="例：テスト, キーワード など"
         >
 
-        <label for="thread_filter">スレURL（任意）：</label><br>
+        <label for="thread_filter">スレURL / タイトル（任意）：</label><br>
         <input
             type="text"
             id="thread_filter"
@@ -236,6 +236,11 @@
                             <form method="post" action="/admin/refetch">
                                 <input type="hidden" name="url" value="{{ thread.thread_url }}">
                                 <button type="submit">このスレだけ再取得</button>
+                            </form>
+                            &nbsp;
+                            <form method="post" action="/admin/delete_thread" onsubmit="return confirm('このスレの保存データをすべて削除します。よろしいですか？');">
+                                <input type="hidden" name="url" value="{{ thread.thread_url }}">
+                                <button type="submit">このスレだけ削除</button>
                             </form>
                         </div>
                     </div>
@@ -309,7 +314,7 @@
                                     <p class="no-result">このレスへの返信（アンカー）は見つかりませんでした。</p>
                                 {% endif %}
 
-                                <!-- このレスの前後（コンテキスト） → 1行表示 -->
+                                <!-- このレスの前後（コンテキスト） → 1行表示、±5レス -->
                                 {% if item.context %}
                                     <div class="section-title">このレスの前後（コンテキスト）</div>
                                     {% for c in item.context %}
