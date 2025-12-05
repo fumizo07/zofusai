@@ -199,3 +199,108 @@ def fetch_thread_post(
             "error": error,
         },
     )
+# ====== ツリー構築用のヘルパー ======
+
+def parse_anchors_csv(s: Optional[str]) -> List[int]:
+    """
+    anchors カラムの文字列（例：",55,60,130,"）から整数リストを取り出す。
+    """
+    if not s:
+        return []
+    nums: List[int] = []
+    for part in s.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        if part.isdigit():
+            nums.append(int(part))
+    # 重複排除してソート
+    return sorted(set(nums))
+
+
+def build_reply_tree(all_posts: List[ThreadPost], root: ThreadPost) -> List[dict]:
+    """
+    1スレ内の全レスから、
+    「root.post_no にアンカーを飛ばしているレス」を起点に木構造を作る。
+
+    戻り値は
+      [{"post": ThreadPost, "depth": 0}, {"post": ThreadPost, "depth": 1}, ...]
+    というリスト（表示しやすいようにフラット＋深さ情報）。
+    """
+    # post_no -> ThreadPost
+    by_no: dict[int, ThreadPost] = {}
+    for p in all_posts:
+        if p.post_no is not None:
+            by_no[p.post_no] = p
+
+    # 「どのレスにアンカーしているか」→「その返信のリスト」
+    # target_no -> [ThreadPost, ...]
+    replies = defaultdict(list)
+    for p in all_posts:
+        for a in parse_anchors_csv(p.anchors):
+            replies[a].append(p)
+
+    result: List[dict] = []
+    visited_ids: set[int] = set()
+
+    def dfs(post: ThreadPost, depth: int) -> None:
+        if post.id in visited_ids:
+            return
+        visited_ids.add(post.id)
+        if post.id != root.id:  # ルートは別枠で表示するので除外
+            result.append({"post": post, "depth": depth})
+        # 自分のレス番号に対する返信をたどる
+        if post.post_no is None:
+            return
+        for child in replies.get(post.post_no, []):
+            dfs(child, depth + 1)
+
+    # ルートに対する返信を起点に DFS
+    if root.post_no is not None:
+        for child in replies.get(root.post_no, []):
+            dfs(child, 0)
+
+    return result
+
+
+# ====== レスツリー表示用エンドポイント ======
+
+@app.get("/post/{post_id}", response_class=HTMLResponse)
+def show_post_tree(
+    request: Request,
+    post_id: int,
+    db: Session = Depends(get_db),
+):
+    """
+    指定IDのレスをルートとして、
+    同じスレ内でそのレスにアンカーしている返信ツリーを表示する。
+    """
+    root_post = db.query(ThreadPost).filter(ThreadPost.id == post_id).first()
+    if not root_post:
+        return templates.TemplateResponse(
+            "post.html",
+            {
+                "request": request,
+                "root_post": None,
+                "tree_items": [],
+            },
+        )
+
+    # 同じスレURLの全レスを取得（レス番号順）
+    all_posts = (
+        db.query(ThreadPost)
+        .filter(ThreadPost.thread_url == root_post.thread_url)
+        .order_by(ThreadPost.post_no.asc())
+        .all()
+    )
+
+    tree_items = build_reply_tree(all_posts, root_post)
+
+    return templates.TemplateResponse(
+        "post.html",
+        {
+            "request": request,
+            "root_post": root_post,
+            "tree_items": tree_items,
+        },
+    )
