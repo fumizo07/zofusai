@@ -102,7 +102,7 @@
         <a href="/admin/fetch">掲示板スレッドを取り込む（管理用）</a>
     </p>
 
-    <form method="get" action="/">
+        <form method="get" action="/">
         <label for="q">キーワード：</label>
         <input
             type="text"
@@ -116,13 +116,14 @@
         <input
             type="text"
             id="thread"
-            name="thread"
+            name="thread_filter"
             value="{{ thread_filter or '' }}"
             placeholder="空欄なら全スレ対象"
         >
 
         <button type="submit">検索</button>
     </form>
+
 
     {% if keyword %}
         <h2>「{{ keyword }}」の検索結果（{{ results|length }}件）</h2>
