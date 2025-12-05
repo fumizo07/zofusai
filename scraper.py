@@ -26,7 +26,7 @@ anchor_pattern = re.compile(r">>(\d+)")
 def extract_anchors(text: str) -> List[int]:
     """
     本文中の >>123 のようなアンカーをすべて整数リストで返す。
-    重複は一応削除しておきます。
+    重複は一応削除しておく。
     """
     nums = [int(m.group(1)) for m in anchor_pattern.finditer(text)]
     return sorted(set(nums))
@@ -47,7 +47,7 @@ def parse_int_from_text(text: str) -> Optional[int]:
 
 def make_page_url(base_url: str, page: int) -> str:
     """
-    爆サイのスレURLからページ指定付きURLを作る。
+    掲示板のスレURLからページ指定付きURLを作る。
 
     - page == 1 のときは base_url をそのまま使う
     - page >= 2 のときは
@@ -67,18 +67,53 @@ def make_page_url(base_url: str, page: int) -> str:
         return url + f"p={page}/"
 
 
-def _fetch_single_page(url: str) -> List[ScrapedPost]:
+def _build_headers() -> dict:
     """
-    指定URL（1ページ分）からレス一覧を取得。
-    レスがない場合は空リストを返す（エラーにはしない）。
+    リクエストヘッダを組み立てる。
     """
-    headers = {
+    return {
         "User-Agent": (
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
             "AppleWebKit/537.36 (KHTML, like Gecko) "
             "Chrome/123.0 Safari/537.36"
         )
     }
+
+
+def get_thread_title(url: str) -> Optional[str]:
+    """
+    スレッドページのタイトル文字列を取得する。
+    失敗した場合は None を返す。
+    """
+    headers = _build_headers()
+    try:
+        resp = requests.get(url, headers=headers, timeout=10)
+    except Exception:
+        return None
+
+    if resp.status_code != 200:
+        return None
+
+    soup = BeautifulSoup(resp.text, "html.parser")
+    if soup.title and soup.title.string:
+        return soup.title.string.strip()
+
+    # タイトルタグが取れない場合のセーフティ
+    h1 = soup.find("h1")
+    if h1:
+        t = h1.get_text(strip=True)
+        if t:
+            return t
+
+    return None
+
+
+def _fetch_single_page(url: str) -> List[ScrapedPost]:
+    """
+    指定URL（1ページ分）からレス一覧を取得。
+    レスがない場合は空リストを返す（エラーにはしない）。
+    """
+    headers = _build_headers()
 
     try:
         resp = requests.get(url, headers=headers, timeout=10)
@@ -174,7 +209,7 @@ def fetch_posts_from_thread(url: str, max_pages: int = 20) -> List[ScrapedPost]:
 
         all_posts.extend(posts)
 
-        # マナーとしてちょっと待つ（爆速連打防止）
+        # マナーとしてちょっと待つ（連続アクセスを抑える）
         time.sleep(1)
 
     if not all_posts:
