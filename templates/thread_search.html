@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <title>外部スレッド検索</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+        body {
+            font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 16px;
+            line-height: 1.7;
+        }
+        h1 {
+            font-size: 1.3rem;
+            margin-bottom: 8px;
+        }
+        form {
+            margin-bottom: 16px;
+            padding: 8px 12px;
+            border-radius: 6px;
+            background: #f8f9fa;
+        }
+        label {
+            font-size: 0.85rem;
+            font-weight: 600;
+        }
+        select, input[type="text"] {
+            width: 100%;
+            padding: 6px 8px;
+            box-sizing: border-box;
+            font-size: 0.95rem;
+            margin: 4px 0 10px;
+        }
+        button {
+            padding: 6px 14px;
+            font-size: 0.95rem;
+            cursor: pointer;
+        }
+        .thread-item {
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            padding: 8px 10px;
+            margin-bottom: 8px;
+            background: #fff;
+        }
+        .thread-title {
+            font-size: 0.95rem;
+            font-weight: bold;
+        }
+        .thread-url {
+            font-size: 0.8rem;
+            color: #666;
+            word-break: break-all;
+        }
+        .thread-meta {
+            font-size: 0.8rem;
+            color: #555;
+            margin-top: 2px;
+        }
+        .error-message {
+            color: #c0392b;
+            font-size: 0.9rem;
+            margin-bottom: 8px;
+        }
+        .back-link {
+            font-size: 0.9rem;
+            margin-top: 8px;
+        }
+    </style>
+</head>
+<body>
+    <h1>外部スレッド検索</h1>
+
+    <p class="back-link">
+        <a href="/">Personal Search に戻る</a>
+    </p>
+
+    {% if error_message %}
+        <p class="error-message">{{ error_message }}</p>
+    {% endif %}
+
+    <form method="get" action="/thread_search">
+        <label for="area">地域：</label><br>
+        <select id="area" name="area">
+            {% for a in area_options %}
+                <option value="{{ a.code }}" {% if a.code == current_area %}selected{% endif %}>
+                    {{ a.label }}
+                </option>
+            {% endfor %}
+        </select>
+
+        <label for="period">期間設定：</label><br>
+        <select id="period" name="period">
+            {% for p in period_options %}
+                <option value="{{ p.id }}" {% if p.id == current_period %}selected{% endif %}>
+                    {{ p.label }}
+                </option>
+            {% endfor %}
+        </select>
+
+        <label for="keyword">キーワード：</label><br>
+        <input
+            type="text"
+            id="keyword"
+            name="keyword"
+            value="{{ keyword or '' }}"
+            placeholder="タイトルに含まれる語句"
+        >
+
+        <div style="margin-top:8px;">
+            <button type="submit">スレッド検索</button>
+        </div>
+    </form>
+
+    {% if keyword %}
+        <h2>検索結果（{{ results|length }}件）</h2>
+
+        {% if results %}
+            <form method="post" action="/thread_search/posts">
+                <input type="hidden" name="keyword" value="{{ keyword }}">
+                <input type="hidden" name="area" value="{{ current_area }}">
+                <input type="hidden" name="period" value="{{ current_period }}">
+
+                <p style="font-size:0.9rem;">
+                    スレッドを1つ選んで、その中から「{{ keyword }}」を含むレスを検索します。
+                </p>
+
+                {% for th in results %}
+                    <div class="thread-item">
+                        <label>
+                            <input type="radio" name="selected_thread" value="{{ th.url }}">
+                            <span class="thread-title">{{ th.title }}</span>
+                        </label>
+                        <div class="thread-url">{{ th.url }}</div>
+                        {% if th.last_post_at_str %}
+                            <div class="thread-meta">最終レス：{{ th.last_post_at_str }}</div>
+                        {% endif %}
+                    </div>
+                {% endfor %}
+
+                <div style="margin-top:8px;">
+                    <button type="submit">選んだスレ内でキーワード検索</button>
+                </div>
+            </form>
+        {% else %}
+            <p>該当するスレッドは見つかりませんでした。</p>
+        {% endif %}
+    {% endif %}
+</body>
+</html>
