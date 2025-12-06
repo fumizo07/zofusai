@@ -81,6 +81,7 @@
         <p class="error-message">{{ error_message }}</p>
     {% endif %}
 
+    <!-- タイトル検索フォーム -->
     <form method="get" action="/thread_search">
         <label for="area">地域：</label><br>
         <select id="area" name="area">
@@ -106,7 +107,7 @@
             id="keyword"
             name="keyword"
             value="{{ keyword or '' }}"
-            placeholder="タイトルに含まれる語句"
+            placeholder="タイトルに含まれる語句（例：重要）"
         >
 
         <div style="margin-top:8px;">
@@ -118,13 +119,15 @@
         <h2>検索結果（{{ results|length }}件）</h2>
 
         {% if results %}
+            <!-- スレ選択 + 本文キーワード入力フォーム -->
             <form method="post" action="/thread_search/posts">
-                <input type="hidden" name="keyword" value="{{ keyword }}">
+                <input type="hidden" name="title_keyword" value="{{ keyword }}">
                 <input type="hidden" name="area" value="{{ current_area }}">
                 <input type="hidden" name="period" value="{{ current_period }}">
 
-                <p style="font-size:0.9rem;">
-                    スレッドを1つ選んで、その中から「{{ keyword }}」を含むレスを検索します。
+                <p style="font-size:0.9rem; margin-bottom:8px;">
+                    タイトルに「{{ keyword }}」を含むスレの一覧です。<br>
+                    1つ選んで、本文中から別のキーワードで絞り込みできます。
                 </p>
 
                 {% for th in results %}
@@ -140,8 +143,17 @@
                     </div>
                 {% endfor %}
 
+                <label for="post_keyword">本文キーワード：</label><br>
+                <input
+                    type="text"
+                    id="post_keyword"
+                    name="post_keyword"
+                    value=""
+                    placeholder="本文に含まれる語句（例：必須）"
+                >
+
                 <div style="margin-top:8px;">
-                    <button type="submit">選んだスレ内でキーワード検索</button>
+                    <button type="submit">選んだスレ内で検索</button>
                 </div>
             </form>
         {% else %}
