@@ -341,50 +341,53 @@
         <p class="no-result">上のフォームに条件を入力して検索してみてください。</p>
     {% endif %}
 
-    <!-- 下部にも同じ検索フォームを配置 -->
-    <h2>再検索</h2>
-    <form method="get" action="/">
-        <label for="q_bottom">キーワード：</label><br>
-        <input
-            type="text"
-            id="q_bottom"
-            name="q"
-            value="{{ keyword or '' }}"
-            placeholder="例：テスト, キーワード など"
-        >
+    {# ★ここから：下部フォームは「結果が出ている時だけ」表示 #}
+    {% if (keyword or tags_input or thread_filter) and results %}
+        <h2>再検索</h2>
+        <form method="get" action="/">
+            <label for="q_bottom">キーワード：</label><br>
+            <input
+                type="text"
+                id="q_bottom"
+                name="q"
+                value="{{ keyword or '' }}"
+                placeholder="例：テスト, キーワード など"
+            >
 
-        <label for="thread_filter_bottom">スレURL / タイトル（任意）：</label><br>
-        <input
-            type="text"
-            id="thread_filter_bottom"
-            name="thread_filter"
-            value="{{ thread_filter or '' }}"
-            placeholder="空欄なら全スレ対象"
-        >
+            <label for="thread_filter_bottom">スレURL / タイトル（任意）：</label><br>
+            <input
+                type="text"
+                id="thread_filter_bottom"
+                name="thread_filter"
+                value="{{ thread_filter or '' }}"
+                placeholder="空欄なら全スレ対象"
+            >
 
-        <label for="tags_bottom">タグフィルタ（カンマ区切り）：</label><br>
-        <input
-            type="text"
-            id="tags_bottom"
-            name="tags"
-            value="{{ tags_input or '' }}"
-            placeholder="例：重要, 要確認 など"
-        >
+            <label for="tags_bottom">タグフィルタ（カンマ区切り）：</label><br>
+            <input
+                type="text"
+                id="tags_bottom"
+                name="tags"
+                value="{{ tags_input or '' }}"
+                placeholder="例：重要, 要確認 など"
+            >
 
-        <label>タグ条件：</label><br>
-        <label>
-            <input type="radio" name="tag_mode" value="or" {% if tag_mode != 'and' %}checked{% endif %}>
-            OR（いずれか含む）
-        </label>
-        &nbsp;
-        <label>
-            <input type="radio" name="tag_mode" value="and" {% if tag_mode == 'and' %}checked{% endif %}>
-            AND（すべて含む）
-        </label>
+            <label>タグ条件：</label><br>
+            <label>
+                <input type="radio" name="tag_mode" value="or" {% if tag_mode != 'and' %}checked{% endif %}>
+                OR（いずれか含む）
+            </label>
+            &nbsp;
+            <label>
+                <input type="radio" name="tag_mode" value="and" {% if tag_mode == 'and' %}checked{% endif %}>
+                AND（すべて含む）
+            </label>
 
-        <div style="margin-top:8px;">
-            <button type="submit">検索</button>
-        </div>
-    </form>
+            <div style="margin-top:8px;">
+                <button type="submit">検索</button>
+            </div>
+        </form>
+    {% endif %}
+    {# ★ここまで #}
 </body>
 </html>
