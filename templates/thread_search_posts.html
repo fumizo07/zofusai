@@ -48,14 +48,9 @@
             font-size: 0.9rem;
             color: #333;
         }
-        .result-meta {
-            font-size: 0.8rem;
-            color: #666;
-            margin-top: 2px;
-        }
         .result-text {
             margin-top: 8px;
-            white-space: pre-wrap;
+            white-space: pre-wrap;   /* 本文は改行あり */
             font-size: 0.9rem;
         }
         .section-title {
@@ -65,17 +60,22 @@
             font-weight: bold;
             color: #444;
         }
-        .context-line {
-            font-size: 0.85rem;
+        /* アンカー先（複数行OK） */
+        .anchor-item {
             border-left: 2px solid #eee;
             padding-left: 6px;
-            margin: 2px 0;
-            white-space: normal;
+            margin: 4px 0;
         }
-        .context-line-root {
-            background: #fffbe6;
-            font-weight: bold;
+        .anchor-meta {
+            font-size: 0.8rem;
+            color: #666;
+            margin-bottom: 2px;
         }
+        .anchor-body {
+            font-size: 0.9rem;
+            white-space: pre-wrap;   /* アンカー先は改行を保持 */
+        }
+        /* ツリー（複数行OK） */
         .tree-item {
             border-left: 2px solid #ddd;
             padding-left: 6px;
@@ -88,7 +88,19 @@
             margin-bottom: 1px;
         }
         .tree-body {
-            white-space: pre-wrap;
+            white-space: pre-wrap;   /* ツリーも改行を保持 */
+        }
+        /* コンテキスト（一行表示） */
+        .context-line {
+            font-size: 0.85rem;
+            border-left: 2px solid #eee;
+            padding-left: 6px;
+            margin: 2px 0;
+            white-space: normal;     /* 改行はスペース扱いにする */
+        }
+        .context-line-root {
+            background: #fffbe6;
+            font-weight: bold;
         }
         .no-result {
             color: #777;
@@ -112,9 +124,7 @@
         <p class="error-message">{{ error_message }}</p>
     {% endif %}
 
-    <div class="thread-url">
-        対象スレ：{{ thread_url }}
-    </div>
+    <div class="thread-url">対象スレ：{{ thread_url }}</div>
 
     <p style="font-size:0.9rem;">
         タイトルキーワード：<strong>{{ title_keyword or '（未指定）' }}</strong><br>
@@ -138,23 +148,25 @@
                     {% endif %}
                 </div>
 
-                <div class="result-text">
-                    {{ highlight(post.body, post_keyword) }}
-                </div>
+                <!-- 本文：改行あり・文頭の変な空白は main.py 側で除去済み -->
+                <div class="result-text">{{ highlight(post.body, post_keyword) }}</div>
 
                 {% if item.anchor_targets %}
                     <div class="section-title">このレスが参照しているレス</div>
                     {% for a in item.anchor_targets %}
-                        <div class="context-line">
-                            {% if a.post_no %}
-                                #{{ a.post_no }}
-                            {% else %}
-                                レス番号不明
-                            {% endif %}
-                            {% if a.posted_at %}
-                                ／ {{ a.posted_at }}
-                            {% endif %}
-                            ：{{ highlight(a.body|replace('\n', ' '), post_keyword) }}
+                        <div class="anchor-item">
+                            <div class="anchor-meta">
+                                {% if a.post_no %}
+                                    #{{ a.post_no }}
+                                {% else %}
+                                    レス番号不明
+                                {% endif %}
+                                {% if a.posted_at %}
+                                    ／ {{ a.posted_at }}
+                                {% endif %}
+                            </div>
+                            <!-- アンカー先：改行あり・テンプレのインデントは出さない -->
+                            <div class="anchor-body">{{ highlight(a.body, post_keyword) }}</div>
                         </div>
                     {% endfor %}
                 {% endif %}
@@ -173,9 +185,7 @@
                                     ／ {{ node.post.posted_at }}
                                 {% endif %}
                             </div>
-                            <div class="tree-body">
-                                {{ highlight(node.post.body, post_keyword) }}
-                            </div>
+                            <div class="tree-body">{{ highlight(node.post.body, post_keyword) }}</div>
                         </div>
                     {% endfor %}
                 {% else %}
@@ -185,7 +195,6 @@
                 {% if item.context %}
                     <div class="section-title">このレスの前後（コンテキスト）</div>
                     {% for c in item.context %}
-                        {# レス番号が一致する行だけハイライト #}
                         <div class="context-line {% if c.post_no and post.post_no and c.post_no == post.post_no %}context-line-root{% endif %}">
                             {% if c.post_no %}
                                 #{{ c.post_no }}
