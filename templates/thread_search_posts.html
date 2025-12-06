@@ -185,7 +185,8 @@
                 {% if item.context %}
                     <div class="section-title">このレスの前後（コンテキスト）</div>
                     {% for c in item.context %}
-                        <div class="context-line {% if c is post %}context-line-root{% endif %}">
+                        {# レス番号が一致する行だけハイライト #}
+                        <div class="context-line {% if c.post_no and post.post_no and c.post_no == post.post_no %}context-line-root{% endif %}">
                             {% if c.post_no %}
                                 #{{ c.post_no }}
                             {% else %}
