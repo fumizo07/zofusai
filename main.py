@@ -683,7 +683,7 @@ def search_threads_external(area_code: str, keyword: str, max_days: Optional[int
         if not title:
             continue
 
-        # タイトルに keyword を含むものだけ採用（ユーザーの指定通りタイトルベース検索に揃える）
+        # タイトルに keyword を含むものだけ採用
         if keyword not in title:
             continue
 
@@ -726,6 +726,7 @@ def thread_search_page(
 ):
     """
     外部スレッド検索（タイトル一覧）画面。
+    keyword は「タイトルに含めたい語句」として扱う。
     """
     area = (area or "").strip() or "3"
     period = (period or "").strip() or "2y"
@@ -749,7 +750,7 @@ def thread_search_page(
             "period_options": PERIOD_OPTIONS,
             "current_area": area,
             "current_period": period,
-            "keyword": keyword,
+            "keyword": keyword,  # タイトル用キーワード
             "results": results,
             "error_message": error_message,
         },
@@ -762,30 +763,35 @@ def thread_search_page(
 def thread_search_posts(
     request: Request,
     selected_thread: str = Form(""),
-    keyword: str = Form(""),
+    title_keyword: str = Form(""),
+    post_keyword: str = Form(""),
     area: str = Form("3"),
     period: str = Form("2y"),
 ):
     """
-    外部検索で選んだ1スレの中から、キーワードを含むレスだけ表示する。
-    DBには保存しないオンメモリ版。
+    外部検索で選んだ1スレの中から、
+    「post_keyword」を含むレスだけ表示する。
+    （title_keyword は画面表示用に保持するだけ）
     """
     selected_thread = (selected_thread or "").strip()
-    keyword = (keyword or "").strip()
+    title_keyword = (title_keyword or "").strip()
+    post_keyword = (post_keyword or "").strip()
     area = (area or "").strip() or "3"
     period = (period or "").strip() or "2y"
 
     posts_result: List[dict] = []
     error_message = ""
 
-    if not selected_thread or not keyword:
-        error_message = "スレッドまたはキーワードが指定されていません。"
+    if not selected_thread:
+        error_message = "スレッドが選択されていません。"
+    elif not post_keyword:
+        error_message = "本文キーワードが入力されていません。"
     else:
         try:
             scraped = fetch_posts_from_thread(selected_thread)
             for p in scraped:
                 body = p.body or ""
-                if keyword in body:
+                if post_keyword in body:
                     posts_result.append(
                         {
                             "post_no": p.post_no,
@@ -801,7 +807,8 @@ def thread_search_posts(
         {
             "request": request,
             "thread_url": selected_thread,
-            "keyword": keyword,
+            "title_keyword": title_keyword,
+            "post_keyword": post_keyword,
             "area": area,
             "period": period,
             "posts": posts_result,
