@@ -100,13 +100,19 @@ def get_period_days(period_id: str) -> Optional[int]:
 def _normalize_lines(text_value: str) -> str:
     """
     各行ごとに、先頭の空白・全角スペース・NBSPなどを削る。
-    「                        >>251」→「>>251」にする。
+    また先頭側の「完全に空行」の連続は落とす。
     """
     lines = text_value.splitlines()
-    cleaned = []
+    cleaned: List[str] = []
+    leading = True
     for line in lines:
+        if leading and line.strip() == "":
+            # 先頭の空行はスキップ
+            continue
+        # 行頭の空白類を削る
         line = re.sub(r'^[\s\u3000\xa0]+', '', line)
         cleaned.append(line)
+        leading = False
     return "\n".join(cleaned)
 
 
@@ -143,7 +149,7 @@ def simplify_thread_title(title: str) -> str:
     return title.strip()
 
 
-# ====== アンカー／ツリー関連 ======
+# ====== アンカー／ツリー関連（DB内検索用） ======
 
 def parse_anchors_csv(s: Optional[str]) -> List[int]:
     """
@@ -163,7 +169,7 @@ def parse_anchors_csv(s: Optional[str]) -> List[int]:
 
 def build_reply_tree(all_posts: List[ThreadPost], root: ThreadPost) -> List[dict]:
     """
-    1スレ内の全レスから root への返信ツリーを作る。
+    1スレ内の全レスから root への返信ツリーを作る（DB用）。
     """
     replies: Dict[int, List[ThreadPost]] = defaultdict(list)
     for p in all_posts:
@@ -191,7 +197,7 @@ def build_reply_tree(all_posts: List[ThreadPost], root: ThreadPost) -> List[dict
     return result
 
 
-# ====== 日付パース ======
+# ====== 日付パース（今のところ外部検索では内部使用のみ） ======
 
 def parse_posted_at_value(value: str) -> Optional[datetime]:
     """
@@ -771,7 +777,12 @@ def thread_search_posts(
     """
     外部検索で選んだ1スレの中から、
     「post_keyword」を含むレスだけ表示する。
-    （title_keyword は画面表示用に保持するだけ）
+    index.html と同じように：
+      - 本文ハイライト
+      - アンカー先
+      - 返信ツリー
+      - 前後5レスのコンテキスト
+    を組み立てる。
     """
     selected_thread = (selected_thread or "").strip()
     title_keyword = (title_keyword or "").strip()
@@ -779,7 +790,7 @@ def thread_search_posts(
     area = (area or "").strip() or "3"
     period = (period or "").strip() or "2y"
 
-    posts_result: List[dict] = []
+    entries: List[dict] = []
     error_message = ""
 
     if not selected_thread:
@@ -788,19 +799,87 @@ def thread_search_posts(
         error_message = "本文キーワードが入力されていません。"
     else:
         try:
-            scraped = fetch_posts_from_thread(selected_thread)
-            for p in scraped:
-                body = p.body or ""
-                if post_keyword in body:
-                    posts_result.append(
-                        {
-                            "post_no": p.post_no,
-                            "posted_at": p.posted_at,
-                            "body": body,
-                        }
-                    )
+            # 全レスを取得（DBには保存しないオンメモリ版）
+            all_posts = fetch_posts_from_thread(selected_thread)
+
+            # レス番号 → Post の辞書（アンカー先・コンテキスト用）
+            posts_by_no: Dict[int, object] = {}
+            for p in all_posts:
+                if p.post_no is not None and p.post_no not in posts_by_no:
+                    posts_by_no[p.post_no] = p
+
+            # 返信ツリー用インデックス（親レス番号 → 子レス一覧）
+            replies: Dict[int, List[object]] = defaultdict(list)
+            for p in all_posts:
+                if not p.anchors:
+                    continue
+                for a in p.anchors:
+                    replies[a].append(p)
+
+            def build_reply_tree_external(root) -> List[dict]:
+                """
+                外部スレッド用の返信ツリー構築。
+                """
+                result: List[dict] = []
+                visited: set[int] = set()
+
+                def dfs(post, depth: int):
+                    pid = id(post)
+                    if pid in visited:
+                        return
+                    visited.add(pid)
+                    if post is not root:
+                        result.append({"post": post, "depth": depth})
+                    if post.post_no is None:
+                        return
+                    for child in replies.get(post.post_no, []):
+                        dfs(child, depth + 1)
+
+                if root.post_no is not None:
+                    for child in replies.get(root.post_no, []):
+                        dfs(child, 0)
+                return result
+
+            # ヒットしたレスだけ拾う
+            for root in all_posts:
+                body = root.body or ""
+                if post_keyword not in body:
+                    continue
+
+                # 前後5レスのコンテキスト
+                context_posts: List[object] = []
+                if root.post_no is not None:
+                    start_no = max(1, root.post_no - 5)
+                    end_no = root.post_no + 5
+                    for p in all_posts:
+                        if p.post_no is None:
+                            continue
+                        if start_no <= p.post_no <= end_no:
+                            context_posts.append(p)
+
+                # 返信ツリー
+                tree_items = build_reply_tree_external(root)
+
+                # root が参照しているアンカー先
+                anchor_targets: List[object] = []
+                if root.anchors:
+                    for n in root.anchors:
+                        target = posts_by_no.get(n)
+                        if target:
+                            anchor_targets.append(target)
+
+                entries.append(
+                    {
+                        "root": root,
+                        "context": context_posts,
+                        "tree": tree_items,
+                        "anchor_targets": anchor_targets,
+                    }
+                )
+
         except Exception as e:
             error_message = f"スレッド内検索中にエラーが発生しました: {e}"
+            entries = []
 
     return templates.TemplateResponse(
         "thread_search_posts.html",
@@ -811,7 +890,7 @@ def thread_search_posts(
             "post_keyword": post_keyword,
             "area": area,
             "period": period,
-            "posts": posts_result,
+            "entries": entries,
             "error_message": error_message,
             "highlight": highlight_text,
         },
