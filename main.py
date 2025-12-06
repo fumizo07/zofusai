@@ -211,6 +211,15 @@ def fetch_thread_into_db(db: Session, url: str) -> int:
     if thread_title:
         thread_title = simplify_thread_title(thread_title)
 
+        # ★ここを追加：このURLの既存レコードで thread_title が空のものに一括でセット
+        db.query(ThreadPost).filter(
+            ThreadPost.thread_url == url,
+            ThreadPost.thread_title.is_(None),
+        ).update(
+            {ThreadPost.thread_title: thread_title},
+            synchronize_session=False,
+        )
+
     scraped_posts = fetch_posts_from_thread(url)
     count = 0
 
