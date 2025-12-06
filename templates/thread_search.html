@@ -114,7 +114,7 @@
         </div>
     </form>
 
-    {% if keyword %}
+    {% if keyword and current_area %}
         <h2>検索結果（{{ results|length }}件）</h2>
 
         {% if results %}
