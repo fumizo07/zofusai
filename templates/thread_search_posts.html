@@ -16,25 +16,31 @@
             font-size: 1.3rem;
             margin-bottom: 8px;
         }
+        .back-link {
+            font-size: 0.9rem;
+            margin-bottom: 8px;
+        }
+        .thread-url {
+            font-size: 0.8rem;
+            color: #666;
+            word-break: break-all;
+            margin-bottom: 4px;
+        }
         .result {
             border: 1px solid #ddd;
             border-radius: 6px;
             padding: 8px 10px;
-            margin-bottom: 10px;
+            margin-bottom: 8px;
             background: #fff;
         }
-        .result-id {
-            font-weight: bold;
-            font-size: 0.9rem;
-        }
         .result-meta {
-            font-size: 0.8rem;
-            color: #666;
-            margin-top: 2px;
+            font-size: 0.85rem;
+            color: #555;
+            margin-bottom: 4px;
         }
-        .result-text {
-            margin-top: 6px;
+        .result-body {
             white-space: pre-wrap;
+            font-size: 0.9rem;
         }
         .error-message {
             color: #c0392b;
@@ -44,52 +50,52 @@
         mark {
             background: #ffec99;
         }
-        .back-link {
-            font-size: 0.9rem;
-            margin-top: 8px;
-        }
     </style>
 </head>
 <body>
     <h1>スレッド内検索結果</h1>
 
-    <p>
-        対象スレ：<a href="{{ thread_url }}" target="_blank">{{ thread_url }}</a><br>
-        キーワード：<strong>{{ keyword }}</strong>
+    <p class="back-link">
+        <a href="/thread_search?area={{ area }}&period={{ period }}&keyword={{ title_keyword|urlencode }}">
+            外部スレッド検索に戻る
+        </a>
     </p>
 
     {% if error_message %}
         <p class="error-message">{{ error_message }}</p>
     {% endif %}
 
-    {% if posts %}
+    <div class="thread-url">
+        対象スレ：{{ thread_url }}
+    </div>
+
+    <p style="font-size:0.9rem;">
+        タイトルキーワード：<strong>{{ title_keyword or '（未指定）' }}</strong><br>
+        本文キーワード：<strong>{{ post_keyword or '（未指定）' }}</strong>
+    </p>
+
+    {% if posts and not error_message %}
         <h2>ヒットしたレス（{{ posts|length }}件）</h2>
+
         {% for p in posts %}
             <div class="result">
-                <div class="result-id">
+                <div class="result-meta">
                     {% if p.post_no %}
-                        レス #{{ p.post_no }}
+                        #{{ p.post_no }}
                     {% else %}
-                        レス
+                        （レス番号不明）
+                    {% endif %}
+                    {% if p.posted_at %}
+                        ／ {{ p.posted_at }}
                     {% endif %}
                 </div>
-                {% if p.posted_at %}
-                    <div class="result-meta">{{ p.posted_at }}</div>
-                {% endif %}
-                <div class="result-text">
-                    {{ highlight(p.body, keyword) }}
+                <div class="result-body">
+                    {{ highlight(p.body, post_keyword) }}
                 </div>
             </div>
         {% endfor %}
-    {% else %}
-        {% if not error_message %}
-            <p>該当するレスは見つかりませんでした。</p>
-        {% endif %}
+    {% elif not error_message %}
+        <p>指定したキーワードを含むレスは見つかりませんでした。</p>
     {% endif %}
-
-    <p class="back-link">
-        <a href="/thread_search?area={{ area }}&period={{ period }}&keyword={{ keyword }}">スレ一覧に戻る</a> |
-        <a href="/">Personal Search に戻る</a>
-    </p>
 </body>
 </html>
