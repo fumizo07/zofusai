@@ -16,6 +16,11 @@
             font-size: 1.3rem;
             margin-bottom: 8px;
         }
+        h2 {
+            font-size: 1.1rem;
+            margin-top: 16px;
+            margin-bottom: 8px;
+        }
         .back-link {
             font-size: 0.9rem;
             margin-bottom: 8px;
@@ -26,26 +31,68 @@
             word-break: break-all;
             margin-bottom: 4px;
         }
-        .result {
-            border: 1px solid #ddd;
-            border-radius: 6px;
-            padding: 8px 10px;
-            margin-bottom: 8px;
-            background: #fff;
-        }
-        .result-meta {
-            font-size: 0.85rem;
-            color: #555;
-            margin-bottom: 4px;
-        }
-        .result-body {
-            white-space: pre-wrap;
-            font-size: 0.9rem;
-        }
         .error-message {
             color: #c0392b;
             font-size: 0.9rem;
             margin-bottom: 8px;
+        }
+        .result {
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            padding: 10px 12px;
+            margin-bottom: 14px;
+            background: #fff;
+        }
+        .result-id {
+            font-weight: bold;
+            font-size: 0.9rem;
+            color: #333;
+        }
+        .result-meta {
+            font-size: 0.8rem;
+            color: #666;
+            margin-top: 2px;
+        }
+        .result-text {
+            margin-top: 8px;
+            white-space: pre-wrap;
+            font-size: 0.9rem;
+        }
+        .section-title {
+            margin-top: 10px;
+            margin-bottom: 4px;
+            font-size: 0.85rem;
+            font-weight: bold;
+            color: #444;
+        }
+        .context-line {
+            font-size: 0.85rem;
+            border-left: 2px solid #eee;
+            padding-left: 6px;
+            margin: 2px 0;
+            white-space: normal;
+        }
+        .context-line-root {
+            background: #fffbe6;
+            font-weight: bold;
+        }
+        .tree-item {
+            border-left: 2px solid #ddd;
+            padding-left: 6px;
+            margin: 3px 0;
+            font-size: 0.85rem;
+        }
+        .tree-meta {
+            color: #555;
+            font-size: 0.8rem;
+            margin-bottom: 1px;
+        }
+        .tree-body {
+            white-space: pre-wrap;
+        }
+        .no-result {
+            color: #777;
+            font-size: 0.9rem;
         }
         mark {
             background: #ffec99;
@@ -74,28 +121,87 @@
         本文キーワード：<strong>{{ post_keyword or '（未指定）' }}</strong>
     </p>
 
-    {% if posts and not error_message %}
-        <h2>ヒットしたレス（{{ posts|length }}件）</h2>
+    {% if entries and not error_message %}
+        <h2>ヒットしたレス（{{ entries|length }}件）</h2>
 
-        {% for p in posts %}
+        {% for item in entries %}
+            {% set post = item.root %}
             <div class="result">
-                <div class="result-meta">
-                    {% if p.post_no %}
-                        #{{ p.post_no }}
+                <div class="result-id">
+                    {% if post.post_no %}
+                        レス #{{ post.post_no }}
                     {% else %}
-                        （レス番号不明）
+                        レス番号不明
                     {% endif %}
-                    {% if p.posted_at %}
-                        ／ {{ p.posted_at }}
+                    {% if post.posted_at %}
+                        ／ {{ post.posted_at }}
                     {% endif %}
                 </div>
-                <div class="result-body">
-                    {{ highlight(p.body, post_keyword) }}
+
+                <div class="result-text">
+                    {{ highlight(post.body, post_keyword) }}
                 </div>
+
+                {% if item.anchor_targets %}
+                    <div class="section-title">このレスが参照しているレス</div>
+                    {% for a in item.anchor_targets %}
+                        <div class="context-line">
+                            {% if a.post_no %}
+                                #{{ a.post_no }}
+                            {% else %}
+                                レス番号不明
+                            {% endif %}
+                            {% if a.posted_at %}
+                                ／ {{ a.posted_at }}
+                            {% endif %}
+                            ：{{ highlight(a.body|replace('\n', ' '), post_keyword) }}
+                        </div>
+                    {% endfor %}
+                {% endif %}
+
+                <div class="section-title">このレスへの返信ツリー</div>
+                {% if item.tree %}
+                    {% for node in item.tree %}
+                        <div class="tree-item" style="margin-left: {{ node.depth * 20 }}px;">
+                            <div class="tree-meta">
+                                {% if node.post.post_no %}
+                                    #{{ node.post.post_no }}
+                                {% else %}
+                                    レス番号不明
+                                {% endif %}
+                                {% if node.post.posted_at %}
+                                    ／ {{ node.post.posted_at }}
+                                {% endif %}
+                            </div>
+                            <div class="tree-body">
+                                {{ highlight(node.post.body, post_keyword) }}
+                            </div>
+                        </div>
+                    {% endfor %}
+                {% else %}
+                    <p class="no-result">このレスへの返信（アンカー）は見つかりませんでした。</p>
+                {% endif %}
+
+                {% if item.context %}
+                    <div class="section-title">このレスの前後（コンテキスト）</div>
+                    {% for c in item.context %}
+                        <div class="context-line {% if c is post %}context-line-root{% endif %}">
+                            {% if c.post_no %}
+                                #{{ c.post_no }}
+                            {% else %}
+                                レス番号不明
+                            {% endif %}
+                            {% if c.posted_at %}
+                                ／ {{ c.posted_at }}
+                            {% endif %}
+                            ：{{ highlight(c.body|replace('\n', ' '), post_keyword) }}
+                        </div>
+                    {% endfor %}
+                {% endif %}
             </div>
         {% endfor %}
     {% elif not error_message %}
-        <p>指定したキーワードを含むレスは見つかりませんでした。</p>
+        <p class="no-result">指定したキーワードを含むレスは見つかりませんでした。</p>
     {% endif %}
 </body>
 </html>
