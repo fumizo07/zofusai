@@ -39,14 +39,14 @@ class ThreadPost(Base):
     __tablename__ = "thread_posts"
 
     id = Column(Integer, primary_key=True, index=True)
-    thread_url = Column(Text, nullable=False, index=True)   # 取得元スレURL
-    thread_title = Column(Text, nullable=True)              # スレタイトル（簡易版）
-    post_no = Column(Integer, nullable=True, index=True)    # レス番号
-    posted_at = Column(Text, nullable=True)                 # 投稿日時（文字列）
-    body = Column(Text, nullable=False)                     # 本文
-    anchors = Column(Text, nullable=True)                   # 「,55,60,130,」のような文字列
-    tags = Column(Text, nullable=True)                      # 自分用タグ
-    memo = Column(Text, nullable=True)                      # 自分用メモ
+    thread_url = Column(Text, nullable=False, index=True)
+    thread_title = Column(Text, nullable=True)
+    post_no = Column(Integer, nullable=True, index=True)
+    posted_at = Column(Text, nullable=True)
+    body = Column(Text, nullable=False)
+    anchors = Column(Text, nullable=True)  # ",55,60,130," のような形式
+    tags = Column(Text, nullable=True)     # 自分用タグ
+    memo = Column(Text, nullable=True)     # 自分用メモ
 
 
 def get_db():
@@ -57,32 +57,27 @@ def get_db():
         db.close()
 
 
-# ====== 外部スレッド検索用 定数 ======
+# ====== エリア／期間 定義（全国版） ======
 
-# エリアは、とりあえず利用頻度が高そうな関西(7)だけ用意しておく。
-# 必要になったら code / label を増やせるようにしておく。
-# 外部スレッド検索で使うエリア一覧（ acode に対応）
 AREA_OPTIONS = [
-    ("", "地域を選択"),
-    ("1",  "北海道版"),                         # 北海道
-    ("14", "北東北版（青森・岩手・秋田）"),     # 北東北
-    ("2",  "南東北版（宮城・山形・福島）"),     # 南東北
-    ("15", "北関東版（茨城・栃木・群馬）"),     # 北関東
-    ("3",  "南関東・東京周辺版"),               # 南関東＋東京周辺（sch_all などで使われる acode=3）
-    ("4",  "甲信越版（新潟・長野・山梨）"),     # 甲信越
-    ("6",  "北陸版（富山・石川・福井）"),       # 北陸
-    ("5",  "東海版（愛知・岐阜・静岡・三重）"), # 東海
-    ("18", "関西版（滋賀・京都・兵庫・奈良・和歌山）"),  # 関西広域
-    ("7",  "大阪版（大阪単独）"),               # 大阪だけ
-    ("8",  "山陽版（岡山・広島・山口）"),       # 山陽
-    ("12", "山陰版（鳥取・島根）"),             # 山陰
-    ("9",  "四国版（徳島・香川・愛媛・高知）"), # 四国
-    ("10", "北部九州版（福岡・佐賀・長崎・大分）"), # 北部九州
-    ("16", "南部九州版（熊本・宮崎・鹿児島）"),     # 南部九州
-    ("11", "沖縄版"),                           # 沖縄
-    # 海外版も必要なら acode を確認して追加（今回は国内優先で省略）
+    {"code": "",   "label": "地域を選択"},
+    {"code": "1",  "label": "北海道版"},
+    {"code": "14", "label": "北東北版（青森・岩手・秋田）"},
+    {"code": "2",  "label": "南東北版（宮城・山形・福島）"},
+    {"code": "15", "label": "北関東版（茨城・栃木・群馬）"},
+    {"code": "3",  "label": "南関東・東京周辺版"},
+    {"code": "4",  "label": "甲信越版（新潟・長野・山梨）"},
+    {"code": "6",  "label": "北陸版（富山・石川・福井）"},
+    {"code": "5",  "label": "東海版（愛知・岐阜・静岡・三重）"},
+    {"code": "18", "label": "関西版（滋賀・京都・兵庫・奈良・和歌山）"},
+    {"code": "7",  "label": "大阪版（大阪単独）"},
+    {"code": "8",  "label": "山陽版（岡山・広島・山口）"},
+    {"code": "12", "label": "山陰版（鳥取・島根）"},
+    {"code": "9",  "label": "四国版（徳島・香川・愛媛・高知）"},
+    {"code": "10", "label": "北部九州版（福岡・佐賀・長崎・大分）"},
+    {"code": "16", "label": "南部九州版（熊本・宮崎・鹿児島）"},
+    {"code": "11", "label": "沖縄版"},
 ]
-
 
 PERIOD_OPTIONS = [
     {"id": "7d", "label": "7日以内", "days": 7},
@@ -97,9 +92,6 @@ PERIOD_ID_TO_DAYS = {p["id"]: p["days"] for p in PERIOD_OPTIONS}
 
 
 def get_period_days(period_id: str) -> Optional[int]:
-    """
-    期間IDから、何日以内かを返す。
-    """
     return PERIOD_ID_TO_DAYS.get(period_id)
 
 
@@ -108,24 +100,22 @@ def get_period_days(period_id: str) -> Optional[int]:
 def _normalize_lines(text_value: str) -> str:
     """
     各行ごとに、先頭の空白・全角スペース・NBSPなどを削る。
-    「                        >>251」のような行を「>>251」にする。
+    「                        >>251」→「>>251」にする。
     """
     lines = text_value.splitlines()
-    cleaned_lines = []
+    cleaned = []
     for line in lines:
         line = re.sub(r'^[\s\u3000\xa0]+', '', line)
-        cleaned_lines.append(line)
-    return "\n".join(cleaned_lines)
+        cleaned.append(line)
+    return "\n".join(cleaned)
 
 
 def highlight_text(text_value: Optional[str], keyword: str) -> Markup:
     """
-    本文中の検索語を <mark> で囲んで強調表示する。
-    表示の前に行頭スペースを削って整形する。
+    本文中の検索語を <mark> で囲んで強調表示。
     """
     if text_value is None:
         text_value = ""
-
     text_value = _normalize_lines(text_value)
 
     if not keyword:
@@ -153,7 +143,7 @@ def simplify_thread_title(title: str) -> str:
     return title.strip()
 
 
-# ====== ツリー構築用のヘルパー ======
+# ====== アンカー／ツリー関連 ======
 
 def parse_anchors_csv(s: Optional[str]) -> List[int]:
     """
@@ -173,8 +163,7 @@ def parse_anchors_csv(s: Optional[str]) -> List[int]:
 
 def build_reply_tree(all_posts: List[ThreadPost], root: ThreadPost) -> List[dict]:
     """
-    1スレ内の全レスから、
-    「root.post_no にアンカーを飛ばしているレス」を起点に木構造を作る。
+    1スレ内の全レスから root への返信ツリーを作る。
     """
     replies: Dict[int, List[ThreadPost]] = defaultdict(list)
     for p in all_posts:
@@ -202,6 +191,24 @@ def build_reply_tree(all_posts: List[ThreadPost], root: ThreadPost) -> List[dict
     return result
 
 
+# ====== 日付パース（レス日時用） ======
+
+def parse_posted_at_value(value: str) -> Optional[datetime]:
+    """
+    レス日時文字列を datetime に変換する。
+    例: "2025/11/03 06:35"
+    """
+    if not value:
+        return None
+    value = value.strip()
+    for fmt in ("%Y/%m/%d %H:%M", "%Y/%m/%d %H:%M:%S"):
+        try:
+            return datetime.strptime(value, fmt)
+        except ValueError:
+            continue
+    return None
+
+
 # ====== アプリ本体 ======
 
 app = FastAPI()
@@ -211,10 +218,9 @@ templates = Jinja2Templates(directory="templates")
 @app.on_event("startup")
 def on_startup():
     """
-    アプリ起動時のテーブル作成＋カラム追加。
+    アプリ起動時のテーブル作成＋不足カラムの追加。
     """
     Base.metadata.create_all(bind=engine)
-
     with engine.begin() as conn:
         conn.execute(text("ALTER TABLE thread_posts ADD COLUMN IF NOT EXISTS tags TEXT"))
         conn.execute(text("ALTER TABLE thread_posts ADD COLUMN IF NOT EXISTS memo TEXT"))
@@ -243,8 +249,6 @@ def fetch_thread_into_db(db: Session, url: str) -> int:
     thread_title = get_thread_title(url)
     if thread_title:
         thread_title = simplify_thread_title(thread_title)
-
-        # 既存レコードの thread_title が空のものを一括更新
         db.query(ThreadPost).filter(
             ThreadPost.thread_url == url,
             ThreadPost.thread_title.is_(None),
@@ -314,7 +318,7 @@ def fetch_thread_into_db(db: Session, url: str) -> int:
     return count
 
 
-# ====== 内部検索（Personal Search のメイン画面） ======
+# ====== 内部検索（Personal Search メイン） ======
 
 @app.get("/", response_class=HTMLResponse)
 def show_search_page(
@@ -615,46 +619,35 @@ def edit_post_post(
 
 # ====== 外部スレッド検索（タイトル一覧） ======
 
-def parse_posted_at_value(value: str) -> Optional[datetime]:
-    """
-    スクレイパーで拾った posted_at 文字列を datetime に変換する。
-    例: "2025/11/03 06:35"
-    """
-    if not value:
-        return None
-    value = value.strip()
-    for fmt in ("%Y/%m/%d %H:%M", "%Y/%m/%d %H:%M:%S"):
-        try:
-            return datetime.strptime(value, fmt)
-        except ValueError:
-            continue
-    return None
-
-
 def search_threads_external(area_code: str, keyword: str, max_days: Optional[int]) -> List[dict]:
     """
-    外部検索サービス(tsr)を叩いて、エリア＋キーワードでスレ一覧を取得。
-    さらに必要なら「最終レス日時」で max_days 以内に絞り込む。
-    戻り値: {"title", "url", "last_post_at_str"} のリスト。
+    検索サイトを経由せず、掲示板本体の「スレッド検索」ページから
+    タイトルとURLを取り、必要ならレス日時で絞り込む。
     """
     if not area_code or not keyword:
         return []
 
-    keyword_for_url = quote_plus(keyword)
-    url = f"https://bakusearch.fitlapp.net/tsr?area={area_code}&keyword={keyword_for_url}"
+    url = f"https://bakusai.com/sch_thr_thread/acode={area_code}/word={quote_plus(keyword)}"
 
-    resp = requests.get(url, timeout=20)
+    resp = requests.get(
+        url,
+        timeout=20,
+        headers={"User-Agent": "Mozilla/5.0"},
+    )
     resp.raise_for_status()
     soup = BeautifulSoup(resp.text, "html.parser")
 
     threads: List[dict] = []
 
-    # aタグのうち、hrefに bakusai.com を含むものをスレッド候補とする
+    # 検索結果内のスレッドタイトルリンクは thr_res を含むURLになる
     for a in soup.find_all("a", href=True):
         href = a["href"]
-        if "bakusai.com" not in href:
+        if "/thr_res/" not in href:
             continue
-        title = a.get_text(strip=True)
+        title = (a.get_text() or "").strip()
+        if not title:
+            continue
+
         full_url = href
         if full_url.startswith("//"):
             full_url = "https:" + full_url
@@ -676,17 +669,20 @@ def search_threads_external(area_code: str, keyword: str, max_days: Optional[int
             unique_by_url[t["url"]] = t
     threads = list(unique_by_url.values())
 
+    # 期間指定なしならここで返す
     if max_days is None:
         return threads
 
+    # 期間指定ありなら、各スレの実際のレスを取得して「最後のレス日時」でフィルタ
     now = datetime.now()
     filtered: List[dict] = []
 
-    for t in threads:
+    # 過負荷防止のため、一度にチェックするスレ数を制限
+    MAX_CHECK = 40
+    for t in threads[:MAX_CHECK]:
         try:
             posts = fetch_posts_from_thread(t["url"])
         except Exception:
-            # スクレイプ失敗は無視
             continue
 
         latest_dt: Optional[datetime] = None
@@ -706,7 +702,6 @@ def search_threads_external(area_code: str, keyword: str, max_days: Optional[int
             t["last_post_at_str"] = latest_dt.strftime("%Y-%m-%d %H:%M")
             filtered.append(t)
 
-    # 新しい順にソート
     filtered.sort(key=lambda x: x.get("last_post_at_str") or "", reverse=True)
     return filtered
 
@@ -714,23 +709,21 @@ def search_threads_external(area_code: str, keyword: str, max_days: Optional[int
 @app.get("/thread_search", response_class=HTMLResponse)
 def thread_search_page(
     request: Request,
-    area: str = "7",
+    area: str = "3",
     period: str = "2y",
     keyword: str = "",
 ):
     """
     外部スレッド検索（タイトル一覧）画面。
-    GETで area / period / keyword を受け取り、あれば検索する。
     """
-    area = (area or "").strip() or "7"
+    area = (area or "").strip() or "3"
     period = (period or "").strip() or "2y"
     keyword = (keyword or "").strip()
 
     results: List[dict] = []
     error_message = ""
 
-    # いずれか入力があって keyword があるときだけ検索実行
-    if keyword:
+    if keyword and area:
         max_days = get_period_days(period)
         try:
             results = search_threads_external(area, keyword, max_days)
@@ -759,7 +752,7 @@ def thread_search_posts(
     request: Request,
     selected_thread: str = Form(""),
     keyword: str = Form(""),
-    area: str = Form("7"),
+    area: str = Form("3"),
     period: str = Form("2y"),
 ):
     """
@@ -768,7 +761,7 @@ def thread_search_posts(
     """
     selected_thread = (selected_thread or "").strip()
     keyword = (keyword or "").strip()
-    area = (area or "").strip() or "7"
+    area = (area or "").strip() or "3"
     period = (period or "").strip() or "2y"
 
     posts_result: List[dict] = []
