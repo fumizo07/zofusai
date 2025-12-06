@@ -2,7 +2,7 @@ import os
 import re
 from typing import List, Optional, Dict
 from collections import defaultdict
-from datetime import datetime
+from datetime import datetime, timedelta
 from urllib.parse import quote_plus
 
 import requests
@@ -191,7 +191,7 @@ def build_reply_tree(all_posts: List[ThreadPost], root: ThreadPost) -> List[dict
     return result
 
 
-# ====== 日付パース（レス日時用） ======
+# ====== 日付パース ======
 
 def parse_posted_at_value(value: str) -> Optional[datetime]:
     """
@@ -621,9 +621,15 @@ def edit_post_post(
 
 def search_threads_external(area_code: str, keyword: str, max_days: Optional[int]) -> List[dict]:
     """
-    検索サイトを経由せず、掲示板本体の「スレッド検索」ページから
-    タイトルとURLを取り、必要ならレス日時で絞り込む。
+    爆サイ本体の「スレッド検索結果」ページから
+    ・タイトル
+    ・URL
+    ・最新レス日時
+    を取り出す。
+    検索結果ページ内の「最新レス投稿日時：YYYY/MM/DD HH:MM」をパースし、
+    タイトルに keyword を含むスレだけを採用する。
     """
+    keyword = (keyword or "").strip()
     if not area_code or not keyword:
         return []
 
@@ -639,26 +645,63 @@ def search_threads_external(area_code: str, keyword: str, max_days: Optional[int
 
     threads: List[dict] = []
 
-    # 検索結果内のスレッドタイトルリンクは thr_res を含むURLになる
-    for a in soup.find_all("a", href=True):
-        href = a["href"]
-        if "/thr_res/" not in href:
+    # 期間フィルタの閾値
+    threshold: Optional[datetime] = None
+    if max_days is not None:
+        threshold = datetime.now() - timedelta(days=max_days)
+
+    # 「最新レス投稿日時：YYYY/MM/DD HH:MM」の文字列を起点に、
+    # 近くの /thr_res/ リンクを探してタイトル・URLを取る
+    for s in soup.find_all(string=re.compile("最新レス投稿日時")):
+        text = str(s)
+        m = re.search(r"(\d{4}/\d{2}/\d{2} \d{2}:\d{2})", text)
+        if not m:
             continue
-        title = (a.get_text() or "").strip()
+        try:
+            dt = datetime.strptime(m.group(1), "%Y/%m/%d %H:%M")
+        except ValueError:
+            continue
+
+        if threshold is not None and dt < threshold:
+            # 古すぎるものはスキップ
+            continue
+
+        # 祖先を遡りながら /thr_res/ を含む a タグを探す
+        parent = s.parent
+        link = None
+        while parent is not None and parent.name not in ("html", "body"):
+            candidate = parent.find("a", href=True)
+            if candidate and "/thr_res/" in candidate.get("href", ""):
+                link = candidate
+                break
+            parent = parent.parent
+
+        if not link:
+            continue
+
+        title = (link.get_text() or "").strip()
         if not title:
             continue
 
-        full_url = href
-        if full_url.startswith("//"):
-            full_url = "https:" + full_url
-        elif full_url.startswith("/"):
-            full_url = "https://bakusai.com" + full_url
+        # タイトルに keyword を含むものだけ採用（ユーザーの指定通りタイトルベース検索に揃える）
+        if keyword not in title:
+            continue
+
+        href = link.get("href", "")
+        if not href:
+            continue
+        if href.startswith("//"):
+            full_url = "https:" + href
+        elif href.startswith("/"):
+            full_url = "https://bakusai.com" + href
+        else:
+            full_url = href
 
         threads.append(
             {
                 "title": title,
                 "url": full_url,
-                "last_post_at_str": None,
+                "last_post_at_str": dt.strftime("%Y-%m-%d %H:%M"),
             }
         )
 
@@ -667,43 +710,11 @@ def search_threads_external(area_code: str, keyword: str, max_days: Optional[int
     for t in threads:
         if t["url"] not in unique_by_url:
             unique_by_url[t["url"]] = t
-    threads = list(unique_by_url.values())
 
-    # 期間指定なしならここで返す
-    if max_days is None:
-        return threads
-
-    # 期間指定ありなら、各スレの実際のレスを取得して「最後のレス日時」でフィルタ
-    now = datetime.now()
-    filtered: List[dict] = []
-
-    # 過負荷防止のため、一度にチェックするスレ数を制限
-    MAX_CHECK = 40
-    for t in threads[:MAX_CHECK]:
-        try:
-            posts = fetch_posts_from_thread(t["url"])
-        except Exception:
-            continue
-
-        latest_dt: Optional[datetime] = None
-        for p in posts:
-            if not getattr(p, "posted_at", None):
-                continue
-            dt = parse_posted_at_value(p.posted_at)
-            if not dt:
-                continue
-            if latest_dt is None or dt > latest_dt:
-                latest_dt = dt
-
-        if not latest_dt:
-            continue
-
-        if (now - latest_dt).days <= max_days:
-            t["last_post_at_str"] = latest_dt.strftime("%Y-%m-%d %H:%M")
-            filtered.append(t)
-
-    filtered.sort(key=lambda x: x.get("last_post_at_str") or "", reverse=True)
-    return filtered
+    result = list(unique_by_url.values())
+    # 新しい順に並べる
+    result.sort(key=lambda x: x.get("last_post_at_str") or "", reverse=True)
+    return result
 
 
 @app.get("/thread_search", response_class=HTMLResponse)
