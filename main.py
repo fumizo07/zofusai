@@ -82,16 +82,20 @@ def highlight_text(text_value: Optional[str], keyword: str) -> Markup:
     text_value = _normalize_lines(text_value)
 
     if not keyword:
+        # HTMLとして解釈させるため Markup に包む
         return Markup(escape(text_value))
 
     escaped = escape(text_value)
     pattern = re.compile(re.escape(keyword))
 
     def repl(match):
+        # マッチした部分を <mark> で囲む（中身はすでに escape 済み）
         return Markup(f"<mark>{match.group(0)}</mark>")
 
     highlighted = pattern.sub(lambda m: repl(m), escaped)
-    return highlighted
+
+    # ここを str のまま返すと <mark> が文字列として表示されるので Markup で返す
+    return Markup(highlighted)
 
 
 def simplify_thread_title(title: str) -> str:
