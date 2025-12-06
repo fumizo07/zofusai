@@ -80,7 +80,7 @@
             border-left: 2px solid #eee;
             padding-left: 6px;
             margin: 2px 0;
-            white-space: normal; /* コンテキストは一行表示 */
+            white-space: normal;
         }
         .context-line-root {
             background: #fffbe6;
@@ -169,14 +169,15 @@
     <h1>Personal Search</h1>
 
     <p class="top-links">
-        <a href="/admin/fetch">掲示板スレッドを取り込む（管理用）</a>
+        <a href="/admin/fetch">掲示板スレッドを取り込む（管理用）</a> |
+        <a href="/thread_search">外部スレッド検索</a>
     </p>
 
     {% if error_message %}
         <p class="error-message">{{ error_message }}</p>
     {% endif %}
 
-    <!-- 検索フォーム -->
+    <!-- 上部検索フォーム -->
     <form method="get" action="/">
         <label for="q">キーワード：</label><br>
         <input
@@ -249,7 +250,6 @@
                         {% for item in thread.entries %}
                             {% set post = item.root %}
                             <div class="result">
-                                <!-- ヒットしたレス本体 -->
                                 <div class="result-id">
                                     {% if post.post_no %}
                                         レス #{{ post.post_no }}
@@ -271,10 +271,8 @@
                                     <div class="memo">メモ：{{ post.memo }}</div>
                                 {% endif %}
 
-                                <!-- 本文（改行は維持） -->
                                 <div class="result-text">{{- highlight(post.body, keyword) -}}</div>
 
-                                <!-- アンカー先（このレスが参照しているレス） -->
                                 {% if item.anchor_targets %}
                                     <div class="section-title">このレスが参照しているレス</div>
                                     {% for a in item.anchor_targets %}
@@ -292,7 +290,6 @@
                                     {% endfor %}
                                 {% endif %}
 
-                                <!-- 返信ツリー（先に表示） -->
                                 <div class="section-title">このレスへの返信ツリー</div>
                                 {% if item.tree %}
                                     {% for node in item.tree %}
@@ -314,7 +311,6 @@
                                     <p class="no-result">このレスへの返信（アンカー）は見つかりませんでした。</p>
                                 {% endif %}
 
-                                <!-- このレスの前後（コンテキスト） → 1行表示、±5レス -->
                                 {% if item.context %}
                                     <div class="section-title">このレスの前後（コンテキスト）</div>
                                     {% for c in item.context %}
@@ -344,5 +340,51 @@
     {% else %}
         <p class="no-result">上のフォームに条件を入力して検索してみてください。</p>
     {% endif %}
+
+    <!-- 下部にも同じ検索フォームを配置 -->
+    <h2>再検索</h2>
+    <form method="get" action="/">
+        <label for="q_bottom">キーワード：</label><br>
+        <input
+            type="text"
+            id="q_bottom"
+            name="q"
+            value="{{ keyword or '' }}"
+            placeholder="例：テスト, キーワード など"
+        >
+
+        <label for="thread_filter_bottom">スレURL / タイトル（任意）：</label><br>
+        <input
+            type="text"
+            id="thread_filter_bottom"
+            name="thread_filter"
+            value="{{ thread_filter or '' }}"
+            placeholder="空欄なら全スレ対象"
+        >
+
+        <label for="tags_bottom">タグフィルタ（カンマ区切り）：</label><br>
+        <input
+            type="text"
+            id="tags_bottom"
+            name="tags"
+            value="{{ tags_input or '' }}"
+            placeholder="例：重要, 要確認 など"
+        >
+
+        <label>タグ条件：</label><br>
+        <label>
+            <input type="radio" name="tag_mode" value="or" {% if tag_mode != 'and' %}checked{% endif %}>
+            OR（いずれか含む）
+        </label>
+        &nbsp;
+        <label>
+            <input type="radio" name="tag_mode" value="and" {% if tag_mode == 'and' %}checked{% endif %}>
+            AND（すべて含む）
+        </label>
+
+        <div style="margin-top:8px;">
+            <button type="submit">検索</button>
+        </div>
+    </form>
 </body>
 </html>
