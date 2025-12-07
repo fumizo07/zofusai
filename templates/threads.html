@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <title>Personal Search - スレッド一覧</title>
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <style>
+        :root {
+            --bg: #f5f5f7;
+            --card-bg: #ffffff;
+            --border: #dddddd;
+            --accent: #2563eb;
+            --accent-soft: #e0edff;
+            --text-main: #111827;
+            --text-sub: #4b5563;
+        }
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            background: var(--bg);
+            color: var(--text-main);
+        }
+        header {
+            background: #111827;
+            color: #fff;
+            padding: 10px 16px;
+        }
+        header h1 {
+            margin: 0;
+            font-size: 18px;
+        }
+        header nav {
+            margin-top: 4px;
+            font-size: 13px;
+        }
+        header nav a {
+            color: #e5e7eb;
+            text-decoration: none;
+            margin-right: 12px;
+        }
+        header nav a:hover {
+            text-decoration: underline;
+        }
+
+        main {
+            max-width: 1100px;
+            margin: 16px auto 24px;
+            padding: 0 12px;
+            display: grid;
+            grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+            gap: 16px;
+        }
+        @media (max-width: 800px) {
+            main {
+                grid-template-columns: minmax(0, 1fr);
+            }
+        }
+
+        .card {
+            background: var(--card-bg);
+            border-radius: 10px;
+            border: 1px solid var(--border);
+            padding: 12px 14px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+        }
+        .card h2 {
+            margin: 0 0 8px;
+            font-size: 15px;
+        }
+        .card small {
+            color: var(--text-sub);
+        }
+
+        /* スレ一覧 */
+        .threads-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+        }
+        .threads-table th,
+        .threads-table td {
+            padding: 6px 4px;
+            border-bottom: 1px solid #e5e7eb;
+            vertical-align: middle;
+        }
+        .threads-table th {
+            text-align: left;
+            white-space: nowrap;
+            background: #f3f4f6;
+            position: sticky;
+            top: 0;
+            z-index: 1;
+        }
+        .thread-title {
+            font-weight: 600;
+            font-size: 13px;
+        }
+        .thread-url {
+            font-size: 11px;
+            color: var(--text-sub);
+            word-break: break-all;
+        }
+        .thread-meta {
+            font-size: 11px;
+            color: var(--text-sub);
+        }
+
+        .label-form {
+            display: flex;
+            gap: 4px;
+            align-items: center;
+        }
+        .label-input {
+            width: 90px;
+            font-size: 12px;
+            padding: 3px 4px;
+        }
+        .btn-sm {
+            display: inline-block;
+            border-radius: 4px;
+            border: 1px solid #d1d5db;
+            background: #f9fafb;
+            font-size: 11px;
+            padding: 3px 6px;
+            cursor: pointer;
+        }
+        .btn-sm.primary {
+            border-color: var(--accent);
+            background: var(--accent-soft);
+            color: #1d4ed8;
+        }
+        .btn-sm.danger {
+            border-color: #b91c1c;
+            color: #b91c1c;
+            background: #fef2f2;
+        }
+        .btn-sm + .btn-sm {
+            margin-left: 2px;
+        }
+        form {
+            margin: 0;
+        }
+
+        /* サイドカード */
+        .tag-list, .recent-searches {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 4px;
+        }
+        .tag-pill {
+            display: inline-flex;
+            align-items: center;
+            padding: 2px 6px;
+            border-radius: 999px;
+            background: #eff6ff;
+            color: #1d4ed8;
+            font-size: 11px;
+            text-decoration: none;
+        }
+        .tag-pill span.count {
+            margin-left: 4px;
+            color: #6b7280;
+            font-size: 10px;
+        }
+        .tag-pill:hover {
+            background: #dbeafe;
+        }
+
+        .recent-item {
+            display: block;
+            font-size: 11px;
+            padding: 4px 6px;
+            border-radius: 6px;
+            background: #f9fafb;
+            text-decoration: none;
+            color: var(--text-main);
+        }
+        .recent-item + .recent-item {
+            margin-top: 4px;
+        }
+        .recent-item small {
+            color: var(--text-sub);
+            display: block;
+            margin-top: 2px;
+        }
+        .muted {
+            color: var(--text-sub);
+            font-size: 12px;
+        }
+    </style>
+</head>
+<body>
+<header>
+    <h1>Personal Search - スレッド一覧</h1>
+    <nav>
+        <a href="/">内部検索トップ</a>
+        <a href="/thread_search">外部スレッド検索</a>
+    </nav>
+</header>
+
+<main>
+    <!-- 左：スレ一覧 -->
+    <section class="card">
+        <h2>取り込み済みスレッド一覧</h2>
+        <small class="muted">最新レス日時の新しい順に表示しています。</small>
+
+        {% if threads %}
+        <div style="margin-top:8px; max-height: 70vh; overflow:auto;">
+            <table class="threads-table">
+                <thead>
+                <tr>
+                    <th>タイトル / URL</th>
+                    <th>ラベル</th>
+                    <th>最終レス</th>
+                    <th>レス数</th>
+                    <th>操作</th>
+                </tr>
+                </thead>
+                <tbody>
+                {% for t in threads %}
+                    <tr>
+                        <td>
+                            <div class="thread-title">{{ t.thread_title }}</div>
+                            <div class="thread-url">{{ t.thread_url }}</div>
+                        </td>
+                        <td>
+                            <form class="label-form" method="post" action="/threads/label">
+                                <input type="hidden" name="thread_url" value="{{ t.thread_url }}">
+                                <input class="label-input" type="text" name="label" value="{{ t.label }}">
+                                <button type="submit" class="btn-sm primary">保存</button>
+                            </form>
+                        </td>
+                        <td class="thread-meta">
+                            {% if t.last_posted_at %}
+                                {{ t.last_posted_at }}
+                            {% else %}
+                                -
+                            {% endif %}
+                            <br>
+                            No. {{ t.max_no or "-" }}
+                        </td>
+                        <td class="thread-meta">
+                            {{ t.post_count }}
+                        </td>
+                        <td>
+                            <!-- このスレだけ検索（thread_filter に URL を突っ込む） -->
+                            <a class="btn-sm" href="/?thread_filter={{ t.thread_url | urlencode }}">このスレで検索</a>
+
+                            <!-- このスレだけ再取得 -->
+                            <form method="post" action="/admin/refetch" style="display:inline;">
+                                <input type="hidden" name="url" value="{{ t.thread_url }}">
+                                <button type="submit" class="btn-sm">再取得</button>
+                            </form>
+
+                            <!-- このスレだけ削除 -->
+                            <form method="post" action="/admin/delete_thread" style="display:inline;" onsubmit="return confirm('このスレのデータを削除しますか？');">
+                                <input type="hidden" name="url" value="{{ t.thread_url }}">
+                                <button type="submit" class="btn-sm danger">削除</button>
+                            </form>
+                        </td>
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+            <p class="muted" style="margin-top:8px;">まだスレッドが取り込まれていません。</p>
+        {% endif %}
+    </section>
+
+    <!-- 右：タグ一覧 / 最近の検索条件 -->
+    <section style="display:flex; flex-direction:column; gap:12px;">
+        <div class="card">
+            <h2>最近の検索条件</h2>
+            {% if recent_searches %}
+                <div class="recent-searches">
+                    {% for s in recent_searches %}
+                        {% set p = s.params %}
+                        <a class="recent-item" href="{{ s.url }}">
+                            <strong>{{ p.q or "（キーワードなし）" }}</strong>
+                            <small>
+                                スレ: {{ p.thread_filter or "指定なし" }} /
+                                タグ: {{ p.tags or "指定なし" }} /
+                                モード: {{ p.tag_mode }}
+                            </small>
+                        </a>
+                    {% endfor %}
+                </div>
+            {% else %}
+                <p class="muted">まだ検索履歴がありません。</p>
+            {% endif %}
+        </div>
+
+        <div class="card">
+            <h2>タグ一覧（よく使う順）</h2>
+            {% if popular_tags %}
+                <div class="tag-list">
+                    {% for tag in popular_tags %}
+                        <a class="tag-pill"
+                           href="/?q=&thread_filter=&tags={{ tag.name | urlencode }}&tag_mode=or">
+                            {{ tag.name }}<span class="count">×{{ tag.count }}</span>
+                        </a>
+                    {% endfor %}
+                </div>
+            {% else %}
+                <p class="muted">まだタグはありません。</p>
+            {% endif %}
+        </div>
+    </section>
+</main>
+</body>
+</html>
