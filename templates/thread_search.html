@@ -2,163 +2,353 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <title>外部スレッド検索</title>
+    <title>Personal Search - 外部スレッド検索</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <style>
         body {
             font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-            max-width: 900px;
+            background-color: #f5f5f7;
+            margin: 0;
+            padding: 0;
+            color: #222;
+        }
+        .page-container {
+            max-width: 1000px;
             margin: 0 auto;
             padding: 16px;
-            line-height: 1.7;
         }
         h1 {
-            font-size: 1.3rem;
+            font-size: 20px;
+            margin: 0 0 12px;
+        }
+        h2 {
+            font-size: 16px;
+            margin: 24px 0 8px;
+        }
+        .card {
+            background-color: #fff;
+            border-radius: 8px;
+            padding: 12px 16px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+            margin-bottom: 12px;
+        }
+        .search-form-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px 12px;
+            align-items: center;
             margin-bottom: 8px;
         }
-        form {
-            margin-bottom: 16px;
-            padding: 8px 12px;
-            border-radius: 6px;
-            background: #f8f9fa;
+        .search-form-row label {
+            font-size: 13px;
+            white-space: nowrap;
         }
-        label {
-            font-size: 0.85rem;
-            font-weight: 600;
+        .search-form-row select,
+        .search-form-row input[type="text"] {
+            font-size: 13px;
+            padding: 4px 6px;
+            border-radius: 4px;
+            border: 1px solid #ccc;
+            min-width: 120px;
         }
-        select, input[type="text"] {
-            width: 100%;
-            padding: 6px 8px;
-            box-sizing: border-box;
-            font-size: 0.95rem;
-            margin: 4px 0 10px;
+        .search-form-row input[type="text"] {
+            flex: 1 1 200px;
         }
-        button {
+        .search-actions {
+            margin-top: 8px;
+        }
+        .search-actions button {
             padding: 6px 14px;
-            font-size: 0.95rem;
+            font-size: 13px;
+            border-radius: 4px;
+            border: none;
             cursor: pointer;
+            background-color: #007aff;
+            color: #fff;
         }
-        .thread-item {
-            border: 1px solid #ddd;
+        .search-actions button:hover {
+            background-color: #005ec1;
+        }
+        .error-box {
+            background-color: #ffe4e4;
+            color: #900;
             border-radius: 6px;
             padding: 8px 10px;
-            margin-bottom: 8px;
-            background: #fff;
+            font-size: 13px;
+            margin: 8px 0 12px;
+        }
+        .info-box {
+            font-size: 12px;
+            color: #555;
+            margin: 4px 0 8px;
+        }
+        .thread-list {
+            list-style: none;
+            padding-left: 0;
+            margin: 0;
+        }
+        .thread-item {
+            border-bottom: 1px solid #eee;
+            padding: 8px 0;
+        }
+        .thread-item:last-child {
+            border-bottom: none;
+        }
+        .thread-label {
+            display: flex;
+            gap: 8px;
+            align-items: flex-start;
+        }
+        .thread-label input[type="radio"] {
+            margin-top: 3px;
+        }
+        .thread-main {
+            flex: 1;
         }
         .thread-title {
-            font-size: 0.95rem;
-            font-weight: bold;
-        }
-        .thread-url {
-            font-size: 0.8rem;
-            color: #666;
-            word-break: break-all;
+            font-size: 14px;
+            font-weight: 600;
+            margin: 0 0 2px;
         }
         .thread-meta {
-            font-size: 0.8rem;
-            color: #555;
+            font-size: 11px;
+            color: #666;
+            margin: 0;
+        }
+        .thread-url {
+            font-size: 11px;
+            color: #999;
+            word-break: break-all;
             margin-top: 2px;
         }
-        .error-message {
-            color: #c0392b;
-            font-size: 0.9rem;
-            margin-bottom: 8px;
+        .inner-search {
+            margin-top: 12px;
+            padding-top: 8px;
+            border-top: 1px solid #eee;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            align-items: center;
+            font-size: 13px;
         }
-        .back-link {
-            font-size: 0.9rem;
-            margin-top: 8px;
+        .inner-search label {
+            white-space: nowrap;
+        }
+        .inner-search input[type="text"] {
+            font-size: 13px;
+            padding: 4px 6px;
+            border-radius: 4px;
+            border: 1px solid #ccc;
+            flex: 1 1 180px;
+        }
+        .inner-search button {
+            padding: 6px 14px;
+            font-size: 13px;
+            border-radius: 4px;
+            border: none;
+            cursor: pointer;
+            background-color: #34c759;
+            color: #fff;
+        }
+        .inner-search button:hover {
+            background-color: #289846;
+        }
+        .bottom-search {
+            margin-top: 24px;
+        }
+        @media (max-width: 640px) {
+            .search-form-row {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+            .search-form-row input[type="text"] {
+                width: 100%;
+            }
+            .inner-search {
+                flex-direction: column;
+                align-items: stretch;
+            }
+            .inner-search input[type="text"] {
+                width: 100%;
+            }
+            .inner-search button {
+                width: 100%;
+            }
         }
     </style>
 </head>
 <body>
-    <h1>外部スレッド検索</h1>
+<div class="page-container">
+    <h1>Personal Search - 外部スレッド検索</h1>
 
-    <p class="back-link">
-        <a href="/">Personal Search に戻る</a>
-    </p>
+    <!-- 上部：外部スレッド検索フォーム -->
+    <div class="card">
+        <form method="get" action="/thread_search">
+            <div class="search-form-row">
+                <label for="area">地域：</label>
+                <select name="area" id="area">
+                    {% for opt in area_options %}
+                        <option value="{{ opt.code }}"
+                                {% if opt.code == current_area %}selected{% endif %}>
+                            {{ opt.label }}
+                        </option>
+                    {% endfor %}
+                </select>
 
+                <label for="period">期間設定：</label>
+                <select name="period" id="period">
+                    {% for opt in period_options %}
+                        <option value="{{ opt.id }}"
+                                {% if opt.id == current_period %}selected{% endif %}>
+                            {{ opt.label }}
+                        </option>
+                    {% endfor %}
+                </select>
+
+                <label for="board_ctgid">板カテゴリ：</label>
+                <select name="board_ctgid" id="board_ctgid">
+                    {% for bc in board_category_options %}
+                        <option value="{{ bc.id }}"
+                                {% if bc.id == current_board_ctgid %}selected{% endif %}>
+                            {{ bc.label }}
+                        </option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div class="search-form-row">
+                <label for="keyword">タイトル検索：</label>
+                <input type="text"
+                       id="keyword"
+                       name="keyword"
+                       value="{{ keyword|default('') }}"
+                       placeholder="タイトルに含まれる語句">
+            </div>
+
+            <div class="search-actions">
+                <button type="submit">外部スレッドを検索</button>
+            </div>
+
+            <div class="info-box">
+                ・ここでは「タイトル」に入力した語句を含むスレッドを一覧表示します。<br>
+                ・本文のキーワード検索は、下の「選んだスレ内でキーワード検索」で別途指定します。
+            </div>
+        </form>
+    </div>
+
+    <!-- エラーメッセージ -->
     {% if error_message %}
-        <p class="error-message">{{ error_message }}</p>
+        <div class="error-box">
+            {{ error_message }}
+        </div>
     {% endif %}
 
-    <!-- タイトル検索フォーム -->
-    <form method="get" action="/thread_search">
-        <label for="area">地域：</label><br>
-        <select id="area" name="area">
-            {% for a in area_options %}
-                <option value="{{ a.code }}" {% if a.code == current_area %}selected{% endif %}>
-                    {{ a.label }}
-                </option>
-            {% endfor %}
-        </select>
+    <!-- 検索結果（スレタイトル一覧） -->
+    {% if results %}
+        <div class="card">
+            <h2>外部スレッド検索結果（{{ results|length }}件）</h2>
 
-        <label for="period">期間設定：</label><br>
-        <select id="period" name="period">
-            {% for p in period_options %}
-                <option value="{{ p.id }}" {% if p.id == current_period %}selected{% endif %}>
-                    {{ p.label }}
-                </option>
-            {% endfor %}
-        </select>
-
-        <label for="keyword">タイトル：</label><br>
-        <input
-            type="text"
-            id="keyword"
-            name="keyword"
-            value="{{ keyword or '' }}"
-            placeholder="タイトルに含まれる語句（例：重要）"
-        >
-
-        <div style="margin-top:8px;">
-            <button type="submit">スレッド検索</button>
-        </div>
-    </form>
-
-    {% if keyword and current_area %}
-        <h2>検索結果（{{ results|length }}件）</h2>
-
-        {% if results %}
-            <!-- スレ選択 + 本文キーワード入力フォーム -->
             <form method="post" action="/thread_search/posts">
-                <input type="hidden" name="title_keyword" value="{{ keyword }}">
-                <input type="hidden" name="area" value="{{ current_area }}">
-                <input type="hidden" name="period" value="{{ current_period }}">
+                <ul class="thread-list">
+                    {% for th in results %}
+                        <li class="thread-item">
+                            <label class="thread-label">
+                                <input type="radio"
+                                       name="selected_thread"
+                                       value="{{ th.url }}"
+                                       {% if loop.first %}checked{% endif %}>
+                                <div class="thread-main">
+                                    <p class="thread-title">{{ th.title }}</p>
+                                    <p class="thread-meta">
+                                        最終レス日時：{{ th.last_post_at_str }}
+                                        {% if th.ctgid %}
+                                            ／ ctgid={{ th.ctgid }}
+                                        {% endif %}
+                                    </p>
+                                    <div class="thread-url">{{ th.url }}</div>
+                                </div>
+                            </label>
+                        </li>
+                    {% endfor %}
+                </ul>
 
-                <p style="font-size:0.9rem; margin-bottom:8px;">
-                    タイトルに「{{ keyword }}」を含むスレの一覧です。<br>
-                    1つ選んで、本文中から別のキーワードで絞り込みできます。
-                </p>
+                <div class="inner-search">
+                    <label for="post_keyword">本文キーワード：</label>
+                    <input type="text"
+                           id="post_keyword"
+                           name="post_keyword"
+                           placeholder="このスレ内で探したい語句（本文）を入力">
 
-                {% for th in results %}
-                    <div class="thread-item">
-                        <label>
-                            <input type="radio" name="selected_thread" value="{{ th.url }}">
-                            <span class="thread-title">{{ th.title }}</span>
-                        </label>
-                        <div class="thread-url">{{ th.url }}</div>
-                        {% if th.last_post_at_str %}
-                            <div class="thread-meta">最終レス：{{ th.last_post_at_str }}</div>
-                        {% endif %}
-                    </div>
-                {% endfor %}
+                    <!-- タイトル側のキーワードは hidden で引き継いでおく（表示用など） -->
+                    <input type="hidden" name="title_keyword" value="{{ keyword|default('') }}">
+                    <input type="hidden" name="area" value="{{ current_area }}">
+                    <input type="hidden" name="period" value="{{ current_period }}">
 
-                <label for="post_keyword">本文キーワード：</label><br>
-                <input
-                    type="text"
-                    id="post_keyword"
-                    name="post_keyword"
-                    value=""
-                    placeholder="本文に含まれる語句（例：必須）"
-                >
-
-                <div style="margin-top:8px;">
-                    <button type="submit">選んだスレ内で検索</button>
+                    <button type="submit">選んだスレ内でキーワード検索</button>
                 </div>
             </form>
-        {% else %}
-            <p>該当するスレッドは見つかりませんでした。</p>
-        {% endif %}
+        </div>
+    {% elif keyword %}
+        <!-- キーワードは入っているが結果ゼロの場合 -->
+        <div class="card">
+            <p>該当するスレッドが見つかりませんでした。</p>
+        </div>
     {% endif %}
+
+    <!-- 下部：再検索用フォーム（何かしら検索した後だけ表示） -->
+    {% if keyword or results %}
+        <div class="bottom-search">
+            <div class="card">
+                <h2>別条件で再検索</h2>
+                <form method="get" action="/thread_search">
+                    <div class="search-form-row">
+                        <label for="area_bottom">地域：</label>
+                        <select name="area" id="area_bottom">
+                            {% for opt in area_options %}
+                                <option value="{{ opt.code }}"
+                                        {% if opt.code == current_area %}selected{% endif %}>
+                                    {{ opt.label }}
+                                </option>
+                            {% endfor %}
+                        </select>
+
+                        <label for="period_bottom">期間設定：</label>
+                        <select name="period" id="period_bottom">
+                            {% for opt in period_options %}
+                                <option value="{{ opt.id }}"
+                                        {% if opt.id == current_period %}selected{% endif %}>
+                                    {{ opt.label }}
+                                </option>
+                            {% endfor %}
+                        </select>
+
+                        <label for="board_ctgid_bottom">板カテゴリ：</label>
+                        <select name="board_ctgid" id="board_ctgid_bottom">
+                            {% for bc in board_category_options %}
+                                <option value="{{ bc.id }}"
+                                        {% if bc.id == current_board_ctgid %}selected{% endif %}>
+                                    {{ bc.label }}
+                                </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    <div class="search-form-row">
+                        <label for="keyword_bottom">タイトル検索：</label>
+                        <input type="text"
+                               id="keyword_bottom"
+                               name="keyword"
+                               value="{{ keyword|default('') }}"
+                               placeholder="タイトルに含まれる語句">
+                    </div>
+
+                    <div class="search-actions">
+                        <button type="submit">外部スレッドを検索し直す</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    {% endif %}
+</div>
 </body>
 </html>
