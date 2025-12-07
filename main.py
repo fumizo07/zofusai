@@ -123,12 +123,13 @@ BOARD_CATEGORY_OPTIONS = [
 ]
 
 PERIOD_OPTIONS = [
-    {"id": "7d", "label": "7日以内", "days": 7},
-    {"id": "1m", "label": "1ヶ月以内", "days": 31},
-    {"id": "3m", "label": "3ヶ月以内", "days": 93},
-    {"id": "6m", "label": "6ヶ月以内", "days": 186},
-    {"id": "1y", "label": "1年以内", "days": 365},
-    {"id": "2y", "label": "2年以内", "days": 730},
+    {"id": "all", "label": "すべて",   "days": None},
+    {"id": "7d",  "label": "7日以内", "days": 7},
+    {"id": "1m",  "label": "1ヶ月以内", "days": 31},
+    {"id": "3m",  "label": "3ヶ月以内", "days": 93},
+    {"id": "6m",  "label": "6ヶ月以内", "days": 186},
+    {"id": "1y",  "label": "1年以内", "days": 365},
+    {"id": "2y",  "label": "2年以内", "days": 730},
 ]
 
 PERIOD_ID_TO_DAYS = {p["id"]: p["days"] for p in PERIOD_OPTIONS}
@@ -773,13 +774,13 @@ def list_threads(
     tag_rows = db.query(ThreadPost.tags).filter(ThreadPost.tags.isnot(None)).all()
     tag_counts: Dict[str, int] = {}
     for (tags_str,) in tag_rows:
-        if not tags_str:
-            continue
-        for tag in tags_str.split(","):
-            tag = tag.strip()
-            if not tag:
+            if not tags_str:
                 continue
-            tag_counts[tag] = tag_counts.get(tag, 0) + 1
+            for tag in tags_str.split(","):
+                tag = tag.strip()
+                if not tag:
+                    continue
+                tag_counts[tag] = tag_counts.get(tag, 0) + 1
 
     popular_tags = [
         {"name": name, "count": count}
