@@ -113,6 +113,15 @@ AREA_OPTIONS = [
     {"code": "11", "label": "沖縄版"},
 ]
 
+# 板カテゴリ（ctgid）マスタ
+BOARD_CATEGORY_OPTIONS = [
+    {"id": "",      "label": "（カテゴリ指定なし）"},
+    {"id": "103",   "label": "風俗掲示板"},
+    {"id": "136",   "label": "メンエス・リフレ・癒し掲示板"},
+    {"id": "122",   "label": "R18掲示板"},
+    # 必要になればここに増やしていく想定
+]
+
 PERIOD_OPTIONS = [
     {"id": "7d", "label": "7日以内", "days": 7},
     {"id": "1m", "label": "1ヶ月以内", "days": 31},
@@ -858,7 +867,12 @@ def edit_post_post(
 # =========================
 # 外部スレッド検索（爆サイ）
 # =========================
-def search_threads_external(area_code: str, keyword: str, max_days: Optional[int]) -> List[dict]:
+def search_threads_external(
+    area_code: str,
+    keyword: str,
+    max_days: Optional[int],
+    board_ctgid: Optional[str] = None,
+) -> List[dict]:
     keyword = (keyword or "").strip()
     if not area_code or not keyword:
         return []
@@ -918,6 +932,13 @@ def search_threads_external(area_code: str, keyword: str, max_days: Optional[int
         if not href:
             continue
 
+        # ctgid 抽出（板カテゴリフィルタ用）
+        ctgid_match = re.search(r"ctgid=(\d+)", href)
+        ctgid_value = ctgid_match.group(1) if ctgid_match else None
+        if board_ctgid:
+            if ctgid_value != board_ctgid:
+                continue
+
         if href.startswith("//"):
             full_url = "https:" + href
         elif href.startswith("/"):
@@ -930,6 +951,7 @@ def search_threads_external(area_code: str, keyword: str, max_days: Optional[int
                 "title": title,
                 "url": full_url,
                 "last_post_at_str": dt.strftime("%Y-%m-%d %H:%M"),
+                "ctgid": ctgid_value,
             }
         )
 
@@ -949,10 +971,13 @@ def thread_search_page(
     area: str = "7",
     period: str = "3m",
     keyword: str = "",
+    board_ctgid: str = "103",
 ):
+    # 地域と期間、板カテゴリの初期値を整える
     area = (area or "").strip() or "7"
     period = (period or "").strip() or "3m"
     keyword = (keyword or "").strip()
+    board_ctgid = (board_ctgid or "").strip() or "103"
 
     results: List[dict] = []
     error_message = ""
@@ -960,7 +985,12 @@ def thread_search_page(
     if keyword and area:
         max_days = get_period_days(period)
         try:
-            results = search_threads_external(area, keyword, max_days)
+            results = search_threads_external(
+                area_code=area,
+                keyword=keyword,
+                max_days=max_days,
+                board_ctgid=board_ctgid or None,
+            )
         except Exception as e:
             error_message = f"外部検索中にエラーが発生しました: {e}"
 
@@ -975,6 +1005,8 @@ def thread_search_page(
             "keyword": keyword,
             "results": results,
             "error_message": error_message,
+            "board_category_options": BOARD_CATEGORY_OPTIONS,
+            "current_board_ctgid": board_ctgid,
         },
     )
 
