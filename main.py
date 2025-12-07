@@ -209,7 +209,7 @@ def parse_anchors_csv(s: Optional[str]) -> List[int]:
     return sorted(set(nums))
 
 
-def build_reply_tree(all_posts: List[ThreadPost], root: ThreadPost) -> List[dict]:
+def build_reply_tree(all_posts: List['ThreadPost'], root: 'ThreadPost') -> List[dict]:
     """
     1スレ内の全レスから root への返信ツリーを作る（DB内検索用）。
     """
@@ -836,13 +836,26 @@ def thread_search_page(
 
 
 # =========================
-# 外部スレッドの前後スレ解析
+# 外部スレッドの前後スレ解析（thr_pagerベース）
 # =========================
 
-def find_prev_next_thread_urls(thread_url: str) -> tuple[Optional[str], Optional[str]]:
+def _normalize_bakusai_href(href: str) -> str:
+    if href.startswith("//"):
+        return "https:" + href
+    if href.startswith("/"):
+        return "https://bakusai.com" + href
+    return href
+
+
+def find_prev_next_thread_urls(thread_url: str, area_code: str) -> tuple[Optional[str], Optional[str]]:
     """
-    爆サイのスレページから「前スレ」「次スレ」らしきリンクをざっくり探す。
-    （テキストに「前」「スレ」／「次」「スレ」が含まれている a タグ）
+    PC版の HTML の
+      <div id="thr_pager">
+        <div class="sre_mae">…<a href="前スレURL">前スレタイトル</a>…</div>
+        <div class="sre_tsugi">…<a href="次スレURL">次スレタイトル</a>…</div>
+      </div>
+    を見て、前スレ・次スレの URL を取る。
+    area_code は今のところ未使用（将来の拡張用に残しているだけ）です。
     """
     try:
         resp = requests.get(
@@ -855,33 +868,27 @@ def find_prev_next_thread_urls(thread_url: str) -> tuple[Optional[str], Optional
         return (None, None)
 
     soup = BeautifulSoup(resp.text, "html.parser")
+    pager = soup.find("div", id="thr_pager")
+    if not pager:
+        return (None, None)
 
-    prev_href: Optional[str] = None
-    next_href: Optional[str] = None
+    prev_div = pager.find("div", class_="sre_mae")
+    next_div = pager.find("div", class_="sre_tsugi")
 
-    for a in soup.find_all("a", href=True):
-        href = a.get("href", "")
-        if "/thr_res/" not in href:
-            continue
-        text = (a.get_text() or "").strip()
-        if not text:
-            continue
-
-        if ("前" in text and "スレ" in text) and prev_href is None:
-            prev_href = href
-        if ("次" in text and "スレ" in text) and next_href is None:
-            next_href = href
-
-    def normalize_href(h: Optional[str]) -> Optional[str]:
-        if not h:
+    def pick_url(div) -> Optional[str]:
+        if not div:
             return None
-        if h.startswith("//"):
-            return "https:" + h
-        if h.startswith("/"):
-            return "https://bakusai.com" + h
-        return h
+        a = div.find("a", href=True)
+        if not a:
+            return None
+        href = a.get("href", "")
+        if not href:
+            return None
+        return _normalize_bakusai_href(href)
 
-    return normalize_href(prev_href), normalize_href(next_href)
+    prev_url = pick_url(prev_div)
+    next_url = pick_url(next_div)
+    return (prev_url, next_url)
 
 
 # =========================
@@ -929,8 +936,8 @@ def thread_search_posts(
             except Exception:
                 thread_title_display = ""
 
-            # 前スレ／次スレ
-            prev_thread_url, next_thread_url = find_prev_next_thread_urls(selected_thread)
+            # 前スレ／次スレ（thr_pager ベース）
+            prev_thread_url, next_thread_url = find_prev_next_thread_urls(selected_thread, area)
 
             # 全レス取得（オンメモリ）
             all_posts = fetch_posts_from_thread(selected_thread)
@@ -946,7 +953,6 @@ def thread_search_posts(
             for p in all_posts:
                 if not getattr(p, "anchors", None):
                     continue
-                # scraper 側では anchors はたぶん List[int] なのでそのまま使う
                 for a in p.anchors:
                     replies[a].append(p)
 
