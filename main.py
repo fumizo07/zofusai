@@ -134,6 +134,20 @@ def to_hiragana(s: str) -> str:
     return "".join(result)
 
 
+def to_katakana(s: str) -> str:
+    """
+    ひらがな → カタカナ変換。
+    """
+    result = []
+    for ch in s:
+        code = ord(ch)
+        if 0x3041 <= code <= 0x3096:  # ひらがな領域
+            result.append(chr(code + 0x60))
+        else:
+            result.append(ch)
+    return "".join(result)
+
+
 def normalize_for_search(s: Optional[str]) -> str:
     """
     検索用正規化：
@@ -150,12 +164,32 @@ def normalize_for_search(s: Optional[str]) -> str:
     return s
 
 
+def _build_highlight_variants(keyword: str) -> List[str]:
+    """
+    ハイライト用に「同じ語のバリエーション」を作る。
+    - NFKCそのまま
+    - ひらがな版
+    - カタカナ版
+    の3種類をユニークに返す。
+    """
+    if not keyword:
+        return []
+
+    base = unicodedata.normalize("NFKC", keyword)
+    hira = to_hiragana(base)
+    kata = to_katakana(hira)
+
+    variants = {base, hira, kata}
+    variants = {v for v in variants if v}
+    return sorted(variants, key=len, reverse=True)  # 長い方優先（念のため）
+
+
 def highlight_text(text_value: Optional[str], keyword: str) -> Markup:
     """
     本文中の検索語を <mark> で囲んで強調表示。
     - 文頭の変なスペースは除去
-    - 英字については大文字小文字を無視してハイライト
-    （ひらがな↔カタカナのハイライトまではやらず、検索だけ対応）
+    - 英字は大文字小文字を無視
+    - ひらがな／カタカナも相互にハイライト（検索と同じ感覚）
     """
     if text_value is None:
         text_value = ""
@@ -165,8 +199,16 @@ def highlight_text(text_value: Optional[str], keyword: str) -> Markup:
         return Markup(escape(text_value))
 
     escaped = escape(text_value)
+
+    variants = _build_highlight_variants(keyword)
+    if not variants:
+        return Markup(escaped)
+
     try:
-        pattern = re.compile(re.escape(keyword), re.IGNORECASE)
+        pattern = re.compile(
+            "(" + "|".join(re.escape(v) for v in variants) + ")",
+            re.IGNORECASE,
+        )
     except re.error:
         return Markup(escaped)
 
@@ -357,7 +399,7 @@ def fetch_thread_into_db(db: Session, url: str) -> int:
                 thread_url=url,
                 thread_title=thread_title,
                 post_no=sp.post_no,
-                posted_at=sp.posted_at,
+                posted_at=sp.post_at if hasattr(sp, "post_at") else sp.posted_at,
                 body=body,
                 anchors=anchors_str,
             )
