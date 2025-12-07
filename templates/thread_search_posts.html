@@ -31,6 +31,11 @@
             word-break: break-all;
             margin-bottom: 4px;
         }
+        .thread-title {
+            font-size: 0.9rem;
+            font-weight: bold;
+            margin-bottom: 4px;
+        }
         .error-message {
             color: #c0392b;
             font-size: 0.9rem;
@@ -73,7 +78,7 @@
         }
         .anchor-body {
             font-size: 0.9rem;
-            white-space: pre-wrap;   /* アンカー先は改行を保持 */
+            white-space: pre-wrap;
         }
         /* ツリー（複数行OK） */
         .tree-item {
@@ -88,7 +93,7 @@
             margin-bottom: 1px;
         }
         .tree-body {
-            white-space: pre-wrap;   /* ツリーも改行を保持 */
+            white-space: pre-wrap;
         }
         /* コンテキスト（一行表示） */
         .context-line {
@@ -96,7 +101,7 @@
             border-left: 2px solid #eee;
             padding-left: 6px;
             margin: 2px 0;
-            white-space: normal;     /* 改行はスペース扱いにする */
+            white-space: normal;
         }
         .context-line-root {
             background: #fffbe6;
@@ -108,6 +113,29 @@
         }
         mark {
             background: #ffec99;
+        }
+        .bottom-block {
+            margin-top: 20px;
+            padding-top: 10px;
+            border-top: 1px solid #ddd;
+        }
+        .bottom-block h2 {
+            font-size: 1rem;
+        }
+        .bottom-form-row {
+            margin-bottom: 10px;
+        }
+        input[type="text"] {
+            width: 100%;
+            max-width: 320px;
+            padding: 6px 8px;
+            font-size: 0.9rem;
+            box-sizing: border-box;
+        }
+        button {
+            padding: 6px 12px;
+            font-size: 0.9rem;
+            cursor: pointer;
         }
     </style>
 </head>
@@ -124,7 +152,10 @@
         <p class="error-message">{{ error_message }}</p>
     {% endif %}
 
-    <div class="thread-url">対象スレ：{{ thread_url }}</div>
+    {% if thread_title %}
+        <div class="thread-title">スレタイトル：{{ thread_title }}</div>
+    {% endif %}
+    <div class="thread-url">対象スレURL：{{ thread_url }}</div>
 
     <p style="font-size:0.9rem;">
         タイトルキーワード：<strong>{{ title_keyword or '（未指定）' }}</strong><br>
@@ -148,7 +179,7 @@
                     {% endif %}
                 </div>
 
-                <!-- 本文：改行あり・文頭の変な空白は main.py 側で除去済み -->
+                <!-- 本文 -->
                 <div class="result-text">{{ highlight(post.body, post_keyword) }}</div>
 
                 {% if item.anchor_targets %}
@@ -165,7 +196,6 @@
                                     ／ {{ a.posted_at }}
                                 {% endif %}
                             </div>
-                            <!-- アンカー先：改行あり・テンプレのインデントは出さない -->
                             <div class="anchor-body">{{ highlight(a.body, post_keyword) }}</div>
                         </div>
                     {% endfor %}
@@ -212,6 +242,57 @@
         {% endfor %}
     {% elif not error_message %}
         <p class="no-result">指定したキーワードを含むレスは見つかりませんでした。</p>
+    {% endif %}
+
+    {% if not error_message %}
+        <div class="bottom-block">
+            <h2>このスレ内で別キーワードで再検索</h2>
+            <form method="post" action="/thread_search/posts">
+                <div class="bottom-form-row">
+                    <input type="hidden" name="selected_thread" value="{{ thread_url }}">
+                    <input type="hidden" name="title_keyword" value="{{ title_keyword }}">
+                    <input type="hidden" name="area" value="{{ area }}">
+                    <input type="hidden" name="period" value="{{ period }}">
+                    <input
+                        type="text"
+                        name="post_keyword"
+                        value=""
+                        placeholder="本文に含まれる語句を入力（例：必須）"
+                    >
+                </div>
+                <button type="submit">同じスレで再検索</button>
+            </form>
+
+            {% if prev_thread_url or next_thread_url %}
+                <h2>前後のスレで再検索</h2>
+                {% if prev_thread_url %}
+                    <form method="post" action="/thread_search/posts" style="display:inline-block; margin-right:8px;">
+                        <input type="hidden" name="selected_thread" value="{{ prev_thread_url }}">
+                        <input type="hidden" name="title_keyword" value="{{ title_keyword }}">
+                        <input type="hidden" name="area" value="{{ area }}">
+                        <input type="hidden" name="period" value="{{ period }}">
+                        <input type="hidden" name="post_keyword" value="{{ post_keyword }}">
+                        <button type="submit">前スレで再検索</button>
+                    </form>
+                {% endif %}
+                {% if next_thread_url %}
+                    <form method="post" action="/thread_search/posts" style="display:inline-block; margin-right:8px;">
+                        <input type="hidden" name="selected_thread" value="{{ next_thread_url }}">
+                        <input type="hidden" name="title_keyword" value="{{ title_keyword }}">
+                        <input type="hidden" name="area" value="{{ area }}">
+                        <input type="hidden" name="period" value="{{ period }}">
+                        <input type="hidden" name="post_keyword" value="{{ post_keyword }}">
+                        <button type="submit">次スレで再検索</button>
+                    </form>
+                {% endif %}
+            {% endif %}
+
+            <h2>このスレを内部検索に取り込む</h2>
+            <form method="post" action="/admin/refetch">
+                <input type="hidden" name="url" value="{{ thread_url }}">
+                <button type="submit">このスレをDBに保存（再取得）</button>
+            </form>
+        </div>
     {% endif %}
 </body>
 </html>
