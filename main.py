@@ -1,5 +1,6 @@
 import os
 import re
+import unicodedata
 from typing import List, Optional, Dict
 from collections import defaultdict
 from datetime import datetime, timedelta
@@ -12,23 +13,24 @@ from fastapi import FastAPI, Request, Depends, Form
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
-from sqlalchemy import Column, Integer, Text, create_engine, func, text, or_
+from sqlalchemy import Column, Integer, Text, create_engine, func, text
 from sqlalchemy.orm import declarative_base, sessionmaker, Session
 
 from markupsafe import Markup, escape
 
 from scraper import fetch_posts_from_thread, ScrapingError, get_thread_title
 
-# ====== データベース設定 ======
+
+# =========================
+# DB セットアップ
+# =========================
 
 DATABASE_URL = os.getenv("DATABASE_URL")
-
 if not DATABASE_URL:
     raise RuntimeError("DATABASE_URL が設定されていません。環境変数 DATABASE_URL を確認してください。")
 
 engine = create_engine(DATABASE_URL, pool_pre_ping=True)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-
 Base = declarative_base()
 
 
@@ -45,7 +47,7 @@ class ThreadPost(Base):
     posted_at = Column(Text, nullable=True)
     body = Column(Text, nullable=False)
     anchors = Column(Text, nullable=True)  # ",55,60,130," のような形式
-    tags = Column(Text, nullable=True)     # 自分用タグ
+    tags = Column(Text, nullable=True)     # 自分用タグ（カンマ区切り想定）
     memo = Column(Text, nullable=True)     # 自分用メモ
 
 
@@ -57,7 +59,9 @@ def get_db():
         db.close()
 
 
-# ====== エリア／期間 定義（全国版） ======
+# =========================
+# エリア・期間設定（全国対応）
+# =========================
 
 AREA_OPTIONS = [
     {"code": "",   "label": "地域を選択"},
@@ -95,30 +99,63 @@ def get_period_days(period_id: str) -> Optional[int]:
     return PERIOD_ID_TO_DAYS.get(period_id)
 
 
-# ====== テキスト整形＆ハイライト ======
+# =========================
+# テキスト正規化・ハイライト
+# =========================
 
 def _normalize_lines(text_value: str) -> str:
     """
-    各行ごとに、先頭の空白・全角スペース・NBSPなどを削る。
-    また先頭側の「完全に空行」の連続は落とす。
+    本文用：各行の先頭空白（半角/全角/NBSP）を削除。
+    先頭側の完全な空行の連続は削除して、余計な上部スペースも潰す。
     """
     lines = text_value.splitlines()
     cleaned: List[str] = []
     leading = True
     for line in lines:
         if leading and line.strip() == "":
-            # 先頭の空行はスキップ
             continue
-        # 行頭の空白類を削る
         line = re.sub(r'^[\s\u3000\xa0]+', '', line)
         cleaned.append(line)
         leading = False
     return "\n".join(cleaned)
 
 
+def to_hiragana(s: str) -> str:
+    """
+    カタカナ → ひらがな変換。
+    """
+    result = []
+    for ch in s:
+        code = ord(ch)
+        if 0x30A1 <= code <= 0x30F6:  # カタカナ領域
+            result.append(chr(code - 0x60))
+        else:
+            result.append(ch)
+    return "".join(result)
+
+
+def normalize_for_search(s: Optional[str]) -> str:
+    """
+    検索用正規化：
+    - None → ""
+    - NFKC 正規化
+    - カタカナ → ひらがな
+    - 英字は小文字化
+    """
+    if s is None:
+        return ""
+    s = unicodedata.normalize("NFKC", s)
+    s = to_hiragana(s)
+    s = s.lower()
+    return s
+
+
 def highlight_text(text_value: Optional[str], keyword: str) -> Markup:
     """
     本文中の検索語を <mark> で囲んで強調表示。
+    - 文頭の変なスペースは除去
+    - 英字については大文字小文字を無視してハイライト
+    （ひらがな↔カタカナのハイライトまではやらず、検索だけ対応）
     """
     if text_value is None:
         text_value = ""
@@ -128,7 +165,10 @@ def highlight_text(text_value: Optional[str], keyword: str) -> Markup:
         return Markup(escape(text_value))
 
     escaped = escape(text_value)
-    pattern = re.compile(re.escape(keyword))
+    try:
+        pattern = re.compile(re.escape(keyword), re.IGNORECASE)
+    except re.error:
+        return Markup(escaped)
 
     def repl(match):
         return Markup(f"<mark>{match.group(0)}</mark>")
@@ -149,7 +189,9 @@ def simplify_thread_title(title: str) -> str:
     return title.strip()
 
 
-# ====== アンカー／ツリー関連（DB内検索用） ======
+# =========================
+# アンカー／ツリー関連
+# =========================
 
 def parse_anchors_csv(s: Optional[str]) -> List[int]:
     """
@@ -169,7 +211,7 @@ def parse_anchors_csv(s: Optional[str]) -> List[int]:
 
 def build_reply_tree(all_posts: List[ThreadPost], root: ThreadPost) -> List[dict]:
     """
-    1スレ内の全レスから root への返信ツリーを作る（DB用）。
+    1スレ内の全レスから root への返信ツリーを作る（DB内検索用）。
     """
     replies: Dict[int, List[ThreadPost]] = defaultdict(list)
     for p in all_posts:
@@ -197,12 +239,10 @@ def build_reply_tree(all_posts: List[ThreadPost], root: ThreadPost) -> List[dict
     return result
 
 
-# ====== 日付パース（今のところ外部検索では内部使用のみ） ======
-
 def parse_posted_at_value(value: str) -> Optional[datetime]:
     """
-    レス日時文字列を datetime に変換する。
-    例: "2025/11/03 06:35"
+    "2025/11/03 06:35" のような日時を datetime に変換。
+    （今は外部検索の内部処理でのみ利用）
     """
     if not value:
         return None
@@ -215,7 +255,9 @@ def parse_posted_at_value(value: str) -> Optional[datetime]:
     return None
 
 
-# ====== アプリ本体 ======
+# =========================
+# FastAPI 本体
+# =========================
 
 app = FastAPI()
 templates = Jinja2Templates(directory="templates")
@@ -233,7 +275,9 @@ def on_startup():
         conn.execute(text("ALTER TABLE thread_posts ADD COLUMN IF NOT EXISTS thread_title TEXT"))
 
 
-# ====== スレ取り込みロジック共通化 ======
+# =========================
+# スレ取り込み共通処理
+# =========================
 
 def fetch_thread_into_db(db: Session, url: str) -> int:
     """
@@ -324,7 +368,9 @@ def fetch_thread_into_db(db: Session, url: str) -> int:
     return count
 
 
-# ====== 内部検索（Personal Search メイン） ======
+# =========================
+# 内部検索（トップ /）
+# =========================
 
 @app.get("/", response_class=HTMLResponse)
 def show_search_page(
@@ -335,49 +381,79 @@ def show_search_page(
     tag_mode: str = "or",
     db: Session = Depends(get_db),
 ):
-    keyword = (q or "").strip()
-    thread_filter = (thread_filter or "").strip()
-    tags_input = (tags or "").strip()
+    """
+    Personal Search メイン画面。
+    - ひらがな／カタカナ、大文字小文字を区別しない検索
+    - 本文・スレURL/タイトル・タグに同じ正規化を適用
+    """
+    keyword_raw = (q or "").strip()
+    thread_filter_raw = (thread_filter or "").strip()
+    tags_input_raw = (tags or "").strip()
     tag_mode = (tag_mode or "or").lower()
+
+    keyword_norm = normalize_for_search(keyword_raw)
+    thread_filter_norm = normalize_for_search(thread_filter_raw)
+    tags_norm_list: List[str] = []
+    if tags_input_raw:
+        tags_norm_list = [
+            normalize_for_search(t)
+            for t in tags_input_raw.split(",")
+            if t.strip()
+        ]
 
     thread_results: List[dict] = []
     hit_count = 0
     error_message: str = ""
 
     try:
-        if keyword or thread_filter or tags_input:
-            query = db.query(ThreadPost)
-
-            if keyword:
-                query = query.filter(ThreadPost.body.contains(keyword))
-
-            if thread_filter:
-                query = query.filter(
-                    or_(
-                        ThreadPost.thread_url.contains(thread_filter),
-                        ThreadPost.thread_title.contains(thread_filter),
-                    )
-                )
-
-            tags_list: List[str] = []
-            if tags_input:
-                tags_list = [t.strip() for t in tags_input.split(",") if t.strip()]
-
-            if tags_list:
-                if tag_mode == "and":
-                    for t in tags_list:
-                        query = query.filter(ThreadPost.tags.contains(t))
-                else:
-                    or_conditions = [ThreadPost.tags.contains(t) for t in tags_list]
-                    query = query.filter(or_(*or_conditions))
-
-            hits: List[ThreadPost] = (
-                query.order_by(ThreadPost.thread_url.asc(), ThreadPost.post_no.asc()).all()
+        # 何かしら条件が入っている場合のみ検索
+        if keyword_raw or thread_filter_raw or tags_input_raw:
+            # いったん全件取得して Python 側で判定（個人用ツールなので許容）
+            all_posts: List[ThreadPost] = (
+                db.query(ThreadPost)
+                .order_by(ThreadPost.thread_url.asc(), ThreadPost.post_no.asc())
+                .all()
             )
+
+            # スレURLごとにまとめておく（コンテキスト・ツリー用）
+            posts_by_thread: Dict[str, List[ThreadPost]] = defaultdict(list)
+            for p in all_posts:
+                posts_by_thread[p.thread_url].append(p)
+
+            hits: List[ThreadPost] = []
+
+            for p in all_posts:
+                body_norm = normalize_for_search(p.body or "")
+
+                # 本文キーワード
+                if keyword_norm:
+                    if keyword_norm not in body_norm:
+                        continue
+
+                # スレURL / タイトルフィルタ
+                if thread_filter_norm:
+                    url_norm = normalize_for_search(p.thread_url or "")
+                    title_norm = normalize_for_search(p.thread_title or "")
+                    if thread_filter_norm not in url_norm and thread_filter_norm not in title_norm:
+                        continue
+
+                # タグフィルタ
+                if tags_norm_list:
+                    post_tags_norm = normalize_for_search(p.tags or "")
+                    if tag_mode == "and":
+                        # 全て含まれている必要あり
+                        ok = all(t in post_tags_norm for t in tags_norm_list)
+                    else:
+                        # どれか一つでも含まれていればOK
+                        ok = any(t in post_tags_norm for t in tags_norm_list)
+                    if not ok:
+                        continue
+
+                hits.append(p)
+
             hit_count = len(hits)
 
             if hits:
-                all_posts_by_thread: Dict[str, List[ThreadPost]] = {}
                 thread_map: Dict[str, dict] = {}
 
                 for root in hits:
@@ -394,37 +470,31 @@ def show_search_page(
                         thread_map[thread_url] = block
                         thread_results.append(block)
 
-                    if thread_url not in all_posts_by_thread:
-                        all_posts = (
-                            db.query(ThreadPost)
-                            .filter(ThreadPost.thread_url == thread_url)
-                            .order_by(ThreadPost.post_no.asc())
-                            .all()
-                        )
-                        all_posts_by_thread[thread_url] = all_posts
-                    else:
-                        all_posts = all_posts_by_thread[thread_url]
+                    all_posts_thread = posts_by_thread.get(thread_url, [])
 
+                    # コンテキスト：前後5レス
                     context_posts: List[ThreadPost] = []
-                    if root.post_no is not None and all_posts:
+                    if root.post_no is not None and all_posts_thread:
                         start_no = max(1, root.post_no - 5)
                         end_no = root.post_no + 5
                         context_posts = [
                             p
-                            for p in all_posts
+                            for p in all_posts_thread
                             if p.post_no is not None and start_no <= p.post_no <= end_no
                         ]
 
-                    tree_items = build_reply_tree(all_posts, root)
+                    # 返信ツリー
+                    tree_items = build_reply_tree(all_posts_thread, root)
 
+                    # アンカー先
                     anchor_targets: List[ThreadPost] = []
                     if root.anchors:
                         nums = parse_anchors_csv(root.anchors)
-                        if nums and all_posts:
+                        if nums and all_posts_thread:
                             num_set = set(nums)
                             anchor_targets = [
                                 p
-                                for p in all_posts
+                                for p in all_posts_thread
                                 if p.post_no is not None and p.post_no in num_set
                             ]
 
@@ -447,9 +517,9 @@ def show_search_page(
         "index.html",
         {
             "request": request,
-            "keyword": keyword,
-            "thread_filter": thread_filter,
-            "tags_input": tags_input,
+            "keyword": keyword_raw,
+            "thread_filter": thread_filter_raw,
+            "tags_input": tags_input_raw,
             "tag_mode": tag_mode,
             "results": thread_results,
             "hit_count": hit_count,
@@ -459,7 +529,9 @@ def show_search_page(
     )
 
 
-# ====== JSON API（おまけ） ======
+# =========================
+# JSON API（おまけ）
+# =========================
 
 @app.get("/api/search")
 def api_search(
@@ -467,6 +539,9 @@ def api_search(
     thread_filter: str = "",
     db: Session = Depends(get_db),
 ):
+    """
+    API は簡易版として DB の contains ベースのまま（細かい正規化はなし）。
+    """
     keyword = (q or "").strip()
     thread_filter = (thread_filter or "").strip()
     if not keyword:
@@ -474,12 +549,7 @@ def api_search(
 
     query = db.query(ThreadPost).filter(ThreadPost.body.contains(keyword))
     if thread_filter:
-        query = query.filter(
-            or_(
-                ThreadPost.thread_url.contains(thread_filter),
-                ThreadPost.thread_title.contains(thread_filter),
-            )
-        )
+        query = query.filter(ThreadPost.thread_url.contains(thread_filter))
 
     posts = query.order_by(ThreadPost.id.asc()).all()
     return [
@@ -498,7 +568,9 @@ def api_search(
     ]
 
 
-# ====== 取り込み画面（GET / POST） ======
+# =========================
+# 取り込み画面（管理用）
+# =========================
 
 @app.get("/admin/fetch", response_class=HTMLResponse)
 def fetch_thread_get(request: Request, url: str = ""):
@@ -546,8 +618,7 @@ def fetch_thread_post(
     )
 
 
-# ====== 「このスレだけ再取得」&「このスレだけ削除」 ======
-
+# 「このスレだけ再取得」ボタン用
 @app.post("/admin/refetch")
 def refetch_thread_from_search(
     request: Request,
@@ -566,6 +637,7 @@ def refetch_thread_from_search(
     return RedirectResponse(url=back_url, status_code=303)
 
 
+# 「このスレだけ削除」ボタン用
 @app.post("/admin/delete_thread")
 def delete_thread_from_search(
     request: Request,
@@ -587,7 +659,9 @@ def delete_thread_from_search(
     return RedirectResponse(url=back_url, status_code=303)
 
 
-# ====== タグ・メモ編集 ======
+# =========================
+# タグ・メモ編集
+# =========================
 
 @app.get("/post/{post_id}/edit", response_class=HTMLResponse)
 def edit_post_get(
@@ -623,7 +697,9 @@ def edit_post_post(
     return RedirectResponse(url=back_url, status_code=303)
 
 
-# ====== 外部スレッド検索（タイトル一覧） ======
+# =========================
+# 外部スレッド検索（タイトル一覧）
+# =========================
 
 def search_threads_external(area_code: str, keyword: str, max_days: Optional[int]) -> List[dict]:
     """
@@ -632,8 +708,7 @@ def search_threads_external(area_code: str, keyword: str, max_days: Optional[int
     ・URL
     ・最新レス日時
     を取り出す。
-    検索結果ページ内の「最新レス投稿日時：YYYY/MM/DD HH:MM」をパースし、
-    タイトルに keyword を含むスレだけを採用する。
+    タイトルについても normalize_for_search で比較する。
     """
     keyword = (keyword or "").strip()
     if not area_code or not keyword:
@@ -651,13 +726,12 @@ def search_threads_external(area_code: str, keyword: str, max_days: Optional[int
 
     threads: List[dict] = []
 
-    # 期間フィルタの閾値
     threshold: Optional[datetime] = None
     if max_days is not None:
         threshold = datetime.now() - timedelta(days=max_days)
 
-    # 「最新レス投稿日時：YYYY/MM/DD HH:MM」の文字列を起点に、
-    # 近くの /thr_res/ リンクを探してタイトル・URLを取る
+    keyword_norm = normalize_for_search(keyword)
+
     for s in soup.find_all(string=re.compile("最新レス投稿日時")):
         text = str(s)
         m = re.search(r"(\d{4}/\d{2}/\d{2} \d{2}:\d{2})", text)
@@ -672,7 +746,6 @@ def search_threads_external(area_code: str, keyword: str, max_days: Optional[int
             # 古すぎるものはスキップ
             continue
 
-        # 祖先を遡りながら /thr_res/ を含む a タグを探す
         parent = s.parent
         link = None
         while parent is not None and parent.name not in ("html", "body"):
@@ -689,8 +762,9 @@ def search_threads_external(area_code: str, keyword: str, max_days: Optional[int
         if not title:
             continue
 
-        # タイトルに keyword を含むものだけ採用
-        if keyword not in title:
+        # タイトルも正規化して比較（ひらがな/カタカナ・大小文字を区別しない）
+        title_norm = normalize_for_search(title)
+        if keyword_norm not in title_norm:
             continue
 
         href = link.get("href", "")
@@ -711,14 +785,12 @@ def search_threads_external(area_code: str, keyword: str, max_days: Optional[int
             }
         )
 
-    # URLでユニーク化
     unique_by_url: Dict[str, dict] = {}
     for t in threads:
         if t["url"] not in unique_by_url:
             unique_by_url[t["url"]] = t
 
     result = list(unique_by_url.values())
-    # 新しい順に並べる
     result.sort(key=lambda x: x.get("last_post_at_str") or "", reverse=True)
     return result
 
@@ -726,16 +798,16 @@ def search_threads_external(area_code: str, keyword: str, max_days: Optional[int
 @app.get("/thread_search", response_class=HTMLResponse)
 def thread_search_page(
     request: Request,
-    area: str = "3",
-    period: str = "2y",
+    area: str = "7",      # デフォルト：大阪版
+    period: str = "3m",   # デフォルト：3ヶ月以内
     keyword: str = "",
 ):
     """
     外部スレッド検索（タイトル一覧）画面。
     keyword は「タイトルに含めたい語句」として扱う。
     """
-    area = (area or "").strip() or "3"
-    period = (period or "").strip() or "2y"
+    area = (area or "").strip() or "7"
+    period = (period or "").strip() or "3m"
     keyword = (keyword or "").strip()
 
     results: List[dict] = []
@@ -756,14 +828,65 @@ def thread_search_page(
             "period_options": PERIOD_OPTIONS,
             "current_area": area,
             "current_period": period,
-            "keyword": keyword,  # タイトル用キーワード
+            "keyword": keyword,
             "results": results,
             "error_message": error_message,
         },
     )
 
 
-# ====== 外部スレッド内検索（1スレの中のレス検索） ======
+# =========================
+# 外部スレッドの前後スレ解析
+# =========================
+
+def find_prev_next_thread_urls(thread_url: str) -> tuple[Optional[str], Optional[str]]:
+    """
+    爆サイのスレページから「前スレ」「次スレ」らしきリンクをざっくり探す。
+    （テキストに「前」「スレ」／「次」「スレ」が含まれている a タグ）
+    """
+    try:
+        resp = requests.get(
+            thread_url,
+            timeout=20,
+            headers={"User-Agent": "Mozilla/5.0"},
+        )
+        resp.raise_for_status()
+    except Exception:
+        return (None, None)
+
+    soup = BeautifulSoup(resp.text, "html.parser")
+
+    prev_href: Optional[str] = None
+    next_href: Optional[str] = None
+
+    for a in soup.find_all("a", href=True):
+        href = a.get("href", "")
+        if "/thr_res/" not in href:
+            continue
+        text = (a.get_text() or "").strip()
+        if not text:
+            continue
+
+        if ("前" in text and "スレ" in text) and prev_href is None:
+            prev_href = href
+        if ("次" in text and "スレ" in text) and next_href is None:
+            next_href = href
+
+    def normalize_href(h: Optional[str]) -> Optional[str]:
+        if not h:
+            return None
+        if h.startswith("//"):
+            return "https:" + h
+        if h.startswith("/"):
+            return "https://bakusai.com" + h
+        return h
+
+    return normalize_href(prev_href), normalize_href(next_href)
+
+
+# =========================
+# 外部スレッド内検索
+# =========================
 
 @app.post("/thread_search/posts", response_class=HTMLResponse)
 def thread_search_posts(
@@ -771,27 +894,27 @@ def thread_search_posts(
     selected_thread: str = Form(""),
     title_keyword: str = Form(""),
     post_keyword: str = Form(""),
-    area: str = Form("3"),
-    period: str = Form("2y"),
+    area: str = Form("7"),
+    period: str = Form("3m"),
 ):
     """
     外部検索で選んだ1スレの中から、
     「post_keyword」を含むレスだけ表示する。
-    index.html と同じように：
-      - 本文ハイライト
-      - アンカー先
-      - 返信ツリー
-      - 前後5レスのコンテキスト
-    を組み立てる。
+    - 本文検索は normalize_for_search でひらがな/カタカナ、大文字小文字を区別しない
+    - index.html と似た UI（本文／アンカー先／ツリー／前後コンテキスト）
+    - 前スレ・次スレの URL を取れる場合はボタンを表示
     """
     selected_thread = (selected_thread or "").strip()
     title_keyword = (title_keyword or "").strip()
     post_keyword = (post_keyword or "").strip()
-    area = (area or "").strip() or "3"
-    period = (period or "").strip() or "2y"
+    area = (area or "").strip() or "7"
+    period = (period or "").strip() or "3m"
 
     entries: List[dict] = []
     error_message = ""
+    thread_title_display: str = ""
+    prev_thread_url: Optional[str] = None
+    next_thread_url: Optional[str] = None
 
     if not selected_thread:
         error_message = "スレッドが選択されていません。"
@@ -799,27 +922,35 @@ def thread_search_posts(
         error_message = "本文キーワードが入力されていません。"
     else:
         try:
-            # 全レスを取得（DBには保存しないオンメモリ版）
+            # タイトル取得（画面表示用）
+            try:
+                t = get_thread_title(selected_thread)
+                thread_title_display = simplify_thread_title(t or "")
+            except Exception:
+                thread_title_display = ""
+
+            # 前スレ／次スレ
+            prev_thread_url, next_thread_url = find_prev_next_thread_urls(selected_thread)
+
+            # 全レス取得（オンメモリ）
             all_posts = fetch_posts_from_thread(selected_thread)
 
-            # レス番号 → Post の辞書（アンカー先・コンテキスト用）
+            # レス番号 → Post
             posts_by_no: Dict[int, object] = {}
             for p in all_posts:
                 if p.post_no is not None and p.post_no not in posts_by_no:
                     posts_by_no[p.post_no] = p
 
-            # 返信ツリー用インデックス（親レス番号 → 子レス一覧）
+            # 返信ツリー用インデックス
             replies: Dict[int, List[object]] = defaultdict(list)
             for p in all_posts:
-                if not p.anchors:
+                if not getattr(p, "anchors", None):
                     continue
+                # scraper 側では anchors はたぶん List[int] なのでそのまま使う
                 for a in p.anchors:
                     replies[a].append(p)
 
             def build_reply_tree_external(root) -> List[dict]:
-                """
-                外部スレッド用の返信ツリー構築。
-                """
                 result: List[dict] = []
                 visited: set[int] = set()
 
@@ -840,13 +971,17 @@ def thread_search_posts(
                         dfs(child, 0)
                 return result
 
+            # 正規化キーワード
+            post_keyword_norm = normalize_for_search(post_keyword)
+
             # ヒットしたレスだけ拾う
             for root in all_posts:
                 body = root.body or ""
-                if post_keyword not in body:
+                body_norm = normalize_for_search(body)
+                if post_keyword_norm not in body_norm:
                     continue
 
-                # 前後5レスのコンテキスト
+                # コンテキスト（前後5レス）
                 context_posts: List[object] = []
                 if root.post_no is not None:
                     start_no = max(1, root.post_no - 5)
@@ -857,12 +992,12 @@ def thread_search_posts(
                         if start_no <= p.post_no <= end_no:
                             context_posts.append(p)
 
-                # 返信ツリー
+                # ツリー
                 tree_items = build_reply_tree_external(root)
 
-                # root が参照しているアンカー先
+                # アンカー先
                 anchor_targets: List[object] = []
-                if root.anchors:
+                if getattr(root, "anchors", None):
                     for n in root.anchors:
                         target = posts_by_no.get(n)
                         if target:
@@ -886,6 +1021,7 @@ def thread_search_posts(
         {
             "request": request,
             "thread_url": selected_thread,
+            "thread_title": thread_title_display,
             "title_keyword": title_keyword,
             "post_keyword": post_keyword,
             "area": area,
@@ -893,5 +1029,7 @@ def thread_search_posts(
             "entries": entries,
             "error_message": error_message,
             "highlight": highlight_text,
+            "prev_thread_url": prev_thread_url,
+            "next_thread_url": next_thread_url,
         },
     )
