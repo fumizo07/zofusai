@@ -196,11 +196,11 @@
                     {% endfor %}
                 </select>
 
-                <label for="board_category_id">板カテゴリ：</label>
-                <select name="board_category_id" id="board_category_id">
+                <label for="board_category">板カテゴリ：</label>
+                <select name="board_category" id="board_category">
                     {% for c in board_category_options %}
                         <option value="{{ c.id }}"
-                                {% if c.id == current_board_category_id %}selected{% endif %}>
+                                {% if c.id == current_board_category %}selected{% endif %}>
                             {{ c.label }}
                         </option>
                     {% endfor %}
@@ -296,7 +296,7 @@
 
 <script>
 (function() {
-    const boardCategorySelect = document.getElementById('board_category_id');
+    const boardCategorySelect = document.getElementById('board_category');
     const boardSelect = document.getElementById('board_id');
 
     function updateBoardDisabled() {
