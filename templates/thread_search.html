@@ -1,372 +1,208 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
-    <meta charset="UTF-8">
-    <title>外部スレッド検索 - Personal Search</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-
+    <meta charset="utf-8" />
+    <title>Personal Search - 外部スレッド検索</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
     <style>
         body {
+            font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
             margin: 0;
             padding: 0;
-            font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", "Segoe UI", sans-serif;
-            background-color: #f3f4f6;
-            color: #111827;
+            background: #f5f5f7;
+            color: #222;
         }
-
-        .page {
-            max-width: 1000px;
-            margin: 0 auto;
-            padding: 16px;
-        }
-
         header {
-            margin-bottom: 16px;
+            background: #111827;
+            color: #f9fafb;
+            padding: 12px 16px;
         }
-
         header h1 {
-            font-size: 1.5rem;
-            margin: 0 0 4px;
+            margin: 0;
+            font-size: 18px;
         }
-
-        header .subtitle {
-            font-size: 0.85rem;
-            color: #6b7280;
+        main {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 12px 8px 32px;
         }
-
         .card {
-            background-color: #ffffff;
-            border-radius: 12px;
-            padding: 14px 16px;
-            box-shadow: 0 2px 8px rgba(15, 23, 42, 0.06);
+            background: #fff;
+            border-radius: 8px;
+            padding: 12px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.08);
             margin-bottom: 16px;
         }
-
-        .card-header {
-            display: flex;
-            align-items: baseline;
-            justify-content: space-between;
-            gap: 8px;
-            margin-bottom: 8px;
-        }
-
-        .card-header h2 {
-            font-size: 1rem;
-            margin: 0;
-        }
-
-        .card-header .hint {
-            font-size: 0.8rem;
-            color: #6b7280;
-        }
-
-        .search-form-row {
+        .form-row {
             display: flex;
             flex-wrap: wrap;
             gap: 8px;
+            align-items: center;
             margin-bottom: 8px;
         }
-
-        .field-label {
-            display: block;
-            font-size: 0.78rem;
-            color: #4b5563;
-            margin-bottom: 2px;
-        }
-
-        .field-small,
-        .field-medium,
-        .field-large {
-            width: 100%;
-        }
-
-        .search-form-row select,
-        .search-form-row input[type="text"] {
-            width: 100%;
-            box-sizing: border-box;
-            padding: 6px 8px;
-            font-size: 0.9rem;
-            border-radius: 8px;
-            border: 1px solid #d1d5db;
-            background-color: #f9fafb;
-        }
-
-        .search-form-row select:focus,
-        .search-form-row input[type="text"]:focus {
-            outline: none;
-            border-color: #2563eb;
-            box-shadow: 0 0 0 1px rgba(37, 99, 235, 0.25);
-            background-color: #ffffff;
-        }
-
-        @media (min-width: 720px) {
-            .field-small {
-                flex: 0 0 180px;
-            }
-            .field-medium {
-                flex: 0 0 220px;
-            }
-            .field-large {
-                flex: 1 1 auto;
-            }
-        }
-
-        .search-actions {
-            margin-top: 6px;
-            text-align: right;
-        }
-
-        button,
-        .btn {
-            display: inline-block;
-            padding: 6px 14px;
-            font-size: 0.9rem;
-            border-radius: 999px;
-            border: none;
-            background: linear-gradient(135deg, #2563eb, #1d4ed8);
-            color: #ffffff;
-            cursor: pointer;
-            text-decoration: none;
+        .form-row label {
+            font-size: 13px;
+            color: #374151;
             white-space: nowrap;
         }
-
-        button:hover,
-        .btn:hover {
-            background: linear-gradient(135deg, #1d4ed8, #1e40af);
+        .form-row select,
+        .form-row input[type="text"] {
+            font-size: 14px;
+            padding: 4px 6px;
+            height: 32px;
+            box-sizing: border-box;
         }
-
-        .btn-secondary {
-            background: #e5e7eb;
-            color: #374151;
+        .form-row input[type="text"] {
+            min-width: 140px;
+            flex: 1 1 160px;
         }
-
-        .btn-secondary:hover {
-            background: #d1d5db;
-        }
-
-        .error {
-            margin-top: 8px;
-            padding: 8px 10px;
-            border-radius: 8px;
-            background-color: #fee2e2;
-            color: #b91c1c;
-            font-size: 0.85rem;
-        }
-
-        .results-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: baseline;
-            gap: 8px;
-            margin-bottom: 8px;
-        }
-
-        .results-header-title {
-            font-size: 0.95rem;
-            font-weight: 600;
-        }
-
-        .results-header-count {
-            font-size: 0.8rem;
-            color: #6b7280;
-        }
-
-        .results-header-pill {
-            display: inline-flex;
-            align-items: center;
-            gap: 4px;
-            background-color: #eff6ff;
-            color: #1d4ed8;
-            border-radius: 999px;
-            padding: 2px 8px;
-            font-size: 0.75rem;
-        }
-
-        .thread-select-form {
-            margin-top: 4px;
-        }
-
-        .threads-list {
-            border-radius: 10px;
-            border: 1px solid #e5e7eb;
-            overflow: hidden;
-        }
-
-        .thread-item {
-            border-bottom: 1px solid #e5e7eb;
-            padding: 8px 10px;
-            display: flex;
-            align-items: flex-start;
-            gap: 8px;
-            background-color: #ffffff;
-        }
-
-        .thread-item:nth-child(2n) {
-            background-color: #f9fafb;
-        }
-
-        .thread-item:last-child {
-            border-bottom: none;
-        }
-
-        .thread-radio {
-            margin-top: 4px;
-        }
-
-        .thread-main {
-            flex: 1 1 auto;
-        }
-
-        .thread-title {
-            font-size: 0.9rem;
-            font-weight: 600;
-            margin-bottom: 4px;
-            word-break: break-all;
-        }
-
-        .thread-meta {
-            font-size: 0.78rem;
-            color: #6b7280;
-        }
-
-        .no-results {
-            font-size: 0.85rem;
-            color: #6b7280;
-        }
-
-        .post-keyword-block {
-            margin-top: 10px;
-            border-top: 1px dashed #d1d5db;
-            padding-top: 8px;
-            display: flex;
-            flex-wrap: wrap;
-            gap: 8px;
-            align-items: center;
-            justify-content: space-between;
-        }
-
-        .post-keyword-input {
-            display: flex;
-            align-items: center;
-            gap: 6px;
-            flex: 1 1 auto;
-        }
-
-        .post-keyword-input label {
-            font-size: 0.85rem;
-        }
-
-        .post-keyword-input input[type="text"] {
-            padding: 6px 8px;
-            font-size: 0.9rem;
-            min-width: 160px;
-            border-radius: 8px;
-            border: 1px solid #d1d5db;
-            background-color: #f9fafb;
-            flex: 1 1 auto;
-        }
-
-        .post-keyword-input input[type="text"]:focus {
-            outline: none;
-            border-color: #2563eb;
-            box-shadow: 0 0 0 1px rgba(37, 99, 235, 0.25);
-            background-color: #ffffff;
-        }
-
-        .post-keyword-actions {
+        .form-row select {
             flex: 0 0 auto;
         }
-
-        @media (max-width: 640px) {
-            .post-keyword-block {
+        .btn-primary {
+            background: #2563eb;
+            color: #fff;
+            border: none;
+            border-radius: 4px;
+            padding: 6px 12px;
+            font-size: 14px;
+            cursor: pointer;
+        }
+        .btn-primary:hover {
+            background: #1d4ed8;
+        }
+        .btn-secondary {
+            background: #6b7280;
+            color: #fff;
+            border: none;
+            border-radius: 4px;
+            padding: 4px 8px;
+            font-size: 12px;
+            cursor: pointer;
+        }
+        .btn-secondary:hover {
+            background: #4b5563;
+        }
+        .error {
+            color: #b91c1c;
+            font-size: 13px;
+            margin-top: 4px;
+        }
+        .results-summary {
+            font-size: 14px;
+            margin-bottom: 8px;
+        }
+        .threads-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 14px;
+        }
+        .threads-table th,
+        .threads-table td {
+            padding: 6px 4px;
+            border-bottom: 1px solid #e5e7eb;
+            vertical-align: top;
+        }
+        .threads-table th {
+            text-align: left;
+            background: #f3f4f6;
+            font-weight: 600;
+        }
+        .thread-title {
+            font-weight: 600;
+        }
+        .thread-meta {
+            font-size: 12px;
+            color: #6b7280;
+        }
+        .section-title {
+            font-size: 15px;
+            font-weight: 600;
+            margin: 8px 0;
+        }
+        @media (max-width: 768px) {
+            main {
+                padding: 8px 6px 24px;
+            }
+            .form-row {
                 flex-direction: column;
-                align-items: stretch;
+                align-items: flex-start;
             }
-            .post-keyword-actions {
+            .form-row label {
+                margin-bottom: 2px;
+            }
+            .form-row input[type="text"] {
                 width: 100%;
             }
-            .post-keyword-actions button {
-                width: 100%;
-                text-align: center;
+            .threads-table th,
+            .threads-table td {
+                font-size: 13px;
             }
         }
     </style>
 </head>
 <body>
-<div class="page">
-    <header>
-        <h1>外部スレッド検索</h1>
-        <div class="subtitle">
-            爆サイのスレッドタイトルを検索し、選んだスレ内をキーワードで絞り込みます。
-        </div>
-    </header>
+<header>
+    <h1>Personal Search - 外部スレッド検索</h1>
+</header>
 
+<main>
     <!-- 検索フォーム -->
     <section class="card">
-        <div class="card-header">
-            <h2>スレッドタイトル検索</h2>
-            <div class="hint">地域・期間・板カテゴリを指定して、タイトルに含まれる語句で検索します。</div>
-        </div>
-
         <form method="get" action="/thread_search">
-            <div class="search-form-row">
-                <div class="field-small">
-                    <span class="field-label">地域：</span>
-                    <select name="area">
-                        {% for area_opt in area_options %}
-                            <option value="{{ area_opt.code }}"
-                                    {% if area_opt.code == current_area %}selected{% endif %}>
-                                {{ area_opt.label }}
-                            </option>
-                        {% endfor %}
-                    </select>
-                </div>
+            <div class="form-row">
+                <label for="area">地域：</label>
+                <select name="area" id="area">
+                    {% for a in area_options %}
+                        <option value="{{ a.code }}"
+                                {% if a.code == current_area %}selected{% endif %}>
+                            {{ a.label }}
+                        </option>
+                    {% endfor %}
+                </select>
 
-                <div class="field-small">
-                    <span class="field-label">期間設定：</span>
-                    <select name="period">
-                        {% for p in period_options %}
-                            <option value="{{ p.id }}"
-                                    {% if p.id == current_period %}selected{% endif %}>
-                                {{ p.label }}
-                            </option>
-                        {% endfor %}
-                    </select>
-                </div>
+                <label for="period">期間設定：</label>
+                <select name="period" id="period">
+                    {% for p in period_options %}
+                        <option value="{{ p.id }}"
+                                {% if p.id == current_period %}selected{% endif %}>
+                            {{ p.label }}
+                        </option>
+                    {% endfor %}
+                </select>
 
-                <div class="field-medium">
-                    <span class="field-label">板カテゴリ：</span>
-                    <select name="board_category_id">
-                        {% for bc in board_category_options %}
-                            <option value="{{ bc.id }}"
-                                    {% if bc.id == current_board_category_id %}selected{% endif %}>
-                                {{ bc.label }}
-                            </option>
-                        {% endfor %}
-                    </select>
-                </div>
+                <label for="board_category">板カテゴリ：</label>
+                <select name="board_category" id="board_category">
+                    {% for c in board_category_options %}
+                        <option value="{{ c.id }}"
+                                {% if c.id == current_board_category %}selected{% endif %}>
+                            {{ c.label }}
+                        </option>
+                    {% endfor %}
+                </select>
 
-                <div class="field-medium">
-                    <span class="field-label">板：</span>
-                    <select name="board_id" {% if not current_board_category_id %}disabled{% endif %}>
-                        <option value="">板を選択</option>
+                <label for="board_id">板：</label>
+                <select name="board_id" id="board_id">
+                    {% if board_options %}
                         {% for b in board_options %}
                             <option value="{{ b.id }}"
                                     {% if b.id == current_board_id %}selected{% endif %}>
                                 {{ b.label }}
                             </option>
                         {% endfor %}
-                    </select>
-                </div>
-
-                <div class="field-large">
-                    <span class="field-label">タイトル検索：</span>
-                    <input type="text" name="keyword" value="{{ keyword|default('', true) }}">
-                </div>
+                    {% else %}
+                        <option value="">（カテゴリを先に選択）</option>
+                    {% endif %}
+                </select>
             </div>
 
-            <div class="search-actions">
-                <button type="submit">タイトルを検索</button>
+            <div class="form-row">
+                <label for="keyword">タイトル検索：</label>
+                <input type="text" id="keyword" name="keyword" value="{{ keyword|e }}" />
+
+                <button type="submit" class="btn-primary">
+                    外部スレッド検索
+                </button>
             </div>
 
             {% if error_message %}
@@ -375,75 +211,114 @@
         </form>
     </section>
 
-    <!-- 検索結果表示 -->
-    {% if results %}
-        <section class="card">
-            <div class="results-header">
-                <div class="results-header-title">
-                    「{{ keyword }}」の検索結果
-                </div>
-                <div class="results-header-count">
-                    <span class="results-header-pill">
-                        ヒット：{{ results|length }} 件
-                    </span>
-                </div>
+    <!-- 検索結果（スレ一覧） -->
+    <section class="card">
+        <div class="section-title">スレッド一覧</div>
+
+        {% if results %}
+            <div class="results-summary">
+                {{ keyword }} の検索結果（{{ results|length }}件）
             </div>
 
-            <form method="post" action="/thread_search/posts" class="thread-select-form">
-                <!-- スレッド内検索に必要な情報を引き継ぐ -->
+            <form method="post" action="/thread_search/posts">
                 <input type="hidden" name="area" value="{{ current_area }}">
                 <input type="hidden" name="period" value="{{ current_period }}">
-                <input type="hidden" name="title_keyword" value="{{ keyword }}">
 
-                <div class="threads-list">
-                    {% for item in results %}
-                        <div class="thread-item">
-                            <div class="thread-radio">
+                <table class="threads-table">
+                    <thead>
+                    <tr>
+                        <th style="width: 40px;">選択</th>
+                        <th>タイトル</th>
+                        <th style="width: 150px;">最新レス日時</th>
+                    </tr>
+                    </thead>
+                    <tbody>
+                    {% for t in results %}
+                        <tr>
+                            <td>
                                 <input type="radio"
                                        name="selected_thread"
-                                       value="{{ item.url }}"
+                                       value="{{ t.url|e }}"
                                        {% if loop.first %}checked{% endif %}>
-                            </div>
-                            <div class="thread-main">
+                            </td>
+                            <td>
                                 <div class="thread-title">
-                                    {{ item.title }}
+                                    {{ t.title }}
                                 </div>
                                 <div class="thread-meta">
-                                    最終レス：{{ item.last_post_at_str }}
+                                    <a href="{{ t.url|e }}" target="_blank" rel="noopener">
+                                        スレッドを爆サイで開く
+                                    </a>
                                 </div>
-                            </div>
-                        </div>
+                            </td>
+                            <td>
+                                {{ t.last_post_at_str }}
+                            </td>
+                        </tr>
                     {% endfor %}
-                </div>
+                    </tbody>
+                </table>
 
-                <div class="post-keyword-block">
-                    <div class="post-keyword-input">
-                        <label for="post_keyword">本文キーワード：</label>
-                        <input id="post_keyword" type="text" name="post_keyword" value="">
-                    </div>
-                    <div class="post-keyword-actions">
-                        <button type="submit">選んだスレ内でキーワード検索</button>
-                    </div>
+                <div class="section-title" style="margin-top: 12px;">
+                    選んだスレ内でキーワード検索
+                </div>
+                <div class="form-row">
+                    <label for="post_keyword">本文キーワード：</label>
+                    <input type="text" id="post_keyword" name="post_keyword" value="" />
+                    <button type="submit" class="btn-primary">
+                        スレッド内検索
+                    </button>
+                </div>
+                <div class="form-row">
+                    <label for="title_keyword">（メモ用）タイトル検索ワード：</label>
+                    <input type="text" id="title_keyword" name="title_keyword" value="{{ keyword|e }}" />
                 </div>
             </form>
-        </section>
-    {% elif keyword %}
-        <section class="card">
-            <div class="results-header">
-                <div class="results-header-title">
-                    「{{ keyword }}」の検索結果
-                </div>
-                <div class="results-header-count">
-                    <span class="results-header-pill">
-                        ヒット：0 件
-                    </span>
-                </div>
-            </div>
-            <div class="no-results">
-                条件に一致するスレッドが見つかりませんでした。地域・期間・板カテゴリなどを変更して再度お試しください。
-            </div>
-        </section>
-    {% endif %}
-</div>
+        {% else %}
+            <p style="font-size: 14px; color: #6b7280;">
+                まだ検索結果がありません。条件を指定して「外部スレッド検索」を実行してください。
+            </p>
+        {% endif %}
+    </section>
+</main>
+
+<script>
+(function() {
+    // Python 側の BOARD_OPTIONS を JS に渡すための簡易データ
+    const boardOptionsMap = {
+        {% for cat in board_category_options %}
+        {% set cid = cat.id %}
+        "{{ cid }}": [
+            {% if cid in board_options and false %}
+            {% endif %}
+        ],
+        {% endfor %}
+    };
+
+    // 実際の中身はサーバ側で current_board_category に対してだけ展開しているので、
+    // ここでは「カテゴリ未選択のときは板セレクトを disable する」程度の制御に留める。
+    const boardCategorySelect = document.getElementById('board_category');
+    const boardSelect = document.getElementById('board_id');
+
+    function updateBoardDisabled() {
+        const cid = boardCategorySelect.value;
+        if (!cid) {
+            boardSelect.disabled = true;
+        } else {
+            boardSelect.disabled = false;
+        }
+    }
+
+    if (boardCategorySelect && boardSelect) {
+        updateBoardDisabled();
+        boardCategorySelect.addEventListener('change', function() {
+            // 今回はサーバ側で board_options を更新する想定なので、
+            // ここでは disable 制御だけ行う。
+            updateBoardDisabled();
+        });
+    }
+})();
+</script>
+
 </body>
 </html>
