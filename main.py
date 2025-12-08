@@ -138,68 +138,78 @@ def get_period_days(period_id: str) -> Optional[int]:
     return PERIOD_ID_TO_DAYS.get(period_id)
 
 
-# 「板」一覧を動的に取得するための種スレ（大阪版のみ）
-BOARD_SEED_THREADS: Dict[str, str] = {
-    # 風俗掲示板系
-    "103": "https://bakusai.com/thr_tl/acode=7/ctgid=103/bid=410/",
-    # メンエス・リフレ・癒し掲示板系
-    "136": "https://bakusai.com/thr_tl/acode=7/ctgid=136/bid=1714/",
-    # R18掲示板系
-    "122": "https://bakusai.com/thr_tl/acode=7/ctgid=122/bid=715/",
-}
-
-
-@lru_cache(maxsize=32)
-def get_board_options_for_area_category(area_code: str, board_category_id: str) -> List[dict]:
+# =========================
+# 板マスタ：areatop から自動取得
+# =========================
+@lru_cache(maxsize=8)
+def _load_board_master_for_area(area_code: str) -> Dict[str, List[dict]]:
     """
-    爆サイの「関連掲示板」などから、指定カテゴリの板 (bid, 名称) を取得する。
-    今は大阪版 (acode=7) 専用。
+    https://bakusai.com/areatop/acode={area_code}/ を解析して
+    ctgid -> [ {id: bid, label: 板名}, ... ] のマスタを作る。
+    今は大阪版(acode=7)前提だが、他エリアも同様に動作する設計。
     """
     area_code = (area_code or "").strip()
-    board_category_id = (board_category_id or "").strip()
-    if not area_code or not board_category_id:
-        return []
-    if area_code != "7":
-        # 今のところ大阪版専用にしておく（安全運転）
-        return []
+    if not area_code:
+        return {}
 
-    seed_url = BOARD_SEED_THREADS.get(board_category_id)
-    if not seed_url:
-        return []
-
+    url = f"https://bakusai.com/areatop/acode={area_code}/"
     try:
         resp = requests.get(
-            seed_url,
+            url,
             timeout=20,
             headers={"User-Agent": "Mozilla/5.0"},
         )
         resp.raise_for_status()
     except Exception:
-        # 失敗したら空（UI上は「板：」が空のまま）
-        return []
+        return {}
 
     soup = BeautifulSoup(resp.text, "html.parser")
 
-    boards_map: Dict[str, str] = {}
+    # ctgid -> { bid: name }
+    tmp: Dict[str, Dict[str, str]] = {}
 
     for a in soup.find_all("a", href=True):
         href = a.get("href", "")
-        if f"/thr_tl/acode={area_code}/ctgid={board_category_id}/bid=" not in href:
-            continue
-        m = re.search(r"bid=(\d+)", href)
+        # /thr_tl/acode=7/ctgid=103/bid=4102/ のようなリンクを拾う
+        m = re.search(r"/thr_tl/acode=(\d+)/ctgid=(\d+)/bid=(\d+)/", href)
         if not m:
             continue
-        bid = m.group(1)
-        label = (a.get_text() or "").strip()
-        if not label:
+        ac, ctgid, bid = m.group(1), m.group(2), m.group(3)
+        if ac != area_code:
             continue
-        boards_map[bid] = label
+        name = (a.get_text() or "").strip()
+        if not name:
+            continue
 
-    board_list = [
-        {"id": bid, "label": label}
-        for bid, label in sorted(boards_map.items(), key=lambda x: int(x[0]))
-    ]
-    return board_list
+        if ctgid not in tmp:
+            tmp[ctgid] = {}
+        if bid not in tmp[ctgid]:
+            tmp[ctgid][bid] = name
+
+    master: Dict[str, List[dict]] = {}
+    for ctgid, boards in tmp.items():
+        master[ctgid] = [
+            {"id": bid, "label": name}
+            for bid, name in sorted(boards.items(), key=lambda x: int(x[0]))
+        ]
+
+    return master
+
+
+@lru_cache(maxsize=64)
+def get_board_options_for_area_category(area_code: str, board_category_id: str) -> List[dict]:
+    """
+    指定エリア＋板カテゴリ(ctgid)に対応する板一覧（bid, 名称）を返す。
+    """
+    area_code = (area_code or "").strip()
+    board_category_id = (board_category_id or "").strip()
+    if not area_code or not board_category_id:
+        return []
+    master = _load_board_master_for_area(area_code)
+    boards = master.get(board_category_id)
+    if not boards:
+        return []
+    return boards
 
 
 # =========================
