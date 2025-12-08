@@ -113,26 +113,48 @@ AREA_OPTIONS = [
     {"code": "11", "label": "沖縄版"},
 ]
 
-# 板カテゴリ（ctgid）マスタ
+# 板カテゴリ（大分類）
 BOARD_CATEGORY_OPTIONS = [
     {"id": "",      "label": "（カテゴリ指定なし）"},
     {"id": "103",   "label": "風俗掲示板"},
     {"id": "136",   "label": "メンエス・リフレ・癒し掲示板"},
     {"id": "122",   "label": "R18掲示板"},
-    # 必要になればここに増やしていく想定
 ]
 
+# 板マスタ（カテゴリごとの板）
+# まずは最低限：大阪版・風俗掲示板の代表例だけ入れておき、
+# 他は必要に応じて追記していく想定です。
+BOARD_OPTIONS: Dict[str, List[Dict[str, str]]] = {
+    "103": [
+        {"id": "",     "label": "板を指定しない"},
+        # 例：ユーザー指定の板
+        {"id": "410",  "label": "大阪風俗・お店"},
+        # 必要に応じてここに {"id": "XXXX", "label": "○○○○"} を追記
+    ],
+    "136": [
+        {"id": "",     "label": "板を指定しない"},
+        # メンエス系の板を必要に応じて追記
+    ],
+    "122": [
+        {"id": "",     "label": "板を指定しない"},
+        # R18系の板を必要に応じて追記
+    ],
+}
+
+# 期間設定
 PERIOD_OPTIONS = [
     {"id": "all", "label": "すべて",   "days": None},
-    {"id": "7d",  "label": "7日以内", "days": 7},
+    {"id": "7d",  "label": "7日以内",  "days": 7},
     {"id": "1m",  "label": "1ヶ月以内", "days": 31},
     {"id": "3m",  "label": "3ヶ月以内", "days": 93},
     {"id": "6m",  "label": "6ヶ月以内", "days": 186},
-    {"id": "1y",  "label": "1年以内", "days": 365},
-    {"id": "2y",  "label": "2年以内", "days": 730},
+    {"id": "1y",  "label": "1年以内",  "days": 365},
+    {"id": "2y",  "label": "2年以内",  "days": 730},
 ]
 
-PERIOD_ID_TO_DAYS = {p["id"]: p["days"] for p in PERIOD_OPTIONS}
+PERIOD_ID_TO_DAYS: Dict[str, Optional[int]] = {
+    p["id"]: p["days"] for p in PERIOD_OPTIONS
+}
 
 
 def get_period_days(period_id: str) -> Optional[int]:
@@ -774,13 +796,13 @@ def list_threads(
     tag_rows = db.query(ThreadPost.tags).filter(ThreadPost.tags.isnot(None)).all()
     tag_counts: Dict[str, int] = {}
     for (tags_str,) in tag_rows:
-            if not tags_str:
+        if not tags_str:
+            continue
+        for tag in tags_str.split(","):
+            tag = tag.strip()
+            if not tag:
                 continue
-            for tag in tags_str.split(","):
-                tag = tag.strip()
-                if not tag:
-                    continue
-                tag_counts[tag] = tag_counts.get(tag, 0) + 1
+            tag_counts[tag] = tag_counts.get(tag, 0) + 1
 
     popular_tags = [
         {"name": name, "count": count}
@@ -866,21 +888,46 @@ def edit_post_post(
 
 
 # =========================
-# 外部スレッド検索（爆サイ）
+# 外部スレッド検索（タイトル）
 # =========================
 def search_threads_external(
     area_code: str,
+    board_category_id: str,
+    board_id: str,
     keyword: str,
     max_days: Optional[int],
-    board_ctgid: Optional[str] = None,
 ) -> List[dict]:
     keyword = (keyword or "").strip()
     if not area_code or not keyword:
         return []
 
-    url = f"https://bakusai.com/sch_thr_thread/acode={area_code}/word={quote_plus(keyword)}"
+    # どの URL で検索するか決定
+    base_url: str
+    keyword_q = quote_plus(keyword)
+
+    if board_category_id and board_id:
+        # 板カテゴリ＋板指定あり → 板単位で検索
+        base_url = (
+            f"https://bakusai.com/sch_thr_thread/"
+            f"acode={area_code}/ctgid={board_category_id}/bid={board_id}/"
+            f"p=1/sch=thr_sch/sch_range=board/word={keyword_q}/"
+        )
+    elif board_category_id:
+        # カテゴリだけ指定 → カテゴリ単位で検索（板は限定しない）
+        base_url = (
+            f"https://bakusai.com/sch_thr_thread/"
+            f"acode={area_code}/ctgid={board_category_id}/"
+            f"p=1/sch=thr_sch/sch_range=board/word={keyword_q}/"
+        )
+    else:
+        # 従来通り：地域＋キーワードだけ
+        base_url = (
+            f"https://bakusai.com/sch_thr_thread/"
+            f"acode={area_code}/word={keyword_q}/"
+        )
+
     resp = requests.get(
-        url,
+        base_url,
         timeout=20,
         headers={"User-Agent": "Mozilla/5.0"},
     )
@@ -895,8 +942,9 @@ def search_threads_external(
 
     keyword_norm = normalize_for_search(keyword)
 
-    for s in soup.find_all(string=re.compile("最新レス投稿日時")):
-        text = str(s)
+    # 「最新レス投稿日時」を手掛かりに 1 スレ分の塊を見つけに行く
+    for node in soup.find_all(string=re.compile("最新レス投稿日時")):
+        text = str(node)
         m = re.search(r"(\d{4}/\d{2}/\d{2} \d{2}:\d{2})", text)
         if not m:
             continue
@@ -908,9 +956,9 @@ def search_threads_external(
         if threshold is not None and dt < threshold:
             continue
 
-        parent = s.parent
-        link = None
         # 近くの /thr_res/ へのリンクを探す
+        parent = node.parent
+        link = None
         while parent is not None and parent.name not in ("html", "body"):
             candidate = parent.find("a", href=True)
             if candidate and "/thr_res/" in candidate.get("href", ""):
@@ -933,13 +981,6 @@ def search_threads_external(
         if not href:
             continue
 
-        # ctgid 抽出（板カテゴリフィルタ用）
-        ctgid_match = re.search(r"ctgid=(\d+)", href)
-        ctgid_value = ctgid_match.group(1) if ctgid_match else None
-        if board_ctgid:
-            if ctgid_value != board_ctgid:
-                continue
-
         if href.startswith("//"):
             full_url = "https:" + href
         elif href.startswith("/"):
@@ -952,10 +993,10 @@ def search_threads_external(
                 "title": title,
                 "url": full_url,
                 "last_post_at_str": dt.strftime("%Y-%m-%d %H:%M"),
-                "ctgid": ctgid_value,
             }
         )
 
+    # URL で重複除去
     unique_by_url: Dict[str, dict] = {}
     for t in threads:
         if t["url"] not in unique_by_url:
@@ -972,26 +1013,28 @@ def thread_search_page(
     area: str = "7",
     period: str = "3m",
     keyword: str = "",
-    board_ctgid: str = "103",
+    board_category: str = "",
+    board_id: str = "",
 ):
-    # 地域と期間、板カテゴリの初期値を整える
     area = (area or "").strip() or "7"
     period = (period or "").strip() or "3m"
     keyword = (keyword or "").strip()
-    board_ctgid = (board_ctgid or "").strip() or "103"
+    board_category = (board_category or "").strip()
+    board_id = (board_id or "").strip()
 
     results: List[dict] = []
     error_message = ""
 
+    # 選択中カテゴリに応じた板リスト
+    current_board_options: List[Dict[str, str]] = BOARD_OPTIONS.get(board_category, [])
+    # カテゴリ未選択なら板は空にしておく（テンプレ側で disabled）
+    if not board_category:
+        current_board_options = []
+
     if keyword and area:
         max_days = get_period_days(period)
         try:
-            results = search_threads_external(
-                area_code=area,
-                keyword=keyword,
-                max_days=max_days,
-                board_ctgid=board_ctgid or None,
-            )
+            results = search_threads_external(area, board_category, board_id, keyword, max_days)
         except Exception as e:
             error_message = f"外部検索中にエラーが発生しました: {e}"
 
@@ -1001,13 +1044,15 @@ def thread_search_page(
             "request": request,
             "area_options": AREA_OPTIONS,
             "period_options": PERIOD_OPTIONS,
+            "board_category_options": BOARD_CATEGORY_OPTIONS,
+            "board_options": current_board_options,
             "current_area": area,
             "current_period": period,
+            "current_board_category": board_category,
+            "current_board_id": board_id,
             "keyword": keyword,
             "results": results,
             "error_message": error_message,
-            "board_category_options": BOARD_CATEGORY_OPTIONS,
-            "current_board_ctgid": board_ctgid,
         },
     )
 
