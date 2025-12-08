@@ -186,7 +186,16 @@
 
                 <label for="board_id">板：</label>
                 <select name="board_id" id="board_id">
-                    <option value="">（板カテゴリを先に選択）</option>
+                    {% if board_options %}
+                        {% for b in board_options %}
+                            <option value="{{ b.id }}"
+                                    {% if b.id == current_board_id %}selected{% endif %}>
+                                {{ b.label }}
+                            </option>
+                        {% endfor %}
+                    {% else %}
+                        <option value="">（板カテゴリを先に選択）</option>
+                    {% endif %}
                 </select>
             </div>
 
@@ -217,6 +226,8 @@
             <form method="post" action="/thread_search/posts">
                 <input type="hidden" name="area" value="{{ current_area }}">
                 <input type="hidden" name="period" value="{{ current_period }}">
+                <input type="hidden" name="board_category" value="{{ current_board_category }}">
+                <input type="hidden" name="board_id" value="{{ current_board_id }}">
 
                 {% for t in results %}
                     <div class="thread-item">
@@ -264,79 +275,25 @@
 
 <script>
 (function() {
-    // 大阪版の 3 カテゴリ向け・板マスタ（ctgid ごと）
-    // ここを増やせばプルダウンに即反映されます。
-    const BOARD_MASTER = {
-        "103": [ // 風俗掲示板
-            { id: "410",  label: "大阪風俗・お店" },
-            { id: "1227", label: "大阪風俗・個人" },
-            { id: "5922", label: "大阪デリヘル・お店" },
-            { id: "5924", label: "大阪デリヘル・総合" },
-            { id: "5384", label: "大阪遊郭・新地個人" }
-        ],
-        "136": [ // メンエス・リフレ・癒し掲示板
-            { id: "1714", label: "大阪メンエス・リフレ・癒し・お店" },
-            { id: "2383", label: "大阪メンエス・リフレ・癒し・個人" },
-            { id: "5878", label: "大阪外国人メンエス・リフレ・癒し・お店" },
-            { id: "5882", label: "大阪外国人メンエス・リフレ・癒し・総合" }
-        ],
-        "122": [ // R18掲示板（必要になったらここに追加）
-        ]
-    };
-
     const boardCategorySelect = document.getElementById("board_category");
     const boardSelect = document.getElementById("board_id");
 
-    function populateBoards(categoryId) {
-        // 一旦クリア
-        while (boardSelect.firstChild) {
-            boardSelect.removeChild(boardSelect.firstChild);
-        }
-
-        if (!categoryId) {
-            const opt = document.createElement("option");
-            opt.value = "";
-            opt.textContent = "（板カテゴリを先に選択）";
-            boardSelect.appendChild(opt);
+    function updateBoardDisabled() {
+        if (!boardCategorySelect || !boardSelect) return;
+        if (!boardCategorySelect.value) {
             boardSelect.disabled = true;
-            return;
+        } else {
+            boardSelect.disabled = false;
         }
-
-        const boards = BOARD_MASTER[categoryId] || [];
-        if (boards.length === 0) {
-            const opt = document.createElement("option");
-            opt.value = "";
-            opt.textContent = "（このカテゴリの板マスタ未設定）";
-            boardSelect.appendChild(opt);
-            boardSelect.disabled = true;
-            return;
-        }
-
-        const firstOpt = document.createElement("option");
-        firstOpt.value = "";
-        firstOpt.textContent = "（板を選択）";
-        boardSelect.appendChild(firstOpt);
-
-        boards.forEach(b => {
-            const opt = document.createElement("option");
-            opt.value = b.id;
-            opt.textContent = b.label;
-            boardSelect.appendChild(opt);
-        });
-
-        boardSelect.disabled = false;
     }
 
     document.addEventListener("DOMContentLoaded", function() {
-        if (!boardCategorySelect || !boardSelect) return;
-
-        // 初期状態
-        const initialCategory = boardCategorySelect.value || "";
-        populateBoards(initialCategory);
-
-        boardCategorySelect.addEventListener("change", function() {
-            populateBoards(this.value || "");
-        });
+        updateBoardDisabled();
+        if (boardCategorySelect) {
+            boardCategorySelect.addEventListener("change", function() {
+                updateBoardDisabled();
+            });
+        }
     });
 })();
 </script>
