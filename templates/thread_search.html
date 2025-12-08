@@ -92,34 +92,47 @@
             font-size: 14px;
             margin-bottom: 8px;
         }
-        .threads-table {
-            width: 100%;
-            border-collapse: collapse;
-            font-size: 14px;
-        }
-        .threads-table th,
-        .threads-table td {
-            padding: 6px 4px;
-            border-bottom: 1px solid #e5e7eb;
-            vertical-align: top;
-        }
-        .threads-table th {
-            text-align: left;
-            background: #f3f4f6;
-            font-weight: 600;
-        }
-        .thread-title {
-            font-weight: 600;
-        }
-        .thread-meta {
-            font-size: 12px;
-            color: #6b7280;
-        }
         .section-title {
             font-size: 15px;
             font-weight: 600;
             margin: 8px 0;
         }
+
+        /* ==== ここから：table をやめてカード風リスト表示 ==== */
+        .threads-list {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            margin-top: 4px;
+        }
+        .thread-item {
+            display: flex;
+            gap: 8px;
+            padding: 8px;
+            border-radius: 6px;
+            border: 1px solid #e5e7eb;
+            background: #f9fafb;
+        }
+        .thread-radio {
+            margin-top: 4px;
+            flex: 0 0 auto;
+        }
+        .thread-body {
+            flex: 1 1 auto;
+        }
+        .thread-title {
+            font-weight: 600;
+            font-size: 14px;
+            margin-bottom: 4px;
+            word-break: break-all;
+        }
+        .thread-meta {
+            font-size: 12px;
+            color: #6b7280;
+            line-height: 1.4;
+        }
+        /* ==== ここまで：結果リスト用 ==== */
+
         @media (max-width: 768px) {
             main {
                 padding: 8px 6px 24px;
@@ -133,10 +146,6 @@
             }
             .form-row input[type="text"] {
                 width: 100%;
-            }
-            .threads-table th,
-            .threads-table td {
-                font-size: 13px;
             }
         }
     </style>
@@ -224,40 +233,27 @@
                 <input type="hidden" name="area" value="{{ current_area }}">
                 <input type="hidden" name="period" value="{{ current_period }}">
 
-                <table class="threads-table">
-                    <thead>
-                    <tr>
-                        <th style="width: 40px;">選択</th>
-                        <th>タイトル</th>
-                        <th style="width: 150px;">最新レス日時</th>
-                    </tr>
-                    </thead>
-                    <tbody>
+                <div class="threads-list">
                     {% for t in results %}
-                        <tr>
-                            <td>
+                        <div class="thread-item">
+                            <div class="thread-radio">
                                 <input type="radio"
                                        name="selected_thread"
                                        value="{{ t.url|e }}"
                                        {% if loop.first %}checked{% endif %}>
-                            </td>
-                            <td>
+                            </div>
+                            <div class="thread-body">
                                 <div class="thread-title">
                                     {{ t.title }}
                                 </div>
                                 <div class="thread-meta">
-                                    <a href="{{ t.url|e }}" target="_blank" rel="noopener">
-                                        スレッドを爆サイで開く
-                                    </a>
+                                    最新レス日時：{{ t.last_post_at_str }}<br>
+                                    スレURL：{{ t.url }}
                                 </div>
-                            </td>
-                            <td>
-                                {{ t.last_post_at_str }}
-                            </td>
-                        </tr>
+                            </div>
+                        </div>
                     {% endfor %}
-                    </tbody>
-                </table>
+                </div>
 
                 <div class="section-title" style="margin-top: 12px;">
                     選んだスレ内でキーワード検索
@@ -284,19 +280,6 @@
 
 <script>
 (function() {
-    // Python 側の BOARD_OPTIONS を JS に渡すための簡易データ
-    const boardOptionsMap = {
-        {% for cat in board_category_options %}
-        {% set cid = cat.id %}
-        "{{ cid }}": [
-            {% if cid in board_options and false %}
-            {% endif %}
-        ],
-        {% endfor %}
-    };
-
-    // 実際の中身はサーバ側で current_board_category に対してだけ展開しているので、
-    // ここでは「カテゴリ未選択のときは板セレクトを disable する」程度の制御に留める。
     const boardCategorySelect = document.getElementById('board_category');
     const boardSelect = document.getElementById('board_id');
 
@@ -312,8 +295,6 @@
     if (boardCategorySelect && boardSelect) {
         updateBoardDisabled();
         boardCategorySelect.addEventListener('change', function() {
-            // 今回はサーバ側で board_options を更新する想定なので、
-            // ここでは disable 制御だけ行う。
             updateBoardDisabled();
         });
     }
