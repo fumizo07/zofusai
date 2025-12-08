@@ -21,19 +21,18 @@
             margin: 0;
             font-size: 18px;
         }
-        .header-nav {
-            margin-top: 6px;
+        .nav-links {
+            margin-top: 4px;
             font-size: 13px;
         }
-        .header-nav a {
+        .nav-links a {
             color: #e5e7eb;
             text-decoration: none;
-            margin-right: 12px;
+            margin-right: 8px;
         }
-        .header-nav a:hover {
+        .nav-links a:hover {
             text-decoration: underline;
         }
-
         main {
             max-width: 1200px;
             margin: 0 auto;
@@ -105,46 +104,24 @@
             font-size: 14px;
             margin-bottom: 8px;
         }
+        .thread-item {
+            padding: 8px 4px;
+            border-bottom: 1px solid #e5e7eb;
+        }
+        .thread-title {
+            font-weight: 600;
+            font-size: 14px;
+        }
+        .thread-meta {
+            font-size: 12px;
+            color: #6b7280;
+            margin-top: 2px;
+        }
         .section-title {
             font-size: 15px;
             font-weight: 600;
             margin: 8px 0;
         }
-
-        /* 検索結果リスト表示 */
-        .threads-list {
-            display: flex;
-            flex-direction: column;
-            gap: 8px;
-            margin-top: 4px;
-        }
-        .thread-item {
-            display: flex;
-            gap: 8px;
-            padding: 8px;
-            border-radius: 6px;
-            border: 1px solid #e5e7eb;
-            background: #f9fafb;
-        }
-        .thread-radio {
-            margin-top: 4px;
-            flex: 0 0 auto;
-        }
-        .thread-body {
-            flex: 1 1 auto;
-        }
-        .thread-title {
-            font-weight: 600;
-            font-size: 14px;
-            margin-bottom: 4px;
-            word-break: break-all;
-        }
-        .thread-meta {
-            font-size: 12px;
-            color: #6b7280;
-            line-height: 1.4;
-        }
-
         @media (max-width: 768px) {
             main {
                 padding: 8px 6px 24px;
@@ -165,9 +142,10 @@
 <body>
 <header>
     <h1>Personal Search - 外部スレッド検索</h1>
-    <div class="header-nav">
-        <a href="/">トップページ</a>
+    <div class="nav-links">
+        <a href="/">内部検索トップ</a>
         <a href="/admin/fetch">掲示板スレッドを取り込む</a>
+        <a href="/thread_search">外部スレッド検索</a>
     </div>
 </header>
 
@@ -208,16 +186,7 @@
 
                 <label for="board_id">板：</label>
                 <select name="board_id" id="board_id">
-                    {% if board_options %}
-                        {% for b in board_options %}
-                            <option value="{{ b.id }}"
-                                    {% if b.id == current_board_id %}selected{% endif %}>
-                                {{ b.label }}
-                            </option>
-                        {% endfor %}
-                    {% else %}
-                        <option value="">（カテゴリを先に選択）</option>
-                    {% endif %}
+                    <option value="">（板カテゴリを先に選択）</option>
                 </select>
             </div>
 
@@ -249,27 +218,26 @@
                 <input type="hidden" name="area" value="{{ current_area }}">
                 <input type="hidden" name="period" value="{{ current_period }}">
 
-                <div class="threads-list">
-                    {% for t in results %}
-                        <div class="thread-item">
-                            <div class="thread-radio">
-                                <input type="radio"
-                                       name="selected_thread"
-                                       value="{{ t.url|e }}"
-                                       {% if loop.first %}checked{% endif %}>
-                            </div>
-                            <div class="thread-body">
+                {% for t in results %}
+                    <div class="thread-item">
+                        <label style="display:flex; gap:8px; align-items:flex-start; cursor:pointer;">
+                            <input type="radio"
+                                   name="selected_thread"
+                                   value="{{ t.url|e }}"
+                                   {% if loop.first %}checked{% endif %}
+                                   style="margin-top:4px;">
+                            <div>
                                 <div class="thread-title">
                                     {{ t.title }}
                                 </div>
                                 <div class="thread-meta">
-                                    最新レス日時：{{ t.last_post_at_str }}<br>
+                                    最新レス：{{ t.last_post_at_str }}<br>
                                     スレURL：{{ t.url }}
                                 </div>
                             </div>
-                        </div>
-                    {% endfor %}
-                </div>
+                        </label>
+                    </div>
+                {% endfor %}
 
                 <div class="section-title" style="margin-top: 12px;">
                     選んだスレ内でキーワード検索
@@ -296,24 +264,83 @@
 
 <script>
 (function() {
-    const boardCategorySelect = document.getElementById('board_category');
-    const boardSelect = document.getElementById('board_id');
+    // ★ 板マスタ（とりあえず大阪版向け・必要に応じて追加可能）
+    // キーは「板カテゴリID（ctgid）」です。
+    const BOARD_MASTER = {
+        "103": [ // 風俗掲示板
+            { id: "410",  label: "大阪風俗・お店" },
+            { id: "1227", label: "大阪風俗・個人" },
+            { id: "5922", label: "大阪デリヘル・お店" }
+        ],
+        "136": [ // メンエス・リフレ・癒し掲示板
+            { id: "1714", label: "大阪メンエス・リフレ・癒し・お店" },
+            { id: "2383", label: "大阪メンエス・リフレ・癒し・総合" }
+        ],
+        "122": [ // R18掲示板（とりあえず空、必要に応じて追加）
+        ]
+    };
 
-    function updateBoardDisabled() {
-        const cid = boardCategorySelect.value;
-        if (!cid) {
+    const boardCategorySelect = document.getElementById("board_category");
+    const boardSelect = document.getElementById("board_id");
+
+    // Python 側から来ている「現在値」（存在しなければ空文字）
+    const currentBoardCategory = "{{ current_board_category|default('', true) }}";
+    const currentBoardId = "{{ current_board_id|default('', true) }}";
+
+    function populateBoards(categoryId, selectedId) {
+        // 一旦クリア
+        while (boardSelect.firstChild) {
+            boardSelect.removeChild(boardSelect.firstChild);
+        }
+
+        if (!categoryId) {
+            const opt = document.createElement("option");
+            opt.value = "";
+            opt.textContent = "（板カテゴリを先に選択）";
+            boardSelect.appendChild(opt);
             boardSelect.disabled = true;
-        } else {
-            boardSelect.disabled = false;
+            return;
+        }
+
+        const boards = BOARD_MASTER[categoryId] || [];
+        if (boards.length === 0) {
+            const opt = document.createElement("option");
+            opt.value = "";
+            opt.textContent = "（このカテゴリの板マスタ未設定）";
+            boardSelect.appendChild(opt);
+            boardSelect.disabled = true;
+            return;
+        }
+
+        const firstOpt = document.createElement("option");
+        firstOpt.value = "";
+        firstOpt.textContent = "（板を選択）";
+        boardSelect.appendChild(firstOpt);
+
+        boards.forEach(b => {
+            const opt = document.createElement("option");
+            opt.value = b.id;
+            opt.textContent = b.label;
+            boardSelect.appendChild(opt);
+        });
+
+        boardSelect.disabled = false;
+
+        if (selectedId) {
+            boardSelect.value = selectedId;
         }
     }
 
-    if (boardCategorySelect && boardSelect) {
-        updateBoardDisabled();
-        boardCategorySelect.addEventListener('change', function() {
-            updateBoardDisabled();
+    document.addEventListener("DOMContentLoaded", function() {
+        if (!boardCategorySelect || !boardSelect) return;
+
+        const initialCategory = currentBoardCategory || boardCategorySelect.value || "";
+        populateBoards(initialCategory, currentBoardId || "");
+
+        boardCategorySelect.addEventListener("change", function() {
+            populateBoards(this.value, "");
         });
-    }
+    });
 })();
 </script>
 
