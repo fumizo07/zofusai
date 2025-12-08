@@ -91,7 +91,7 @@ def verify_basic(credentials: HTTPBasicCredentials = Depends(security)):
 
 
 # =========================
-# 外部スレッド検索用
+# 外部スレッド検索用 定数
 # =========================
 AREA_OPTIONS = [
     {"code": "",   "label": "地域を選択"},
@@ -113,7 +113,6 @@ AREA_OPTIONS = [
     {"code": "11", "label": "沖縄版"},
 ]
 
-# 板カテゴリ（大区分）
 BOARD_CATEGORY_OPTIONS = [
     {"id": "",      "label": "（カテゴリ指定なし）"},
     {"id": "103",   "label": "風俗掲示板"},
@@ -121,10 +120,9 @@ BOARD_CATEGORY_OPTIONS = [
     {"id": "122",   "label": "R18掲示板"},
 ]
 
-# 板マスタ（大阪版 × 風俗 / 癒し / R18）
-# id = bid, category_id = ctgid
+# 大阪版（acode=7）に絞った板マスタ
 BOARD_MASTER: Dict[str, List[Dict[str, str]]] = {
-    # 風俗掲示板（ctgid=103）
+    # ctgid=103 風俗掲示板
     "103": [
         {"id": "332",  "label": "大阪風俗・総合"},
         {"id": "410",  "label": "大阪風俗・お店"},
@@ -133,18 +131,18 @@ BOARD_MASTER: Dict[str, List[Dict[str, str]]] = {
         {"id": "5923", "label": "大阪デリヘル・個人"},
         {"id": "5924", "label": "大阪デリヘル・総合"},
         {"id": "3913", "label": "大阪遊郭・新地お店"},
-        {"id": "3392", "label": "大阪遊郭・新地総合"},
         {"id": "5384", "label": "大阪遊郭・新地個人"},
+        {"id": "3392", "label": "大阪遊郭・新地総合"},
     ],
-    # メンエス・リフレ・癒し掲示板（ctgid=136）
+    # ctgid=136 メンエス・リフレ・癒し掲示板
     "136": [
         {"id": "1714", "label": "大阪メンエス・リフレ・癒し・お店"},
-        {"id": "2401", "label": "大阪メンエス・リフレ・癒し・個人"},
+        {"id": "4887", "label": "大阪メンエス・リフレ・癒し・個人"},
         {"id": "2383", "label": "大阪メンエス・リフレ・癒し・総合"},
         {"id": "5878", "label": "大阪外国人メンエス・リフレ・癒し・お店"},
         {"id": "5882", "label": "大阪外国人メンエス・リフレ・癒し・総合"},
     ],
-    # R18掲示板（ctgid=122）
+    # ctgid=122 R18掲示板
     "122": [
         {"id": "61",   "label": "Hな悩み"},
         {"id": "508",  "label": "チョットHな雑談"},
@@ -171,24 +169,12 @@ def get_period_days(period_id: str) -> Optional[int]:
     return PERIOD_ID_TO_DAYS.get(period_id)
 
 
-def get_board_options_for_category(category_id: str) -> List[Dict[str, str]]:
+def get_board_options_for_category(board_category_id: str) -> List[Dict[str, str]]:
     """
-    板カテゴリ(ctgid)ごとの板一覧（大阪版用）
+    板カテゴリID（ctgid）から、あらかじめ定義した板一覧を返す
     """
-    return BOARD_MASTER.get(category_id or "", [])
-
-
-def find_board_category_by_id(board_id: str) -> Optional[str]:
-    """
-    bid から対応する ctgid を逆引き
-    """
-    if not board_id:
-        return None
-    for cat_id, boards in BOARD_MASTER.items():
-        for b in boards:
-            if b["id"] == board_id:
-                return cat_id
-    return None
+    board_category_id = (board_category_id or "").strip()
+    return BOARD_MASTER.get(board_category_id, [])
 
 
 # =========================
@@ -202,8 +188,10 @@ def _normalize_lines(text_value: str) -> str:
     cleaned: List[str] = []
     leading = True
     for line in lines:
+        # 先頭側の空白行は丸ごと削る
         if leading and line.strip() == "":
             continue
+        # 行頭の半角/全角スペースを削る
         line = re.sub(r'^[\s\u3000\xa0]+', '', line)
         cleaned.append(line)
         leading = False
@@ -248,6 +236,9 @@ def normalize_for_search(s: Optional[str]) -> str:
 
 
 def _build_highlight_variants(keyword: str) -> List[str]:
+    """
+    強調表示のときに、ひらがな/カタカナ両対応でマッチさせるためのバリアント生成
+    """
     if not keyword:
         return []
     base = unicodedata.normalize("NFKC", keyword)
@@ -259,6 +250,10 @@ def _build_highlight_variants(keyword: str) -> List[str]:
 
 
 def highlight_text(text_value: Optional[str], keyword: str) -> Markup:
+    """
+    本文の中でキーワード部分を <mark> で囲って強調表示
+    （ひらがな/カタカナ両方ヒット）
+    """
     if text_value is None:
         text_value = ""
     text_value = _normalize_lines(text_value)
@@ -305,6 +300,9 @@ def parse_anchors_csv(s: Optional[str]) -> List[int]:
 
 
 def build_reply_tree(all_posts: List["ThreadPost"], root: "ThreadPost") -> List[dict]:
+    """
+    root（ヒットしたレス）にぶら下がる返信ツリーを構築
+    """
     replies: Dict[int, List[ThreadPost]] = defaultdict(list)
     for p in all_posts:
         for a in parse_anchors_csv(p.anchors):
@@ -347,17 +345,19 @@ def parse_posted_at_value(value: str) -> Optional[datetime]:
 # =========================
 app = FastAPI(
     dependencies=[Depends(verify_basic)],
-    docs_url=None,
-    redoc_url=None,
+    docs_url=None,   # /docs を封印
+    redoc_url=None,  # /redoc も封印
 )
 templates = Jinja2Templates(directory="templates")
 
+# 最近の検索条件（メモリ上 5 件まで）
 RECENT_SEARCHES = deque(maxlen=5)
 
 
 @app.on_event("startup")
 def on_startup():
     Base.metadata.create_all(bind=engine)
+    # 既存テーブルに列追加（なければ）
     with engine.begin() as conn:
         conn.execute(text("ALTER TABLE thread_posts ADD COLUMN IF NOT EXISTS tags TEXT"))
         conn.execute(text("ALTER TABLE thread_posts ADD COLUMN IF NOT EXISTS memo TEXT"))
@@ -388,6 +388,7 @@ def fetch_thread_into_db(db: Session, url: str) -> int:
     if last_no is None:
         last_no = 0
 
+    # タイトル取得・簡略化
     thread_title = get_thread_title(url)
     if thread_title:
         thread_title = simplify_thread_title(thread_title)
@@ -406,6 +407,7 @@ def fetch_thread_into_db(db: Session, url: str) -> int:
         if not body:
             continue
         if sp.post_no is not None and sp.post_no <= last_no:
+            # すでに取り込み済みのレスはスキップ
             continue
 
         if getattr(sp, "anchors", None):
@@ -413,6 +415,7 @@ def fetch_thread_into_db(db: Session, url: str) -> int:
         else:
             anchors_str = None
 
+        # すでに同じレスが入っていれば更新のみ
         if sp.post_no is not None:
             existing = (
                 db.query(ThreadPost)
@@ -492,6 +495,7 @@ def show_search_page(
     recent_searches_view: List[dict] = []
 
     try:
+        # 全タグの集計（タグ一覧用）
         tag_rows = db.query(ThreadPost.tags).filter(ThreadPost.tags.isnot(None)).all()
         tag_counts: Dict[str, int] = {}
         for (tags_str,) in tag_rows:
@@ -508,7 +512,9 @@ def show_search_page(
             for name, count in sorted(tag_counts.items(), key=lambda x: x[1], reverse=True)[:50]
         ]
 
+        # 検索条件が入力されている場合のみ検索を実行
         if keyword_raw or thread_filter_raw or tags_input_raw:
+            # 最近の検索条件をメモリに保存
             params = {
                 "q": keyword_raw,
                 "thread_filter": thread_filter_raw,
@@ -573,6 +579,7 @@ def show_search_page(
 
                     all_posts_thread = posts_by_thread.get(thread_url, [])
 
+                    # 前後 5 レスのコンテキスト
                     context_posts: List[ThreadPost] = []
                     if root.post_no is not None and all_posts_thread:
                         start_no = max(1, root.post_no - 5)
@@ -583,8 +590,10 @@ def show_search_page(
                             if p.post_no is not None and start_no <= p.post_no <= end_no
                         ]
 
+                    # ツリー表示用
                     tree_items = build_reply_tree(all_posts_thread, root)
 
+                    # アンカー先
                     anchor_targets: List[ThreadPost] = []
                     if root.anchors:
                         nums = parse_anchors_csv(root.anchors)
@@ -763,6 +772,7 @@ def list_threads(
     request: Request,
     db: Session = Depends(get_db),
 ):
+    # スレ単位の集約
     rows = (
         db.query(
             ThreadPost.thread_url,
@@ -798,6 +808,7 @@ def list_threads(
             }
         )
 
+    # タグ一覧
     tag_rows = db.query(ThreadPost.tags).filter(ThreadPost.tags.isnot(None)).all()
     tag_counts: Dict[str, int] = {}
     for (tags_str,) in tag_rows:
@@ -814,6 +825,7 @@ def list_threads(
         for name, count in sorted(tag_counts.items(), key=lambda x: x[1], reverse=True)[:50]
     ]
 
+    # 最近の検索条件
     recent_searches_view = list(RECENT_SEARCHES)[::-1]
 
     return templates.TemplateResponse(
@@ -898,25 +910,35 @@ def search_threads_external(
     area_code: str,
     keyword: str,
     max_days: Optional[int],
-    board_id: Optional[str] = None,
+    board_category: str = "",
+    board_id: str = "",
 ) -> List[dict]:
+    """
+    爆サイの「スレッド検索」結果から、タイトル一覧を取得する。
+    board_category, board_id が指定されていればそれをURLに反映。
+    """
     keyword = (keyword or "").strip()
+    area_code = (area_code or "").strip()
+    board_category = (board_category or "").strip()
+    board_id = (board_id or "").strip()
+
     if not area_code or not keyword:
         return []
 
-    board_id = (board_id or "").strip()
-    ctgid: Optional[str] = None
+    # URL 組み立て
+    # 例： https://bakusai.com/sch_thr_thread/acode=7/ctgid=103/bid=410/p=1/sch=thr_sch/sch_range=board/word=ピンク/
+    base = f"https://bakusai.com/sch_thr_thread/acode={area_code}/"
+    if board_category:
+        base += f"ctgid={board_category}/"
     if board_id:
-        ctgid = find_board_category_by_id(board_id)
+        base += f"bid={board_id}/"
 
-    if board_id and ctgid:
-        url = (
-            f"https://bakusai.com/sch_thr_thread/"
-            f"acode={area_code}/ctgid={ctgid}/bid={board_id}/p=1/"
-            f"sch=thr_sch/sch_range=board/word={quote_plus(keyword)}"
-        )
-    else:
-        url = f"https://bakusai.com/sch_thr_thread/acode={area_code}/word={quote_plus(keyword)}"
+    url = (
+        base
+        + "p=1/sch=thr_sch/sch_range=board/word="
+        + quote_plus(keyword)
+        + "/"
+    )
 
     resp = requests.get(
         url,
@@ -934,6 +956,7 @@ def search_threads_external(
 
     keyword_norm = normalize_for_search(keyword)
 
+    # 「最新レス投稿日時」テキストを手掛かりにスレブロックを探す
     for s in soup.find_all(string=re.compile("最新レス投稿日時")):
         text = str(s)
         m = re.search(r"(\d{4}/\d{2}/\d{2} \d{2}:\d{2})", text)
@@ -949,6 +972,7 @@ def search_threads_external(
 
         parent = s.parent
         link = None
+        # 近くの /thr_res/ へのリンクを探す
         while parent is not None and parent.name not in ("html", "body"):
             candidate = parent.find("a", href=True)
             if candidate and "/thr_res/" in candidate.get("href", ""):
@@ -986,6 +1010,7 @@ def search_threads_external(
             }
         )
 
+    # URL でユニーク化
     unique_by_url: Dict[str, dict] = {}
     for t in threads:
         if t["url"] not in unique_by_url:
@@ -1005,21 +1030,30 @@ def thread_search_page(
     board_category: str = "",
     board_id: str = "",
 ):
+    # パラメータ整形
     area = (area or "").strip() or "7"
     period = (period or "").strip() or "3m"
     keyword = (keyword or "").strip()
     board_category = (board_category or "").strip()
     board_id = (board_id or "").strip()
 
-    board_options = get_board_options_for_category(board_category) if board_category else []
-
     results: List[dict] = []
     error_message = ""
 
+    # 板リストをカテゴリから取得
+    board_options = get_board_options_for_category(board_category)
+
+    # 検索実行
     if keyword and area:
         max_days = get_period_days(period)
         try:
-            results = search_threads_external(area, keyword, max_days, board_id=board_id or None)
+            results = search_threads_external(
+                area_code=area,
+                keyword=keyword,
+                max_days=max_days,
+                board_category=board_category,
+                board_id=board_id,
+            )
         except Exception as e:
             error_message = f"外部検索中にエラーが発生しました: {e}"
 
@@ -1030,14 +1064,14 @@ def thread_search_page(
             "area_options": AREA_OPTIONS,
             "period_options": PERIOD_OPTIONS,
             "board_category_options": BOARD_CATEGORY_OPTIONS,
-            "board_options": board_options,
             "current_area": area,
             "current_period": period,
-            "current_board_category": board_category,
-            "current_board_id": board_id,
             "keyword": keyword,
             "results": results,
             "error_message": error_message,
+            "board_options": board_options,
+            "current_board_category": board_category,
+            "current_board_id": board_id,
         },
     )
 
