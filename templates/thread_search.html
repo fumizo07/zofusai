@@ -10,12 +10,12 @@
             margin: 0;
             padding: 0;
             font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", "Segoe UI", sans-serif;
-            background-color: #f5f5f7;
-            color: #222;
+            background-color: #f3f4f6;
+            color: #111827;
         }
 
         .page {
-            max-width: 960px;
+            max-width: 1000px;
             margin: 0 auto;
             padding: 16px;
         }
@@ -25,26 +25,39 @@
         }
 
         header h1 {
-            font-size: 1.4rem;
+            font-size: 1.5rem;
             margin: 0 0 4px;
         }
 
         header .subtitle {
             font-size: 0.85rem;
-            color: #666;
+            color: #6b7280;
         }
 
         .card {
-            background-color: #fff;
-            border-radius: 10px;
-            padding: 12px 14px;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+            background-color: #ffffff;
+            border-radius: 12px;
+            padding: 14px 16px;
+            box-shadow: 0 2px 8px rgba(15, 23, 42, 0.06);
             margin-bottom: 16px;
         }
 
-        .card h2 {
+        .card-header {
+            display: flex;
+            align-items: baseline;
+            justify-content: space-between;
+            gap: 8px;
+            margin-bottom: 8px;
+        }
+
+        .card-header h2 {
             font-size: 1rem;
-            margin: 0 0 8px;
+            margin: 0;
+        }
+
+        .card-header .hint {
+            font-size: 0.8rem;
+            color: #6b7280;
         }
 
         .search-form-row {
@@ -54,9 +67,17 @@
             margin-bottom: 8px;
         }
 
-        .search-form-row label {
-            font-size: 0.85rem;
-            color: #444;
+        .field-label {
+            display: block;
+            font-size: 0.78rem;
+            color: #4b5563;
+            margin-bottom: 2px;
+        }
+
+        .field-small,
+        .field-medium,
+        .field-large {
+            width: 100%;
         }
 
         .search-form-row select,
@@ -65,16 +86,27 @@
             box-sizing: border-box;
             padding: 6px 8px;
             font-size: 0.9rem;
+            border-radius: 8px;
+            border: 1px solid #d1d5db;
+            background-color: #f9fafb;
+        }
+
+        .search-form-row select:focus,
+        .search-form-row input[type="text"]:focus {
+            outline: none;
+            border-color: #2563eb;
+            box-shadow: 0 0 0 1px rgba(37, 99, 235, 0.25);
+            background-color: #ffffff;
         }
 
         @media (min-width: 720px) {
-            .search-form-row .field-small {
+            .field-small {
                 flex: 0 0 180px;
             }
-            .search-form-row .field-medium {
+            .field-medium {
                 flex: 0 0 220px;
             }
-            .search-form-row .field-large {
+            .field-large {
                 flex: 1 1 auto;
             }
         }
@@ -91,21 +123,31 @@
             font-size: 0.9rem;
             border-radius: 999px;
             border: none;
-            background-color: #2563eb;
-            color: #fff;
+            background: linear-gradient(135deg, #2563eb, #1d4ed8);
+            color: #ffffff;
             cursor: pointer;
             text-decoration: none;
+            white-space: nowrap;
         }
 
         button:hover,
         .btn:hover {
-            background-color: #1d4ed8;
+            background: linear-gradient(135deg, #1d4ed8, #1e40af);
+        }
+
+        .btn-secondary {
+            background: #e5e7eb;
+            color: #374151;
+        }
+
+        .btn-secondary:hover {
+            background: #d1d5db;
         }
 
         .error {
             margin-top: 8px;
             padding: 8px 10px;
-            border-radius: 6px;
+            border-radius: 8px;
             background-color: #fee2e2;
             color: #b91c1c;
             font-size: 0.85rem;
@@ -126,23 +168,45 @@
 
         .results-header-count {
             font-size: 0.8rem;
-            color: #555;
+            color: #6b7280;
+        }
+
+        .results-header-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            background-color: #eff6ff;
+            color: #1d4ed8;
+            border-radius: 999px;
+            padding: 2px 8px;
+            font-size: 0.75rem;
         }
 
         .thread-select-form {
-            margin-top: 8px;
+            margin-top: 4px;
         }
 
         .threads-list {
-            border-top: 1px solid #eee;
+            border-radius: 10px;
+            border: 1px solid #e5e7eb;
+            overflow: hidden;
         }
 
         .thread-item {
-            border-bottom: 1px solid #eee;
-            padding: 8px 4px;
+            border-bottom: 1px solid #e5e7eb;
+            padding: 8px 10px;
             display: flex;
             align-items: flex-start;
             gap: 8px;
+            background-color: #ffffff;
+        }
+
+        .thread-item:nth-child(2n) {
+            background-color: #f9fafb;
+        }
+
+        .thread-item:last-child {
+            border-bottom: none;
         }
 
         .thread-radio {
@@ -156,46 +220,72 @@
         .thread-title {
             font-size: 0.9rem;
             font-weight: 600;
-            margin-bottom: 2px;
+            margin-bottom: 4px;
             word-break: break-all;
         }
 
         .thread-meta {
-            font-size: 0.8rem;
-            color: #666;
+            font-size: 0.78rem;
+            color: #6b7280;
         }
 
         .no-results {
             font-size: 0.85rem;
-            color: #555;
+            color: #6b7280;
         }
 
         .post-keyword-block {
             margin-top: 10px;
-            border-top: 1px solid #eee;
+            border-top: 1px dashed #d1d5db;
             padding-top: 8px;
             display: flex;
             flex-wrap: wrap;
             gap: 8px;
             align-items: center;
+            justify-content: space-between;
         }
 
-        .post-keyword-block label {
+        .post-keyword-input {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            flex: 1 1 auto;
+        }
+
+        .post-keyword-input label {
             font-size: 0.85rem;
         }
 
-        .post-keyword-block input[type="text"] {
+        .post-keyword-input input[type="text"] {
             padding: 6px 8px;
             font-size: 0.9rem;
             min-width: 160px;
+            border-radius: 8px;
+            border: 1px solid #d1d5db;
+            background-color: #f9fafb;
+            flex: 1 1 auto;
         }
 
-        @media (max-width: 600px) {
+        .post-keyword-input input[type="text"]:focus {
+            outline: none;
+            border-color: #2563eb;
+            box-shadow: 0 0 0 1px rgba(37, 99, 235, 0.25);
+            background-color: #ffffff;
+        }
+
+        .post-keyword-actions {
+            flex: 0 0 auto;
+        }
+
+        @media (max-width: 640px) {
             .post-keyword-block {
                 flex-direction: column;
                 align-items: stretch;
             }
-            .post-keyword-block button {
+            .post-keyword-actions {
+                width: 100%;
+            }
+            .post-keyword-actions button {
                 width: 100%;
                 text-align: center;
             }
@@ -206,76 +296,72 @@
 <div class="page">
     <header>
         <h1>外部スレッド検索</h1>
-        <div class="subtitle">爆サイのスレッドタイトルを検索し、選んだスレ内をキーワードで絞り込みます。</div>
+        <div class="subtitle">
+            爆サイのスレッドタイトルを検索し、選んだスレ内をキーワードで絞り込みます。
+        </div>
     </header>
 
     <!-- 検索フォーム -->
     <section class="card">
-        <h2>スレッドタイトル検索</h2>
+        <div class="card-header">
+            <h2>スレッドタイトル検索</h2>
+            <div class="hint">地域・期間・板カテゴリを指定して、タイトルに含まれる語句で検索します。</div>
+        </div>
+
         <form method="get" action="/thread_search">
             <div class="search-form-row">
                 <div class="field-small">
-                    <label>
-                        地域：
-                        <select name="area">
-                            {% for area_opt in area_options %}
-                                <option value="{{ area_opt.code }}"
-                                        {% if area_opt.code == current_area %}selected{% endif %}>
-                                    {{ area_opt.label }}
-                                </option>
-                            {% endfor %}
-                        </select>
-                    </label>
+                    <span class="field-label">地域：</span>
+                    <select name="area">
+                        {% for area_opt in area_options %}
+                            <option value="{{ area_opt.code }}"
+                                    {% if area_opt.code == current_area %}selected{% endif %}>
+                                {{ area_opt.label }}
+                            </option>
+                        {% endfor %}
+                    </select>
                 </div>
 
                 <div class="field-small">
-                    <label>
-                        期間設定：
-                        <select name="period">
-                            {% for p in period_options %}
-                                <option value="{{ p.id }}"
-                                        {% if p.id == current_period %}selected{% endif %}>
-                                    {{ p.label }}
-                                </option>
-                            {% endfor %}
-                        </select>
-                    </label>
+                    <span class="field-label">期間設定：</span>
+                    <select name="period">
+                        {% for p in period_options %}
+                            <option value="{{ p.id }}"
+                                    {% if p.id == current_period %}selected{% endif %}>
+                                {{ p.label }}
+                            </option>
+                        {% endfor %}
+                    </select>
                 </div>
 
                 <div class="field-medium">
-                    <label>
-                        板カテゴリ：
-                        <select name="board_category_id">
-                            {% for bc in board_category_options %}
-                                <option value="{{ bc.id }}"
-                                        {% if bc.id == current_board_category_id %}selected{% endif %}>
-                                    {{ bc.label }}
-                                </option>
-                            {% endfor %}
-                        </select>
-                    </label>
+                    <span class="field-label">板カテゴリ：</span>
+                    <select name="board_category_id">
+                        {% for bc in board_category_options %}
+                            <option value="{{ bc.id }}"
+                                    {% if bc.id == current_board_category_id %}selected{% endif %}>
+                                {{ bc.label }}
+                            </option>
+                        {% endfor %}
+                    </select>
                 </div>
 
                 <div class="field-medium">
-                    <label>
-                        板：
-                        <select name="board_id" {% if not current_board_category_id %}disabled{% endif %}>
-                            <option value="">板を選択</option>
-                            {% for b in board_options %}
-                                <option value="{{ b.id }}"
-                                        {% if b.id == current_board_id %}selected{% endif %}>
-                                    {{ b.label }}
-                                </option>
-                            {% endfor %}
-                        </select>
-                    </label>
+                    <span class="field-label">板：</span>
+                    <select name="board_id" {% if not current_board_category_id %}disabled{% endif %}>
+                        <option value="">板を選択</option>
+                        {% for b in board_options %}
+                            <option value="{{ b.id }}"
+                                    {% if b.id == current_board_id %}selected{% endif %}>
+                                {{ b.label }}
+                            </option>
+                        {% endfor %}
+                    </select>
                 </div>
 
                 <div class="field-large">
-                    <label>
-                        タイトル検索：
-                        <input type="text" name="keyword" value="{{ keyword|default('', true) }}">
-                    </label>
+                    <span class="field-label">タイトル検索：</span>
+                    <input type="text" name="keyword" value="{{ keyword|default('', true) }}">
                 </div>
             </div>
 
@@ -297,7 +383,9 @@
                     「{{ keyword }}」の検索結果
                 </div>
                 <div class="results-header-count">
-                    {{ results|length }}件ヒット
+                    <span class="results-header-pill">
+                        ヒット：{{ results|length }} 件
+                    </span>
                 </div>
             </div>
 
@@ -329,11 +417,13 @@
                 </div>
 
                 <div class="post-keyword-block">
-                    <label>
-                        本文キーワード検索：
-                        <input type="text" name="post_keyword" value="">
-                    </label>
-                    <button type="submit">選んだスレ内でキーワード検索</button>
+                    <div class="post-keyword-input">
+                        <label for="post_keyword">本文キーワード：</label>
+                        <input id="post_keyword" type="text" name="post_keyword" value="">
+                    </div>
+                    <div class="post-keyword-actions">
+                        <button type="submit">選んだスレ内でキーワード検索</button>
+                    </div>
                 </div>
             </form>
         </section>
@@ -343,9 +433,14 @@
                 <div class="results-header-title">
                     「{{ keyword }}」の検索結果
                 </div>
-                <div class="results-header-count no-results">
-                    0件ヒット
+                <div class="results-header-count">
+                    <span class="results-header-pill">
+                        ヒット：0 件
+                    </span>
                 </div>
+            </div>
+            <div class="no-results">
+                条件に一致するスレッドが見つかりませんでした。地域・期間・板カテゴリなどを変更して再度お試しください。
             </div>
         </section>
     {% endif %}
