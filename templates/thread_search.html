@@ -1,324 +1,365 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
-    <meta charset="utf-8" />
+    <meta charset="UTF-8">
     <title>Personal Search - 外部スレッド検索</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="viewport" content="width=device-width, initial-scale=1">
     <style>
         body {
             font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            background-color: #f5f5f7;
             margin: 0;
             padding: 0;
-            background: #f5f5f7;
             color: #222;
         }
-        header {
-            background: #111827;
-            color: #f9fafb;
-            padding: 12px 16px;
-        }
-        header h1 {
-            margin: 0;
-            font-size: 18px;
-        }
-        main {
-            max-width: 1200px;
+        .page-container {
+            max-width: 1000px;
             margin: 0 auto;
-            padding: 12px 8px 32px;
+            padding: 16px;
+        }
+        h1 {
+            font-size: 20px;
+            margin: 0 0 12px;
+        }
+        h2 {
+            font-size: 16px;
+            margin: 24px 0 8px;
         }
         .card {
-            background: #fff;
+            background-color: #fff;
             border-radius: 8px;
-            padding: 12px;
+            padding: 12px 16px;
             box-shadow: 0 1px 3px rgba(0,0,0,0.08);
-            margin-bottom: 16px;
+            margin-bottom: 12px;
         }
-        .form-row {
+        .search-form-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px 12px;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+        .search-form-row label {
+            font-size: 13px;
+            white-space: nowrap;
+        }
+        .search-form-row select,
+        .search-form-row input[type="text"] {
+            font-size: 13px;
+            padding: 4px 6px;
+            border-radius: 4px;
+            border: 1px solid #ccc;
+            min-width: 120px;
+            box-sizing: border-box;
+        }
+        .search-form-row input[type="text"] {
+            flex: 1 1 200px;
+        }
+        .search-actions {
+            margin-top: 8px;
+        }
+        .search-actions button {
+            padding: 6px 14px;
+            font-size: 13px;
+            border-radius: 4px;
+            border: none;
+            cursor: pointer;
+            background-color: #007aff;
+            color: #fff;
+        }
+        .search-actions button:hover {
+            background-color: #005ec1;
+        }
+        .error-box {
+            background-color: #ffe4e4;
+            color: #900;
+            border-radius: 6px;
+            padding: 8px 10px;
+            font-size: 13px;
+            margin: 8px 0 12px;
+        }
+        .info-box {
+            font-size: 12px;
+            color: #555;
+            margin: 4px 0 8px;
+        }
+        .thread-list {
+            list-style: none;
+            padding-left: 0;
+            margin: 0;
+        }
+        .thread-item {
+            border-bottom: 1px solid #eee;
+            padding: 8px 0;
+        }
+        .thread-item:last-child {
+            border-bottom: none;
+        }
+        .thread-label {
+            display: flex;
+            gap: 8px;
+            align-items: flex-start;
+        }
+        .thread-label input[type="radio"] {
+            margin-top: 3px;
+        }
+        .thread-main {
+            flex: 1;
+        }
+        .thread-title {
+            font-size: 14px;
+            font-weight: 600;
+            margin: 0 0 2px;
+        }
+        .thread-meta {
+            font-size: 11px;
+            color: #666;
+            margin: 0;
+        }
+        .thread-url {
+            font-size: 11px;
+            color: #999;
+            word-break: break-all;
+            margin-top: 2px;
+        }
+        .inner-search {
+            margin-top: 12px;
+            padding-top: 8px;
+            border-top: 1px solid #eee;
             display: flex;
             flex-wrap: wrap;
             gap: 8px;
             align-items: center;
-            margin-bottom: 8px;
-        }
-        .form-row label {
             font-size: 13px;
-            color: #374151;
+        }
+        .inner-search label {
             white-space: nowrap;
         }
-        .form-row select,
-        .form-row input[type="text"] {
-            font-size: 14px;
+        .inner-search input[type="text"] {
+            font-size: 13px;
             padding: 4px 6px;
-            height: 32px;
+            border-radius: 4px;
+            border: 1px solid #ccc;
+            flex: 1 1 180px;
             box-sizing: border-box;
         }
-        .form-row input[type="text"] {
-            min-width: 140px;
-            flex: 1 1 160px;
-        }
-        .form-row select {
-            flex: 0 0 auto;
-        }
-        .btn-primary {
-            background: #2563eb;
-            color: #fff;
-            border: none;
-            border-radius: 4px;
-            padding: 6px 12px;
-            font-size: 14px;
-            cursor: pointer;
-        }
-        .btn-primary:hover {
-            background: #1d4ed8;
-        }
-        .btn-secondary {
-            background: #6b7280;
-            color: #fff;
-            border: none;
-            border-radius: 4px;
-            padding: 4px 8px;
-            font-size: 12px;
-            cursor: pointer;
-        }
-        .btn-secondary:hover {
-            background: #4b5563;
-        }
-        .error {
-            color: #b91c1c;
+        .inner-search button {
+            padding: 6px 14px;
             font-size: 13px;
-            margin-top: 4px;
+            border-radius: 4px;
+            border: none;
+            cursor: pointer;
+            background-color: #34c759;
+            color: #fff;
         }
-        .results-summary {
-            font-size: 14px;
-            margin-bottom: 8px;
+        .inner-search button:hover {
+            background-color: #289846;
         }
-        .threads-table {
-            width: 100%;
-            border-collapse: collapse;
-            font-size: 14px;
+        .bottom-search {
+            margin-top: 24px;
         }
-        .threads-table th,
-        .threads-table td {
-            padding: 6px 4px;
-            border-bottom: 1px solid #e5e7eb;
-            vertical-align: top;
+
+        /* 入力欄がスマホで縦に巨大化しないように高さを固定 */
+        .search-form-row input[type="text"],
+        .inner-search input[type="text"] {
+            height: 32px;
+            line-height: 1.2;
         }
-        .threads-table th {
-            text-align: left;
-            background: #f3f4f6;
-            font-weight: 600;
-        }
-        .thread-title {
-            font-weight: 600;
-        }
-        .thread-meta {
-            font-size: 12px;
-            color: #6b7280;
-        }
-        .section-title {
-            font-size: 15px;
-            font-weight: 600;
-            margin: 8px 0;
-        }
-        @media (max-width: 768px) {
-            main {
-                padding: 8px 6px 24px;
-            }
-            .form-row {
+
+        @media (max-width: 640px) {
+            .search-form-row {
                 flex-direction: column;
                 align-items: flex-start;
             }
-            .form-row label {
-                margin-bottom: 2px;
-            }
-            .form-row input[type="text"] {
+            .search-form-row input[type="text"] {
                 width: 100%;
             }
-            .threads-table th,
-            .threads-table td {
-                font-size: 13px;
+            .inner-search {
+                flex-direction: column;
+                align-items: stretch;
+            }
+            .inner-search input[type="text"] {
+                width: 100%;
+                height: 34px; /* スマホでも1行テキストっぽく */
+            }
+            .inner-search button {
+                width: 100%;
             }
         }
     </style>
 </head>
 <body>
-<header>
+<div class="page-container">
     <h1>Personal Search - 外部スレッド検索</h1>
-</header>
 
-<main>
-    <!-- 検索フォーム -->
-    <section class="card">
+    <!-- 上部：外部スレッド検索フォーム -->
+    <div class="card">
         <form method="get" action="/thread_search">
-            <div class="form-row">
+            <div class="search-form-row">
                 <label for="area">地域：</label>
                 <select name="area" id="area">
-                    {% for a in area_options %}
-                        <option value="{{ a.code }}"
-                                {% if a.code == current_area %}selected{% endif %}>
-                            {{ a.label }}
+                    {% for opt in area_options %}
+                        <option value="{{ opt.code }}"
+                                {% if opt.code == current_area %}selected{% endif %}>
+                            {{ opt.label }}
                         </option>
                     {% endfor %}
                 </select>
 
                 <label for="period">期間設定：</label>
                 <select name="period" id="period">
-                    {% for p in period_options %}
-                        <option value="{{ p.id }}"
-                                {% if p.id == current_period %}selected{% endif %}>
-                            {{ p.label }}
+                    {% for opt in period_options %}
+                        <option value="{{ opt.id }}"
+                                {% if opt.id == current_period %}selected{% endif %}>
+                            {{ opt.label }}
                         </option>
                     {% endfor %}
                 </select>
 
-                <label for="board_category">板カテゴリ：</label>
-                <select name="board_category" id="board_category">
-                    {% for c in board_category_options %}
-                        <option value="{{ c.id }}"
-                                {% if c.id == current_board_category %}selected{% endif %}>
-                            {{ c.label }}
+                <label for="board_ctgid">板カテゴリ：</label>
+                <select name="board_ctgid" id="board_ctgid">
+                    {% for bc in board_category_options %}
+                        <option value="{{ bc.id }}"
+                                {% if bc.id == current_board_ctgid %}selected{% endif %}>
+                            {{ bc.label }}
                         </option>
                     {% endfor %}
-                </select>
-
-                <label for="board_id">板：</label>
-                <select name="board_id" id="board_id">
-                    {% if board_options %}
-                        {% for b in board_options %}
-                            <option value="{{ b.id }}"
-                                    {% if b.id == current_board_id %}selected{% endif %}>
-                                {{ b.label }}
-                            </option>
-                        {% endfor %}
-                    {% else %}
-                        <option value="">（カテゴリを先に選択）</option>
-                    {% endif %}
                 </select>
             </div>
 
-            <div class="form-row">
+            <div class="search-form-row">
                 <label for="keyword">タイトル検索：</label>
-                <input type="text" id="keyword" name="keyword" value="{{ keyword|e }}" />
-
-                <button type="submit" class="btn-primary">
-                    外部スレッド検索
-                </button>
+                <input type="text"
+                       id="keyword"
+                       name="keyword"
+                       value="{{ keyword|default('') }}"
+                       placeholder="タイトルに含まれる語句">
             </div>
 
-            {% if error_message %}
-                <div class="error">{{ error_message }}</div>
-            {% endif %}
+            <div class="search-actions">
+                <button type="submit">外部スレッドを検索</button>
+            </div>
+
+            <div class="info-box">
+                ・ここでは「タイトル」に入力した語句を含むスレッドを一覧表示します。<br>
+                ・本文のキーワード検索は、下の「選んだスレ内でキーワード検索」で別途指定します。
+            </div>
         </form>
-    </section>
+    </div>
 
-    <!-- 検索結果（スレ一覧） -->
-    <section class="card">
-        <div class="section-title">スレッド一覧</div>
+    <!-- エラーメッセージ -->
+    {% if error_message %}
+        <div class="error-box">
+            {{ error_message }}
+        </div>
+    {% endif %}
 
-        {% if results %}
-            <div class="results-summary">
-                {{ keyword }} の検索結果（{{ results|length }}件）
-            </div>
+    <!-- 検索結果（スレタイトル一覧） -->
+    {% if results %}
+        <div class="card">
+            <h2>外部スレッド検索結果（{{ results|length }}件）</h2>
 
             <form method="post" action="/thread_search/posts">
-                <input type="hidden" name="area" value="{{ current_area }}">
-                <input type="hidden" name="period" value="{{ current_period }}">
-
-                <table class="threads-table">
-                    <thead>
-                    <tr>
-                        <th style="width: 40px;">選択</th>
-                        <th>タイトル</th>
-                        <th style="width: 150px;">最新レス日時</th>
-                    </tr>
-                    </thead>
-                    <tbody>
-                    {% for t in results %}
-                        <tr>
-                            <td>
+                <ul class="thread-list">
+                    {% for th in results %}
+                        <li class="thread-item">
+                            <label class="thread-label">
                                 <input type="radio"
                                        name="selected_thread"
-                                       value="{{ t.url|e }}"
+                                       value="{{ th.url }}"
                                        {% if loop.first %}checked{% endif %}>
-                            </td>
-                            <td>
-                                <div class="thread-title">
-                                    {{ t.title }}
+                                <div class="thread-main">
+                                    <p class="thread-title">{{ th.title }}</p>
+                                    <p class="thread-meta">
+                                        最終レス日時：{{ th.last_post_at_str }}
+                                        {% if th.ctgid %}
+                                            ／ ctgid={{ th.ctgid }}
+                                        {% endif %}
+                                    </p>
+                                    <div class="thread-url">{{ th.url }}</div>
                                 </div>
-                                <div class="thread-meta">
-                                    <a href="{{ t.url|e }}" target="_blank" rel="noopener">
-                                        スレッドを爆サイで開く
-                                    </a>
-                                </div>
-                            </td>
-                            <td>
-                                {{ t.last_post_at_str }}
-                            </td>
-                        </tr>
+                            </label>
+                        </li>
                     {% endfor %}
-                    </tbody>
-                </table>
+                </ul>
 
-                <div class="section-title" style="margin-top: 12px;">
-                    選んだスレ内でキーワード検索
-                </div>
-                <div class="form-row">
+                <div class="inner-search">
                     <label for="post_keyword">本文キーワード：</label>
-                    <input type="text" id="post_keyword" name="post_keyword" value="" />
-                    <button type="submit" class="btn-primary">
-                        スレッド内検索
-                    </button>
-                </div>
-                <div class="form-row">
-                    <label for="title_keyword">（メモ用）タイトル検索ワード：</label>
-                    <input type="text" id="title_keyword" name="title_keyword" value="{{ keyword|e }}" />
+                    <input type="text"
+                           id="post_keyword"
+                           name="post_keyword"
+                           placeholder="このスレ内で探したい語句（本文）を入力">
+
+                    <!-- タイトル側のキーワードは hidden で引き継いでおく（表示用など） -->
+                    <input type="hidden" name="title_keyword" value="{{ keyword|default('') }}">
+                    <input type="hidden" name="area" value="{{ current_area }}">
+                    <input type="hidden" name="period" value="{{ current_period }}">
+
+                    <button type="submit">選んだスレ内でキーワード検索</button>
                 </div>
             </form>
-        {% else %}
-            <p style="font-size: 14px; color: #6b7280;">
-                まだ検索結果がありません。条件を指定して「外部スレッド検索」を実行してください。
-            </p>
-        {% endif %}
-    </section>
-</main>
+        </div>
+    {% elif keyword %}
+        <!-- キーワードは入っているが結果ゼロの場合 -->
+        <div class="card">
+            <p>該当するスレッドが見つかりませんでした。</p>
+        </div>
+    {% endif %}
 
-<script>
-(function() {
-    // Python 側の BOARD_OPTIONS を JS に渡すための簡易データ
-    const boardOptionsMap = {
-        {% for cat in board_category_options %}
-        {% set cid = cat.id %}
-        "{{ cid }}": [
-            {% if cid in board_options and false %}
-            {% endif %}
-        ],
-        {% endfor %}
-    };
+    <!-- 下部：再検索用フォーム（何かしら検索した後だけ表示） -->
+    {% if keyword or results %}
+        <div class="bottom-search">
+            <div class="card">
+                <h2>別条件で再検索</h2>
+                <form method="get" action="/thread_search">
+                    <div class="search-form-row">
+                        <label for="area_bottom">地域：</label>
+                        <select name="area" id="area_bottom">
+                            {% for opt in area_options %}
+                                <option value="{{ opt.code }}"
+                                        {% if opt.code == current_area %}selected{% endif %}>
+                                    {{ opt.label }}
+                                </option>
+                            {% endfor %}
+                        </select>
 
-    // 実際の中身はサーバ側で current_board_category に対してだけ展開しているので、
-    // ここでは「カテゴリ未選択のときは板セレクトを disable する」程度の制御に留める。
-    const boardCategorySelect = document.getElementById('board_category');
-    const boardSelect = document.getElementById('board_id');
+                        <label for="period_bottom">期間設定：</label>
+                        <select name="period" id="period_bottom">
+                            {% for opt in period_options %}
+                                <option value="{{ opt.id }}"
+                                        {% if opt.id == current_period %}selected{% endif %}>
+                                    {{ opt.label }}
+                                </option>
+                            {% endfor %}
+                        </select>
 
-    function updateBoardDisabled() {
-        const cid = boardCategorySelect.value;
-        if (!cid) {
-            boardSelect.disabled = true;
-        } else {
-            boardSelect.disabled = false;
-        }
-    }
+                        <label for="board_ctgid_bottom">板カテゴリ：</label>
+                        <select name="board_ctgid" id="board_ctgid_bottom">
+                            {% for bc in board_category_options %}
+                                <option value="{{ bc.id }}"
+                                        {% if bc.id == current_board_ctgid %}selected{% endif %}>
+                                    {{ bc.label }}
+                                </option>
+                            {% endfor %}
+                        </select>
+                    </div>
 
-    if (boardCategorySelect && boardSelect) {
-        updateBoardDisabled();
-        boardCategorySelect.addEventListener('change', function() {
-            // 今回はサーバ側で board_options を更新する想定なので、
-            // ここでは disable 制御だけ行う。
-            updateBoardDisabled();
-        });
-    }
-})();
-</script>
+                    <div class="search-form-row">
+                        <label for="keyword_bottom">タイトル検索：</label>
+                        <input type="text"
+                               id="keyword_bottom"
+                               name="keyword"
+                               value="{{ keyword|default('') }}"
+                               placeholder="タイトルに含まれる語句">
+                    </div>
 
+                    <div class="search-actions">
+                        <button type="submit">外部スレッドを検索し直す</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    {% endif %}
+</div>
 </body>
 </html>
