@@ -21,6 +21,19 @@
             margin: 0;
             font-size: 18px;
         }
+        .header-nav {
+            margin-top: 6px;
+            font-size: 13px;
+        }
+        .header-nav a {
+            color: #e5e7eb;
+            text-decoration: none;
+            margin-right: 12px;
+        }
+        .header-nav a:hover {
+            text-decoration: underline;
+        }
+
         main {
             max-width: 1200px;
             margin: 0 auto;
@@ -98,7 +111,7 @@
             margin: 8px 0;
         }
 
-        /* ==== ここから：table をやめてカード風リスト表示 ==== */
+        /* 検索結果リスト表示 */
         .threads-list {
             display: flex;
             flex-direction: column;
@@ -131,7 +144,6 @@
             color: #6b7280;
             line-height: 1.4;
         }
-        /* ==== ここまで：結果リスト用 ==== */
 
         @media (max-width: 768px) {
             main {
@@ -153,6 +165,10 @@
 <body>
 <header>
     <h1>Personal Search - 外部スレッド検索</h1>
+    <div class="header-nav">
+        <a href="/">トップページ</a>
+        <a href="/admin/fetch">掲示板スレッドを取り込む</a>
+    </div>
 </header>
 
 <main>
@@ -180,11 +196,11 @@
                     {% endfor %}
                 </select>
 
-                <label for="board_category">板カテゴリ：</label>
-                <select name="board_category" id="board_category">
+                <label for="board_category_id">板カテゴリ：</label>
+                <select name="board_category_id" id="board_category_id">
                     {% for c in board_category_options %}
                         <option value="{{ c.id }}"
-                                {% if c.id == current_board_category %}selected{% endif %}>
+                                {% if c.id == current_board_category_id %}selected{% endif %}>
                             {{ c.label }}
                         </option>
                     {% endfor %}
@@ -280,7 +296,7 @@
 
 <script>
 (function() {
-    const boardCategorySelect = document.getElementById('board_category');
+    const boardCategorySelect = document.getElementById('board_category_id');
     const boardSelect = document.getElementById('board_id');
 
     function updateBoardDisabled() {
