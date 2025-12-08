@@ -6,7 +6,6 @@ from typing import List, Optional, Dict
 from collections import defaultdict, deque
 from datetime import datetime, timedelta
 from urllib.parse import quote_plus, urlencode
-from functools import lru_cache
 
 import requests
 from bs4 import BeautifulSoup
@@ -92,7 +91,7 @@ def verify_basic(credentials: HTTPBasicCredentials = Depends(security)):
 
 
 # =========================
-# 外部スレッド検索用 マスタ
+# 外部スレッド検索用
 # =========================
 AREA_OPTIONS = [
     {"code": "",   "label": "地域を選択"},
@@ -114,6 +113,7 @@ AREA_OPTIONS = [
     {"code": "11", "label": "沖縄版"},
 ]
 
+# 板カテゴリ（大区分）
 BOARD_CATEGORY_OPTIONS = [
     {"id": "",      "label": "（カテゴリ指定なし）"},
     {"id": "103",   "label": "風俗掲示板"},
@@ -121,95 +121,74 @@ BOARD_CATEGORY_OPTIONS = [
     {"id": "122",   "label": "R18掲示板"},
 ]
 
+# 板マスタ（大阪版 × 風俗 / 癒し / R18）
+# id = bid, category_id = ctgid
+BOARD_MASTER: Dict[str, List[Dict[str, str]]] = {
+    # 風俗掲示板（ctgid=103）
+    "103": [
+        {"id": "332",  "label": "大阪風俗・総合"},
+        {"id": "410",  "label": "大阪風俗・お店"},
+        {"id": "1227", "label": "大阪風俗・個人"},
+        {"id": "5922", "label": "大阪デリヘル・お店"},
+        {"id": "5923", "label": "大阪デリヘル・個人"},
+        {"id": "5924", "label": "大阪デリヘル・総合"},
+        {"id": "3913", "label": "大阪遊郭・新地お店"},
+        {"id": "3392", "label": "大阪遊郭・新地総合"},
+        {"id": "5384", "label": "大阪遊郭・新地個人"},
+    ],
+    # メンエス・リフレ・癒し掲示板（ctgid=136）
+    "136": [
+        {"id": "1714", "label": "大阪メンエス・リフレ・癒し・お店"},
+        {"id": "2401", "label": "大阪メンエス・リフレ・癒し・個人"},
+        {"id": "2383", "label": "大阪メンエス・リフレ・癒し・総合"},
+        {"id": "5878", "label": "大阪外国人メンエス・リフレ・癒し・お店"},
+        {"id": "5882", "label": "大阪外国人メンエス・リフレ・癒し・総合"},
+    ],
+    # R18掲示板（ctgid=122）
+    "122": [
+        {"id": "61",   "label": "Hな悩み"},
+        {"id": "508",  "label": "チョットHな雑談"},
+        {"id": "1804", "label": "ライブチャット"},
+    ],
+}
+
 PERIOD_OPTIONS = [
     {"id": "all", "label": "すべて", "days": None},
-    {"id": "7d",  "label": "7日以内", "days": 7},
-    {"id": "1m",  "label": "1ヶ月以内", "days": 31},
-    {"id": "3m",  "label": "3ヶ月以内", "days": 93},
-    {"id": "6m",  "label": "6ヶ月以内", "days": 186},
-    {"id": "1y",  "label": "1年以内", "days": 365},
-    {"id": "2y",  "label": "2年以内", "days": 730},
+    {"id": "7d", "label": "7日以内", "days": 7},
+    {"id": "1m", "label": "1ヶ月以内", "days": 31},
+    {"id": "3m", "label": "3ヶ月以内", "days": 93},
+    {"id": "6m", "label": "6ヶ月以内", "days": 186},
+    {"id": "1y", "label": "1年以内", "days": 365},
+    {"id": "2y", "label": "2年以内", "days": 730},
 ]
 
-PERIOD_ID_TO_DAYS = {p["id"]: p["days"] for p in PERIOD_OPTIONS}
+PERIOD_ID_TO_DAYS: Dict[str, Optional[int]] = {
+    p["id"]: p["days"] for p in PERIOD_OPTIONS
+}
 
 
 def get_period_days(period_id: str) -> Optional[int]:
     return PERIOD_ID_TO_DAYS.get(period_id)
 
 
-# =========================
-# 板マスタ：areatop から自動取得
-# =========================
-@lru_cache(maxsize=8)
-def _load_board_master_for_area(area_code: str) -> Dict[str, List[dict]]:
+def get_board_options_for_category(category_id: str) -> List[Dict[str, str]]:
     """
-    https://bakusai.com/areatop/acode={area_code}/ を解析して
-    ctgid -> [ {id: bid, label: 板名}, ... ] のマスタを作る。
-    今は大阪版(acode=7)前提だが、他エリアも同様に動作する設計。
+    板カテゴリ(ctgid)ごとの板一覧（大阪版用）
     """
-    area_code = (area_code or "").strip()
-    if not area_code:
-        return {}
-
-    url = f"https://bakusai.com/areatop/acode={area_code}/"
-    try:
-        resp = requests.get(
-            url,
-            timeout=20,
-            headers={"User-Agent": "Mozilla/5.0"},
-        )
-        resp.raise_for_status()
-    except Exception:
-        return {}
-
-    soup = BeautifulSoup(resp.text, "html.parser")
-
-    # ctgid -> { bid: name }
-    tmp: Dict[str, Dict[str, str]] = {}
-
-    for a in soup.find_all("a", href=True):
-        href = a.get("href", "")
-        # /thr_tl/acode=7/ctgid=103/bid=4102/ のようなリンクを拾う
-        m = re.search(r"/thr_tl/acode=(\d+)/ctgid=(\d+)/bid=(\d+)/", href)
-        if not m:
-            continue
-        ac, ctgid, bid = m.group(1), m.group(2), m.group(3)
-        if ac != area_code:
-            continue
-        name = (a.get_text() or "").strip()
-        if not name:
-            continue
-
-        if ctgid not in tmp:
-            tmp[ctgid] = {}
-        if bid not in tmp[ctgid]:
-            tmp[ctgid][bid] = name
-
-    master: Dict[str, List[dict]] = {}
-    for ctgid, boards in tmp.items():
-        master[ctgid] = [
-            {"id": bid, "label": name}
-            for bid, name in sorted(boards.items(), key=lambda x: int(x[0]))
-        ]
-
-    return master
+    return BOARD_MASTER.get(category_id or "", [])
 
 
-@lru_cache(maxsize=64)
-def get_board_options_for_area_category(area_code: str, board_category_id: str) -> List[dict]:
+def find_board_category_by_id(board_id: str) -> Optional[str]:
     """
-    指定エリア＋板カテゴリ(ctgid)に対応する板一覧（bid, 名称）を返す。
+    bid から対応する ctgid を逆引き
     """
-    area_code = (area_code or "").strip()
-    board_category_id = (board_category_id or "").strip()
-    if not area_code or not board_category_id:
-        return []
-    master = _load_board_master_for_area(area_code)
-    boards = master.get(board_category_id)
-    if not boards:
-        return []
-    return boards
+    if not board_id:
+        return None
+    for cat_id, boards in BOARD_MASTER.items():
+        for b in boards:
+            if b["id"] == board_id:
+                return cat_id
+    return None
 
 
 # =========================
@@ -373,7 +352,6 @@ app = FastAPI(
 )
 templates = Jinja2Templates(directory="templates")
 
-# 最近の検索条件（メモリ上 5 件まで）
 RECENT_SEARCHES = deque(maxlen=5)
 
 
@@ -920,28 +898,25 @@ def search_threads_external(
     area_code: str,
     keyword: str,
     max_days: Optional[int],
-    board_category_id: str = "",
-    board_id: str = "",
+    board_id: Optional[str] = None,
 ) -> List[dict]:
     keyword = (keyword or "").strip()
     if not area_code or not keyword:
         return []
 
-    keyword_norm = normalize_for_search(keyword)
-
-    path_parts = [f"acode={area_code}"]
-    board_category_id = (board_category_id or "").strip()
     board_id = (board_id or "").strip()
+    ctgid: Optional[str] = None
+    if board_id:
+        ctgid = find_board_category_by_id(board_id)
 
-    if board_category_id and board_id:
-        path_parts.append(f"ctgid={board_category_id}")
-        path_parts.append(f"bid={board_id}")
-
-    path = "/".join(path_parts)
-    url = (
-        f"https://bakusai.com/sch_thr_thread/{path}/"
-        f"sch=thr_sch/sch_range=board/word={quote_plus(keyword)}/p=1/"
-    )
+    if board_id and ctgid:
+        url = (
+            f"https://bakusai.com/sch_thr_thread/"
+            f"acode={area_code}/ctgid={ctgid}/bid={board_id}/p=1/"
+            f"sch=thr_sch/sch_range=board/word={quote_plus(keyword)}"
+        )
+    else:
+        url = f"https://bakusai.com/sch_thr_thread/acode={area_code}/word={quote_plus(keyword)}"
 
     resp = requests.get(
         url,
@@ -957,9 +932,11 @@ def search_threads_external(
     if max_days is not None:
         threshold = datetime.now() - timedelta(days=max_days)
 
+    keyword_norm = normalize_for_search(keyword)
+
     for s in soup.find_all(string=re.compile("最新レス投稿日時")):
-        text_value = str(s)
-        m = re.search(r"(\d{4}/\d{2}/\d{2} \d{2}:\d{2})", text_value)
+        text = str(s)
+        m = re.search(r"(\d{4}/\d{2}/\d{2} \d{2}:\d{2})", text)
         if not m:
             continue
         try:
@@ -1024,33 +1001,25 @@ def thread_search_page(
     request: Request,
     area: str = "7",
     period: str = "3m",
-    board_category_id: str = "103",
-    board_id: str = "",
     keyword: str = "",
+    board_category: str = "",
+    board_id: str = "",
 ):
     area = (area or "").strip() or "7"
     period = (period or "").strip() or "3m"
-    board_category_id = (board_category_id or "").strip() or ""
-    board_id = (board_id or "").strip()
     keyword = (keyword or "").strip()
+    board_category = (board_category or "").strip()
+    board_id = (board_id or "").strip()
+
+    board_options = get_board_options_for_category(board_category) if board_category else []
 
     results: List[dict] = []
     error_message = ""
-    board_options: List[dict] = []
-
-    if board_category_id:
-        board_options = get_board_options_for_area_category(area, board_category_id)
 
     if keyword and area:
         max_days = get_period_days(period)
         try:
-            results = search_threads_external(
-                area_code=area,
-                keyword=keyword,
-                max_days=max_days,
-                board_category_id=board_category_id,
-                board_id=board_id,
-            )
+            results = search_threads_external(area, keyword, max_days, board_id=board_id or None)
         except Exception as e:
             error_message = f"外部検索中にエラーが発生しました: {e}"
 
@@ -1060,15 +1029,15 @@ def thread_search_page(
             "request": request,
             "area_options": AREA_OPTIONS,
             "period_options": PERIOD_OPTIONS,
+            "board_category_options": BOARD_CATEGORY_OPTIONS,
+            "board_options": board_options,
             "current_area": area,
             "current_period": period,
+            "current_board_category": board_category,
+            "current_board_id": board_id,
             "keyword": keyword,
             "results": results,
             "error_message": error_message,
-            "board_category_options": BOARD_CATEGORY_OPTIONS,
-            "current_board_category_id": board_category_id,
-            "board_options": board_options,
-            "current_board_id": board_id,
         },
     )
 
