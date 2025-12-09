@@ -417,7 +417,7 @@ def fetch_thread_into_db(db: Session, url: str) -> int:
             continue
 
         if getattr(sp, "anchors", None):
-            anchors_str = "," + ",".join(str(a) for a in sp.anchors) + ","  # 両端にカンマをつける
+            anchors_str = "," + ",".join(str(a) for a in sp.anchors) + ","
         else:
             anchors_str = None
 
@@ -834,6 +834,19 @@ def list_threads(
     # 最近の検索条件
     recent_searches_view = list(RECENT_SEARCHES)[::-1]
 
+    # 次スレ取得結果メッセージ
+    info_message = ""
+    try:
+        params = request.query_params
+        if params.get("next_ok"):
+            info_message = "次スレを取り込みました。"
+        elif params.get("no_next"):
+            info_message = "次スレが見つかりませんでした。"
+        elif params.get("next_error"):
+            info_message = "次スレ取得中にエラーが発生しました。"
+    except Exception:
+        info_message = ""
+
     return templates.TemplateResponse(
         "threads.html",
         {
@@ -841,6 +854,7 @@ def list_threads(
             "threads": threads,
             "popular_tags": popular_tags,
             "recent_searches": recent_searches_view,
+            "info_message": info_message,
         },
     )
 
@@ -1135,18 +1149,18 @@ def thread_search_page(
     )
 
 
-def _add_saved_flag_to_url(back_url: str) -> str:
+def _add_flag_to_url(back_url: str, key: str) -> str:
     """
-    クエリに saved=1 を付与するヘルパー。
+    クエリに {key}=1 を付与するヘルパー。
     すでに付いている場合はそのまま返す。
     """
     if not back_url:
-        return "/thread_search?saved=1"
-    if "saved=" in back_url:
+        return f"/thread_search?{key}=1"
+    if f"{key}=" in back_url:
         return back_url
     if "?" in back_url:
-        return back_url + "&saved=1"
-    return back_url + "?saved=1"
+        return back_url + f"&{key}=1"
+    return back_url + f"?{key}=1"
 
 
 # =========================
@@ -1199,7 +1213,7 @@ async def save_external_thread(
         db.rollback()
 
     if saved_ok:
-        redirect_to = _add_saved_flag_to_url(back_url)
+        redirect_to = _add_flag_to_url(back_url, "saved")
     else:
         redirect_to = back_url
 
@@ -1207,40 +1221,7 @@ async def save_external_thread(
 
 
 # =========================
-# 外部検索履歴の削除
-# =========================
-@app.post("/thread_search/history/delete")
-def delete_external_history(
-    request: Request,
-    key: str = Form(""),
-):
-    back_url = request.headers.get("referer") or "/thread_search"
-    key = (key or "").strip()
-    if not key:
-        return RedirectResponse(url=back_url, status_code=303)
-
-    try:
-        remaining = [e for e in EXTERNAL_SEARCHES if e.get("key") != key]
-        EXTERNAL_SEARCHES.clear()
-        EXTERNAL_SEARCHES.extend(remaining)
-    except Exception:
-        pass
-
-    return RedirectResponse(url=back_url, status_code=303)
-
-
-@app.post("/thread_search/history/clear")
-def clear_external_history(request: Request):
-    back_url = request.headers.get("referer") or "/thread_search"
-    try:
-        EXTERNAL_SEARCHES.clear()
-    except Exception:
-        pass
-    return RedirectResponse(url=back_url, status_code=303)
-
-
-# =========================
-# 外部スレッド → 前スレ/次スレ検出
+# 次スレ取得（保存スレ・内部検索共通で使える）
 # =========================
 def _normalize_bakusai_href(href: str) -> str:
     if href.startswith("//"):
@@ -1283,6 +1264,72 @@ def find_prev_next_thread_urls(thread_url: str, area_code: str) -> tuple[Optiona
     prev_url = pick_url(prev_div)
     next_url = pick_url(next_div)
     return (prev_url, next_url)
+
+
+@app.post("/admin/fetch_next")
+def fetch_next_thread(
+    request: Request,
+    url: str = Form(""),
+    db: Session = Depends(get_db),
+):
+    """
+    取り込み済みスレの「次スレ」を取得して DB に保存する。
+    呼び出し元（/threads や /）にリダイレクトし、クエリパラメータで結果を返す。
+    """
+    back_url = request.headers.get("referer") or "/threads"
+    url = (url or "").strip()
+
+    if not url:
+        redirect_to = _add_flag_to_url(back_url, "next_error")
+        return RedirectResponse(url=redirect_to, status_code=303)
+
+    # ページャーから次スレ URL を取得
+    _, next_url = find_prev_next_thread_urls(url, "")
+    if not next_url:
+        redirect_to = _add_flag_to_url(back_url, "no_next")
+        return RedirectResponse(url=redirect_to, status_code=303)
+
+    try:
+        fetch_thread_into_db(db, next_url)
+        redirect_to = _add_flag_to_url(back_url, "next_ok")
+    except Exception:
+        db.rollback()
+        redirect_to = _add_flag_to_url(back_url, "next_error")
+
+    return RedirectResponse(url=redirect_to, status_code=303)
+
+
+# =========================
+# 外部検索履歴の削除
+# =========================
+@app.post("/thread_search/history/delete")
+def delete_external_history(
+    request: Request,
+    key: str = Form(""),
+):
+    back_url = request.headers.get("referer") or "/thread_search"
+    key = (key or "").strip()
+    if not key:
+        return RedirectResponse(url=back_url, status_code=303)
+
+    try:
+        remaining = [e for e in EXTERNAL_SEARCHES if e.get("key") != key]
+        EXTERNAL_SEARCHES.clear()
+        EXTERNAL_SEARCHES.extend(remaining)
+    except Exception:
+        pass
+
+    return RedirectResponse(url=back_url, status_code=303)
+
+
+@app.post("/thread_search/history/clear")
+def clear_external_history(request: Request):
+    back_url = request.headers.get("referer") or "/thread_search"
+    try:
+        EXTERNAL_SEARCHES.clear()
+    except Exception:
+        pass
+    return RedirectResponse(url=back_url, status_code=303)
 
 
 # =========================
