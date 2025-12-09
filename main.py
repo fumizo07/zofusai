@@ -560,7 +560,7 @@ def fetch_thread_into_db(db: Session, url: str) -> int:
                 thread_url=url,
                 thread_title=thread_title,
                 post_no=sp.post_no,
-                posted_at	getattr(sp, "posted_at", None),
+                posted_at=getattr(sp, "posted_at", None),  # ★ここを修正
                 body=body,
                 anchors=anchors_str,
             )
