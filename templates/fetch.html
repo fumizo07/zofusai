@@ -1,23 +1,10 @@
-<!DOCTYPE html>
-<html lang="ja">
-<head>
-    <meta charset="UTF-8">
-    <title>スレッド取り込み | Personal Search</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <link rel="stylesheet" href="/static/base.css">
-</head>
-<body class="page-fetch">
-<header>
-    <h1>Personal Search - スレッド取り込み</h1>
-    <div class="nav-links">
-        <a href="/">内部検索トップ</a>
-        <a href="/thread_search">外部スレッド検索</a>
-        <a href="/threads">保存スレッド一覧</a>
-    </div>
-</header>
+{% set page_title_suffix = "スレッド取込" %}
+{% set body_class = "page-fetch" %}
+{% set active_page = "fetch" %}
+{% include "_header.html" %}
 
 <main>
-    <a href="/" class="back">← 検索画面に戻る</a>
+    <a href="/" class="back">← 内部検索に戻る</a>
     <h1>掲示板スレッド取り込み（簡易版）</h1>
 
     <!-- method="post" action="/admin/fetch" 固定 -->
