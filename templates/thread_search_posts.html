@@ -1,21 +1,8 @@
-<!DOCTYPE html>
-<html lang="ja">
-<head>
-    <meta charset="utf-8" />
-    <title>Personal Search - スレッド内検索結果</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <link rel="stylesheet" href="/static/base.css">
-</head>
-<body class="page-thread-posts">
-<header>
-    <h1>Personal Search - スレッド内検索結果</h1>
-    <div class="nav-links">
-        <a href="/">内部検索トップ</a>
-        <a href="/admin/fetch">掲示板スレッドを取り込む</a>
-        <a href="/thread_search">外部スレッド検索</a>
-        <a href="/threads">保存スレッド一覧</a>
-    </div>
-</header>
+{% set page_title_suffix = "スレッド内検索結果" %}
+{% set body_class = "page-thread-posts" %}
+{# 外部検索のサブページ扱いなので active_page は thread_search に寄せる #}
+{% set active_page = "thread_search" %}
+{% include "_header.html" %}
 
 <main>
     <!-- 上部：スレ情報＋再検索・保存など -->
@@ -24,7 +11,7 @@
 
         <p class="back-link">
             <a href="/thread_search?area={{ area }}&period={{ period }}&keyword={{ title_keyword|urlencode }}">
-                外部スレッド検索に戻る
+                外部検索に戻る
             </a>
         </p>
 
