@@ -15,7 +15,7 @@ from fastapi import FastAPI, Request, Depends, Form, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse, PlainTextResponse
 from fastapi.templating import Jinja2Templates
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
-from fastapi.staticfiles import StaticFiles  # ★追加
+from fastapi.staticfiles import StaticFiles  # 追加
 
 from sqlalchemy import Column, Integer, Text, create_engine, func, text
 from sqlalchemy.orm import declarative_base, sessionmaker, Session
