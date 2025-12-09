@@ -288,10 +288,10 @@
 
         {% if not error_message %}
         <div style="margin-top:8px; display:flex; flex-wrap:wrap; gap:8px; align-items:center;">
-            <!-- このスレをDBに保存 -->
+            <!-- このスレを保存 -->
             <form method="post" action="/thread_search/save">
                 <input type="hidden" name="thread_url" value="{{ thread_url|e }}">
-                <button type="submit" class="btn-secondary">このスレをDBに保存</button>
+                <button type="submit" class="btn-secondary">このスレを保存</button>
             </form>
 
             <!-- 同じスレで別キーワード再検索 -->
