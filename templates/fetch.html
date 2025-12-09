@@ -4,92 +4,9 @@
     <meta charset="UTF-8">
     <title>スレッド取り込み | Personal Search</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <style>
-        body {
-            font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-            margin: 0;
-            padding: 0;
-            background: #f5f5f7;
-            color: #222;
-        }
-        header {
-            background: #111827;
-            color: #f9fafb;
-            padding: 12px 16px;
-        }
-        header h1 {
-            margin: 0;
-            font-size: 18px;
-        }
-        .nav-links {
-            margin-top: 4px;
-            font-size: 13px;
-        }
-        .nav-links a {
-            color: #e5e7eb;
-            text-decoration: none;
-            margin-right: 8px;
-        }
-        .nav-links a:hover {
-            text-decoration: underline;
-        }
-
-        main {
-            max-width: 800px;
-            margin: 0 auto;
-            padding: 16px;
-            line-height: 1.6;
-        }
-        h1 {
-            font-size: 1.4rem;
-        }
-        form {
-            margin-bottom: 16px;
-        }
-        input[type="text"] {
-            width: 100%;
-            padding: 8px;
-            box-sizing: border-box;
-            font-size: 1rem;
-            margin-bottom: 8px;
-            height: 32px;
-            line-height: 20px;
-            -webkit-appearance: none;
-            appearance: none;
-        }
-        button {
-            padding: 8px 16px;
-            font-size: 1rem;
-            cursor: pointer;
-        }
-        .status {
-            margin-top: 12px;
-            font-size: 0.9rem;
-        }
-        .status.ok {
-            color: #14854f;
-        }
-        .status.error {
-            color: #c0392b;
-        }
-        .note {
-            font-size: 0.8rem;
-            color: #777;
-        }
-        a.back {
-            font-size: 0.9rem;
-            display: inline-block;
-            margin-bottom: 12px;
-        }
-
-        @media (max-width: 768px) {
-            main {
-                padding: 12px;
-            }
-        }
-    </style>
+    <link rel="stylesheet" href="/static/base.css">
 </head>
-<body>
+<body class="page-fetch">
 <header>
     <h1>Personal Search - スレッド取り込み</h1>
     <div class="nav-links">
