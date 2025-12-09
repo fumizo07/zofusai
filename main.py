@@ -1130,10 +1130,12 @@ def thread_search_page(
 def save_external_thread(
     request: Request,
     thread_url: str = Form(""),
+    selected_thread: str = Form(""),
     db: Session = Depends(get_db),
 ):
     back_url = request.headers.get("referer") or "/thread_search"
-    url = (thread_url or "").strip()
+    # outer form から来た場合 selected_thread に入ることもあるので両方見る
+    url = (thread_url or selected_thread or "").strip()
     if not url:
         return RedirectResponse(url=back_url, status_code=303)
 
@@ -1142,6 +1144,39 @@ def save_external_thread(
     except Exception:
         db.rollback()
 
+    return RedirectResponse(url=back_url, status_code=303)
+
+
+# =========================
+# 外部検索履歴の削除
+# =========================
+@app.post("/thread_search/history/delete")
+def delete_external_history(
+    request: Request,
+    key: str = Form(""),
+):
+    back_url = request.headers.get("referer") or "/thread_search"
+    key = (key or "").strip()
+    if not key:
+        return RedirectResponse(url=back_url, status_code=303)
+
+    try:
+        remaining = [e for e in EXTERNAL_SEARCHES if e.get("key") != key]
+        EXTERNAL_SEARCHES.clear()
+        EXTERNAL_SEARCHES.extend(remaining)
+    except Exception:
+        pass
+
+    return RedirectResponse(url=back_url, status_code=303)
+
+
+@app.post("/thread_search/history/clear")
+def clear_external_history(request: Request):
+    back_url = request.headers.get("referer") or "/thread_search"
+    try:
+        EXTERNAL_SEARCHES.clear()
+    except Exception:
+        pass
     return RedirectResponse(url=back_url, status_code=303)
 
 
