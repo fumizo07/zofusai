@@ -66,11 +66,14 @@
             font-size: 14px;
             padding: 4px 6px;
             height: 32px;
+            line-height: 20px;
             box-sizing: border-box;
             -webkit-appearance: none;
             appearance: none;
             border-radius: 4px;
+            border: 1px solid #d1d5db;
             flex: 1 1 160px;
+            background: #fff;
         }
         .btn-primary {
             background: #2563eb;
@@ -193,10 +196,17 @@
             padding-left: 6px;
             margin: 2px 0;
             white-space: normal;
+            line-height: 1.5;
         }
         .context-line-root {
             background: #fffbe6;
             font-weight: bold;
+        }
+        /* 折りたたみ用（3行分くらいの高さに制限） */
+        .context-collapsed {
+            max-height: 4.5em; /* 1.5em × 3行のイメージ */
+            overflow: hidden;
+            position: relative;
         }
         .no-result {
             color: #777;
@@ -204,6 +214,21 @@
         }
         mark {
             background: #ffec99;
+        }
+
+        .read-more-btn {
+            margin-left: 6px;
+            margin-top: 2px;
+            padding: 2px 6px;
+            font-size: 12px;
+            border-radius: 4px;
+            border: 1px solid #d1d5db;
+            background: #e5e7eb;
+            color: #374151;
+            cursor: pointer;
+        }
+        .read-more-btn:hover {
+            background: #d1d5db;
         }
 
         @media (max-width: 768px) {
@@ -232,7 +257,7 @@
 </header>
 
 <main>
-    <!-- 上部：スレ情報＋再検索・保存など（ここは新仕様を維持） -->
+    <!-- 上部：スレ情報＋再検索・保存など -->
     <section class="card">
         <div class="section-title">スレッド情報</div>
 
@@ -303,7 +328,7 @@
         {% endif %}
     </section>
 
-    <!-- 下部：ヒットしたレス一覧（ここをまるごと「気に入っていた構成」に戻す） -->
+    <!-- 下部：ヒットしたレス一覧（昔の気に入っていたレイアウト） -->
     <section class="card">
         {% if entries and not error_message %}
             <h2>ヒットしたレス（{{ entries|length }}件）</h2>
@@ -388,6 +413,51 @@
         {% endif %}
     </section>
 </main>
+
+<script>
+/**
+ * コンテキスト行が3行以上に折り返されている場合だけ
+ * 「もっと読む」ボタンを出して、初期状態では折りたたむ。
+ */
+document.addEventListener("DOMContentLoaded", function() {
+    const maxLines = 3;
+    const contextLines = document.querySelectorAll(".context-line");
+
+    contextLines.forEach(function(line) {
+        const style = window.getComputedStyle(line);
+        let lineHeight = parseFloat(style.lineHeight);
+
+        if (isNaN(lineHeight)) {
+            const fontSize = parseFloat(style.fontSize) || 14;
+            lineHeight = fontSize * 1.5;
+        }
+
+        const maxHeight = lineHeight * maxLines;
+
+        // 実際の高さが3行分より大きければ「もっと読む」対象
+        if (line.scrollHeight > maxHeight + 2) {
+            line.classList.add("context-collapsed");
+
+            const btn = document.createElement("button");
+            btn.type = "button";
+            btn.className = "read-more-btn";
+            btn.textContent = "もっと読む";
+
+            btn.addEventListener("click", function() {
+                if (line.classList.contains("context-collapsed")) {
+                    line.classList.remove("context-collapsed");
+                    btn.textContent = "閉じる";
+                } else {
+                    line.classList.add("context-collapsed");
+                    btn.textContent = "もっと読む";
+                }
+            });
+
+            line.insertAdjacentElement("afterend", btn);
+        }
+    });
+});
+</script>
 
 </body>
 </html>
