@@ -417,7 +417,7 @@ def fetch_thread_into_db(db: Session, url: str) -> int:
             continue
 
         if getattr(sp, "anchors", None):
-            anchors_str = "," + ",".join(str(a) for a in sp.anchors) + ","
+            anchors_str = "," + ",".join(str(a) for a in sp.anchors) + ","  # 両端にカンマをつける
         else:
             anchors_str = None
 
@@ -1106,6 +1106,14 @@ def thread_search_page(
 
     recent_external_searches = list(EXTERNAL_SEARCHES)[::-1]
 
+    # スレ保存完了フラグ（/thread_search/save からのリダイレクト時）
+    try:
+        saved_flag = request.query_params.get("saved")
+    except Exception:
+        saved_flag = None
+    if saved_flag and not error_message:
+        error_message = "スレッドを保存しました。"
+
     return templates.TemplateResponse(
         "thread_search.html",
         {
@@ -1127,6 +1135,20 @@ def thread_search_page(
     )
 
 
+def _add_saved_flag_to_url(back_url: str) -> str:
+    """
+    クエリに saved=1 を付与するヘルパー。
+    すでに付いている場合はそのまま返す。
+    """
+    if not back_url:
+        return "/thread_search?saved=1"
+    if "saved=" in back_url:
+        return back_url
+    if "?" in back_url:
+        return back_url + "&saved=1"
+    return back_url + "?saved=1"
+
+
 # =========================
 # 外部スレッド → DB 保存
 # =========================
@@ -1144,7 +1166,14 @@ async def save_external_thread(
     """
     back_url = request.headers.get("referer") or "/thread_search"
 
+    # スレ内検索結果（/thread_search/posts）から呼ばれた場合、
+    # そのまま戻すと GET /thread_search/posts になり 405 になるので
+    # 安全な /thread_search に退避させる。
+    if back_url and "/thread_search/posts" in back_url:
+        back_url = "/thread_search"
+
     url = ""
+    saved_ok = False
 
     try:
         if request.method == "POST":
@@ -1165,10 +1194,16 @@ async def save_external_thread(
 
     try:
         fetch_thread_into_db(db, url)
+        saved_ok = True
     except Exception:
         db.rollback()
 
-    return RedirectResponse(url=back_url, status_code=303)
+    if saved_ok:
+        redirect_to = _add_saved_flag_to_url(back_url)
+    else:
+        redirect_to = back_url
+
+    return RedirectResponse(url=redirect_to, status_code=303)
 
 
 # =========================
