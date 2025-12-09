@@ -1,298 +1,371 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
-    <meta charset="UTF-8">
-    <title>スレッド内検索結果</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta charset="utf-8" />
+    <title>Personal Search - スレッド内検索結果</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
     <style>
         body {
             font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-            max-width: 900px;
+            margin: 0;
+            padding: 0;
+            background: #f5f5f7;
+            color: #222;
+        }
+        header {
+            background: #111827;
+            color: #f9fafb;
+            padding: 12px 16px;
+        }
+        header h1 {
+            margin: 0;
+            font-size: 18px;
+        }
+        .nav-links {
+            margin-top: 4px;
+            font-size: 13px;
+        }
+        .nav-links a {
+            color: #e5e7eb;
+            text-decoration: none;
+            margin-right: 8px;
+        }
+        .nav-links a:hover {
+            text-decoration: underline;
+        }
+        main {
+            max-width: 1200px;
             margin: 0 auto;
-            padding: 16px;
-            line-height: 1.7;
+            padding: 12px 8px 32px;
         }
-        h1 {
-            font-size: 1.3rem;
-            margin-bottom: 8px;
-        }
-        h2 {
-            font-size: 1.1rem;
-            margin-top: 16px;
-            margin-bottom: 8px;
-        }
-        .back-link {
-            font-size: 0.9rem;
-            margin-bottom: 8px;
-        }
-        .thread-url {
-            font-size: 0.8rem;
-            color: #666;
-            word-break: break-all;
-            margin-bottom: 4px;
-        }
-        .thread-title {
-            font-size: 0.9rem;
-            font-weight: bold;
-            margin-bottom: 4px;
-        }
-        .error-message {
-            color: #c0392b;
-            font-size: 0.9rem;
-            margin-bottom: 8px;
-        }
-        .result {
-            border: 1px solid #ddd;
-            border-radius: 6px;
-            padding: 10px 12px;
-            margin-bottom: 14px;
+        .card {
             background: #fff;
-        }
-        .result-id {
-            font-weight: bold;
-            font-size: 0.9rem;
-            color: #333;
-        }
-        .result-text {
-            margin-top: 8px;
-            white-space: pre-wrap;   /* 本文は改行あり */
-            font-size: 0.9rem;
+            border-radius: 8px;
+            padding: 12px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+            margin-bottom: 16px;
         }
         .section-title {
-            margin-top: 10px;
+            font-size: 15px;
+            font-weight: 600;
+            margin: 8px 0;
+        }
+        .form-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+        .form-row label {
+            font-size: 13px;
+            color: #374151;
+            white-space: nowrap;
+        }
+        .form-row input[type="text"] {
+            font-size: 14px;
+            padding: 4px 6px;
+            height: 32px;
+            box-sizing: border-box;
+            -webkit-appearance: none;
+            appearance: none;
+            border-radius: 4px;
+            flex: 1 1 160px;
+        }
+        .btn-primary {
+            background: #2563eb;
+            color: #fff;
+            border: none;
+            border-radius: 4px;
+            padding: 6px 12px;
+            font-size: 14px;
+            cursor: pointer;
+        }
+        .btn-primary:hover {
+            background: #1d4ed8;
+        }
+        .btn-secondary {
+            background: #6b7280;
+            color: #fff;
+            border: none;
+            border-radius: 4px;
+            padding: 4px 8px;
+            font-size: 12px;
+            cursor: pointer;
+        }
+        .btn-secondary:hover {
+            background: #4b5563;
+        }
+        .error {
+            color: #b91c1c;
+            font-size: 13px;
+            margin-top: 4px;
+        }
+        .thread-info {
+            font-size: 14px;
+            line-height: 1.5;
+        }
+        .thread-info .thread-url {
+            font-size: 12px;
+            color: #6b7280;
+            word-break: break-all;
+        }
+        .entries-header {
+            font-size: 14px;
             margin-bottom: 4px;
-            font-size: 0.85rem;
-            font-weight: bold;
-            color: #444;
         }
-        /* アンカー先（複数行OK） */
-        .anchor-item {
-            border-left: 2px solid #eee;
-            padding-left: 6px;
-            margin: 4px 0;
+        .post-block {
+            border-top: 1px solid #e5e7eb;
+            padding-top: 8px;
+            margin-top: 8px;
         }
-        .anchor-meta {
-            font-size: 0.8rem;
-            color: #666;
+        .post-header {
+            font-size: 13px;
+            color: #4b5563;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            align-items: center;
+            margin-bottom: 4px;
+        }
+        .post-body {
+            font-size: 14px;
+            white-space: pre-wrap;
+        }
+        .block-title {
+            font-size: 13px;
+            font-weight: 600;
+            margin-top: 6px;
+            margin-bottom: 2px;
+            color: #374151;
+        }
+        .context-block,
+        .anchors-block,
+        .tree-block {
+            font-size: 13px;
+            margin-top: 4px;
+        }
+        .context-line,
+        .anchor-line,
+        .tree-line {
             margin-bottom: 2px;
         }
-        .anchor-body {
-            font-size: 0.9rem;
+        .context-line span,
+        .anchor-line span,
+        .tree-line span {
             white-space: pre-wrap;
         }
-        /* ツリー（複数行OK） */
-        .tree-item {
-            border-left: 2px solid #ddd;
-            padding-left: 6px;
-            margin: 3px 0;
-            font-size: 0.85rem;
+        .context-block.js-collapsible {
+            position: relative;
         }
-        .tree-meta {
-            color: #555;
-            font-size: 0.8rem;
-            margin-bottom: 1px;
+        .context-block.collapsed {
+            max-height: 4.8em; /* 3行分くらい */
+            overflow: hidden;
         }
-        .tree-body {
-            white-space: pre-wrap;
+        .context-block.collapsed::after {
+            content: "";
+            position: absolute;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            height: 1.6em;
+            background: linear-gradient(to bottom, rgba(255,255,255,0), #fff);
         }
-        /* コンテキスト（一行表示） */
-        .context-line {
-            font-size: 0.85rem;
-            border-left: 2px solid #eee;
-            padding-left: 6px;
-            margin: 2px 0;
-            white-space: normal;
-        }
-        .context-line-root {
-            background: #fffbe6;
-            font-weight: bold;
-        }
-        .no-result {
-            color: #777;
-            font-size: 0.9rem;
-        }
-        mark {
-            background: #ffec99;
-        }
-        .bottom-block {
-            margin-top: 20px;
-            padding-top: 10px;
-            border-top: 1px solid #ddd;
-        }
-        .bottom-block h2 {
-            font-size: 1rem;
-        }
-        .bottom-form-row {
-            margin-bottom: 10px;
-        }
-        input[type="text"] {
-            width: 100%;
-            max-width: 320px;
-            padding: 6px 8px;
-            font-size: 0.9rem;
-            box-sizing: border-box;
-        }
-        button {
-            padding: 6px 12px;
-            font-size: 0.9rem;
+        .collapsible-toggle {
+            font-size: 12px;
+            color: #2563eb;
+            background: transparent;
+            border: none;
+            padding: 0;
+            margin-top: 4px;
             cursor: pointer;
+        }
+        .nav-prev-next {
+            margin-top: 8px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+        .nav-prev-next form {
+            display: inline;
+        }
+        @media (max-width: 768px) {
+            main {
+                padding: 8px 6px 24px;
+            }
+            .form-row {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+            .form-row input[type="text"] {
+                width: 100%;
+            }
         }
     </style>
 </head>
 <body>
-    <h1>スレッド内検索結果</h1>
+<header>
+    <h1>Personal Search - スレッド内検索結果</h1>
+    <div class="nav-links">
+        <a href="/">内部検索トップ</a>
+        <a href="/admin/fetch">掲示板スレッドを取り込む</a>
+        <a href="/thread_search">外部スレッド検索</a>
+        <a href="/threads">保存スレッド一覧</a>
+    </div>
+</header>
 
-    <p class="back-link">
-        <a href="/thread_search?area={{ area }}&period={{ period }}&keyword={{ title_keyword|urlencode }}">
-            外部スレッド検索に戻る
-        </a>
-    </p>
+<main>
+    <section class="card">
+        <div class="section-title">スレッド情報</div>
+        <div class="thread-info">
+            <div>タイトル：{{ thread_title or "（取得できませんでした）" }}</div>
+            <div class="thread-url">URL：{{ thread_url }}</div>
+            <div>本文キーワード：「{{ post_keyword }}」</div>
+        </div>
 
-    {% if error_message %}
-        <p class="error-message">{{ error_message }}</p>
-    {% endif %}
-
-    {% if thread_title %}
-        <div class="thread-title">スレタイトル：{{ thread_title }}</div>
-    {% endif %}
-    <div class="thread-url">対象スレURL：{{ thread_url }}</div>
-
-    <p style="font-size:0.9rem;">
-        タイトルキーワード：<strong>{{ title_keyword or '（未指定）' }}</strong><br>
-        本文キーワード：<strong>{{ post_keyword or '（未指定）' }}</strong>
-    </p>
-
-    {% if entries and not error_message %}
-        <h2>ヒットしたレス（{{ entries|length }}件）</h2>
-
-        {% for item in entries %}
-            {% set post = item.root %}
-            <div class="result">
-                <div class="result-id">
-                    {% if post.post_no %}
-                        レス #{{ post.post_no }}
-                    {% else %}
-                        レス番号不明
-                    {% endif %}
-                    {% if post.posted_at %}
-                        ／ {{ post.posted_at }}
-                    {% endif %}
-                </div>
-
-                <!-- 本文 -->
-                <div class="result-text">{{ highlight(post.body, post_keyword) }}</div>
-
-                {% if item.anchor_targets %}
-                    <div class="section-title">このレスが参照しているレス</div>
-                    {% for a in item.anchor_targets %}
-                        <div class="anchor-item">
-                            <div class="anchor-meta">
-                                {% if a.post_no %}
-                                    #{{ a.post_no }}
-                                {% else %}
-                                    レス番号不明
-                                {% endif %}
-                                {% if a.posted_at %}
-                                    ／ {{ a.posted_at }}
-                                {% endif %}
-                            </div>
-                            <div class="anchor-body">{{ highlight(a.body, post_keyword) }}</div>
-                        </div>
-                    {% endfor %}
-                {% endif %}
-
-                <div class="section-title">このレスへの返信ツリー</div>
-                {% if item.tree %}
-                    {% for node in item.tree %}
-                        <div class="tree-item" style="margin-left: {{ node.depth * 20 }}px;">
-                            <div class="tree-meta">
-                                {% if node.post.post_no %}
-                                    #{{ node.post.post_no }}
-                                {% else %}
-                                    レス番号不明
-                                {% endif %}
-                                {% if node.post.posted_at %}
-                                    ／ {{ node.post.posted_at }}
-                                {% endif %}
-                            </div>
-                            <div class="tree-body">{{ highlight(node.post.body, post_keyword) }}</div>
-                        </div>
-                    {% endfor %}
-                {% else %}
-                    <p class="no-result">このレスへの返信（アンカー）は見つかりませんでした。</p>
-                {% endif %}
-
-                {% if item.context %}
-                    <div class="section-title">このレスの前後（コンテキスト）</div>
-                    {% for c in item.context %}
-                        <div class="context-line {% if c.post_no and post.post_no and c.post_no == post.post_no %}context-line-root{% endif %}">
-                            {% if c.post_no %}
-                                #{{ c.post_no }}
-                            {% else %}
-                                レス番号不明
-                            {% endif %}
-                            {% if c.posted_at %}
-                                ／ {{ c.posted_at }}
-                            {% endif %}
-                            ：{{ highlight(c.body|replace('\n', ' '), post_keyword) }}
-                        </div>
-                    {% endfor %}
-                {% endif %}
-            </div>
-        {% endfor %}
-    {% elif not error_message %}
-        <p class="no-result">指定したキーワードを含むレスは見つかりませんでした。</p>
-    {% endif %}
-
-    {% if not error_message %}
-        <div class="bottom-block">
-            <h2>このスレ内で別キーワードで再検索</h2>
-            <form method="post" action="/thread_search/posts">
-                <div class="bottom-form-row">
-                    <input type="hidden" name="selected_thread" value="{{ thread_url }}">
-                    <input type="hidden" name="title_keyword" value="{{ title_keyword }}">
-                    <input type="hidden" name="area" value="{{ area }}">
-                    <input type="hidden" name="period" value="{{ period }}">
-                    <input
-                        type="text"
-                        name="post_keyword"
-                        value=""
-                        placeholder="本文に含まれる語句を入力（例：必須）"
-                    >
-                </div>
-                <button type="submit">同じスレで再検索</button>
+        <div style="margin-top:8px; display:flex; flex-wrap:wrap; gap:8px; align-items:center;">
+            <form method="post" action="/thread_search/save">
+                <input type="hidden" name="thread_url" value="{{ thread_url|e }}">
+                <button type="submit" class="btn-secondary">このスレをDBに保存</button>
             </form>
 
-            {% if prev_thread_url or next_thread_url %}
-                <h2>前後のスレで再検索</h2>
-                {% if prev_thread_url %}
-                    <form method="post" action="/thread_search/posts" style="display:inline-block; margin-right:8px;">
-                        <input type="hidden" name="selected_thread" value="{{ prev_thread_url }}">
-                        <input type="hidden" name="title_keyword" value="{{ title_keyword }}">
-                        <input type="hidden" name="area" value="{{ area }}">
-                        <input type="hidden" name="period" value="{{ period }}">
-                        <input type="hidden" name="post_keyword" value="{{ post_keyword }}">
-                        <button type="submit">前スレで再検索</button>
-                    </form>
-                {% endif %}
-                {% if next_thread_url %}
-                    <form method="post" action="/thread_search/posts" style="display:inline-block; margin-right:8px;">
-                        <input type="hidden" name="selected_thread" value="{{ next_thread_url }}">
-                        <input type="hidden" name="title_keyword" value="{{ title_keyword }}">
-                        <input type="hidden" name="area" value="{{ area }}">
-                        <input type="hidden" name="period" value="{{ period }}">
-                        <input type="hidden" name="post_keyword" value="{{ post_keyword }}">
-                        <button type="submit">次スレで再検索</button>
-                    </form>
-                {% endif %}
-            {% endif %}
-
-            <h2>このスレを内部検索に取り込む</h2>
-            <form method="post" action="/admin/refetch">
-                <input type="hidden" name="url" value="{{ thread_url }}">
-                <button type="submit">このスレをDBに保存（再取得）</button>
+            <form method="post" action="/thread_search/posts">
+                <input type="hidden" name="selected_thread" value="{{ thread_url|e }}">
+                <input type="hidden" name="area" value="{{ area }}">
+                <input type="hidden" name="period" value="{{ period }}">
+                <input type="hidden" name="title_keyword" value="{{ title_keyword|e }}">
+                <div class="form-row" style="margin-bottom:0;">
+                    <label for="post_keyword_rescan">別キーワードで再検索：</label>
+                    <input type="text" id="post_keyword_rescan" name="post_keyword" value="{{ post_keyword|e }}">
+                    <button type="submit" class="btn-primary">再検索</button>
+                </div>
             </form>
         </div>
-    {% endif %}
+
+        <div class="nav-prev-next">
+            {% if prev_thread_url %}
+            <form method="post" action="/thread_search/posts">
+                <input type="hidden" name="selected_thread" value="{{ prev_thread_url|e }}">
+                <input type="hidden" name="area" value="{{ area }}">
+                <input type="hidden" name="period" value="{{ period }}">
+                <input type="hidden" name="post_keyword" value="{{ post_keyword|e }}">
+                <input type="hidden" name="title_keyword" value="{{ title_keyword|e }}">
+                <button type="submit" class="btn-secondary">前スレで再検索</button>
+            </form>
+            {% endif %}
+            {% if next_thread_url %}
+            <form method="post" action="/thread_search/posts">
+                <input type="hidden" name="selected_thread" value="{{ next_thread_url|e }}">
+                <input type="hidden" name="area" value="{{ area }}">
+                <input type="hidden" name="period" value="{{ period }}">
+                <input type="hidden" name="post_keyword" value="{{ post_keyword|e }}">
+                <input type="hidden" name="title_keyword" value="{{ title_keyword|e }}">
+                <button type="submit" class="btn-secondary">次スレで再検索</button>
+            </form>
+            {% endif %}
+        </div>
+
+        {% if error_message %}
+            <div class="error" style="margin-top:8px;">{{ error_message }}</div>
+        {% endif %}
+    </section>
+
+    <section class="card">
+        <div class="section-title">ヒットしたレス一覧</div>
+        {% if entries %}
+            <div class="entries-header">
+                ヒット件数：{{ entries|length }}件
+            </div>
+
+            {% for e in entries %}
+                <article class="post-block">
+                    <div class="post-header">
+                        <span>No. {{ e.root.post_no or "-" }}</span>
+                        {% if e.root.posted_at %}
+                            <span>投稿日：{{ e.root.posted_at }}</span>
+                        {% endif %}
+                    </div>
+                    <div class="post-body">
+                        {{ highlight(e.root.body, post_keyword) }}
+                    </div>
+
+                    {% if e.context %}
+                        <div class="block-title">コンテキスト（前後5レス）</div>
+                        <div class="context-block js-collapsible">
+                            {% for c in e.context %}
+                                <div class="context-line">
+                                    <span>No. {{ c.post_no or "-" }}：</span>
+                                    <span>{{ highlight(c.body, post_keyword) }}</span>
+                                </div>
+                            {% endfor %}
+                        </div>
+                    {% endif %}
+
+                    {% if e.anchor_targets %}
+                        <div class="block-title">アンカー先</div>
+                        <div class="anchors-block">
+                            {% for a in e.anchor_targets %}
+                                <div class="anchor-line">
+                                    <span>&gt;&gt;{{ a.post_no or "-" }}：</span>
+                                    <span>{{ highlight(a.body, post_keyword) }}</span>
+                                </div>
+                            {% endfor %}
+                        </div>
+                    {% endif %}
+
+                    {% if e.tree %}
+                        <div class="block-title">返信ツリー</div>
+                        <div class="tree-block">
+                            {% for item in e.tree %}
+                                <div class="tree-line" style="margin-left: {{ item.depth * 1.5 }}em;">
+                                    <span>No. {{ item.post.post_no or "-" }}：</span>
+                                    <span>{{ highlight(item.post.body, post_keyword) }}</span>
+                                </div>
+                            {% endfor %}
+                        </div>
+                    {% endif %}
+                </article>
+            {% endfor %}
+        {% else %}
+            <p style="font-size: 14px; color: #6b7280;">
+                ヒットしたレスがありませんでした。
+            </p>
+        {% endif %}
+    </section>
+</main>
+
+<script>
+document.addEventListener("DOMContentLoaded", function() {
+    const blocks = document.querySelectorAll(".context-block.js-collapsible");
+    blocks.forEach(block => {
+        // 高さが一定以上なら「もっと読む」を表示して折りたたむ
+        const threshold = 80; // px 目安（だいたい3行ちょい）
+        if (block.scrollHeight <= threshold) {
+            return;
+        }
+        block.classList.add("collapsed");
+
+        const toggle = document.createElement("button");
+        toggle.type = "button";
+        toggle.className = "collapsible-toggle";
+        toggle.textContent = "もっと読む";
+
+        let expanded = false;
+        toggle.addEventListener("click", () => {
+            expanded = !expanded;
+            if (expanded) {
+                block.classList.remove("collapsed");
+                toggle.textContent = "閉じる";
+            } else {
+                block.classList.add("collapsed");
+                toggle.textContent = "もっと読む";
+            }
+        });
+
+        block.parentNode.insertBefore(toggle, block.nextSibling);
+    });
+});
+</script>
+
 </body>
 </html>
