@@ -72,6 +72,18 @@
             color: var(--text-sub);
         }
 
+        .flash {
+            margin: 8px 0;
+            padding: 6px 8px;
+            border-radius: 6px;
+            font-size: 12px;
+        }
+        .flash.ok {
+            background: #ecfdf5;
+            border: 1px solid #22c55e;
+            color: #166534;
+        }
+
         /* スレ一覧 */
         .threads-table {
             width: 100%;
@@ -203,6 +215,9 @@
     <!-- 左：スレ一覧 -->
     <section class="card">
         <h2>取り込み済みスレッド一覧</h2>
+        {% if saved %}
+            <div class="flash ok">スレッドを保存しました。</div>
+        {% endif %}
         <small class="muted">最新レス日時の新しい順に表示しています。</small>
 
         {% if threads %}
