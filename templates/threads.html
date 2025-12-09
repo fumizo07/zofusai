@@ -9,6 +9,10 @@
         <h2>取り込み済みスレッド一覧</h2>
         <small class="muted">最新レス日時の新しい順に表示しています。</small>
 
+        {% if info_message %}
+            <p class="muted" style="margin-top:6px;">{{ info_message }}</p>
+        {% endif %}
+
         {% if threads %}
         <div style="margin-top:8px; max-height: 70vh; overflow:auto;">
             <table class="threads-table">
@@ -55,6 +59,12 @@
                             <form method="post" action="/admin/refetch" style="display:inline;">
                                 <input type="hidden" name="url" value="{{ t.thread_url }}">
                                 <button type="submit" class="btn-sm">再取得</button>
+                            </form>
+
+                            <!-- このスレの次スレを取得 -->
+                            <form method="post" action="/admin/fetch_next" style="display:inline;">
+                                <input type="hidden" name="url" value="{{ t.thread_url }}">
+                                <button type="submit" class="btn-sm">次スレ取得</button>
                             </form>
 
                             <!-- このスレだけ削除 -->
