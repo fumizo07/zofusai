@@ -1,23 +1,11 @@
-<!DOCTYPE html>
-<html lang="ja">
-<head>
-    <meta charset="UTF-8">
-    <title>タグ・メモ編集 | Personal Search</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <link rel="stylesheet" href="/static/base.css">
-</head>
-<body class="page-edit">
-<header>
-    <h1>Personal Search - タグ・メモ編集</h1>
-    <div class="nav-links">
-        <a href="/">内部検索トップ</a>
-        <a href="/thread_search">外部スレッド検索</a>
-        <a href="/threads">保存スレッド一覧</a>
-    </div>
-</header>
+{% set page_title_suffix = "タグ・メモ編集" %}
+{% set body_class = "page-edit" %}
+{# 内部検索系のサブページなので active_page は index 扱い #}
+{% set active_page = "index" %}
+{% include "_header.html" %}
 
 <main>
-    <a href="/" class="back">← 検索画面に戻る</a>
+    <a href="/" class="back">← 内部検索に戻る</a>
 
     {% if post %}
         <h1>タグ・メモ編集</h1>
