@@ -65,12 +65,17 @@
                             <div class="thread-url">{{ thread.thread_url }}</div>
                         </div>
                         <div class="thread-actions">
-                            <form method="post" action="/admin/refetch">
+                            <form method="post" action="/admin/refetch" style="display:inline;">
                                 <input type="hidden" name="url" value="{{ thread.thread_url }}">
                                 <button type="submit">このスレだけ再取得</button>
                             </form>
                             &nbsp;
-                            <form method="post" action="/admin/delete_thread" onsubmit="return confirm('このスレの保存データをすべて削除します。よろしいですか？');">
+                            <form method="post" action="/admin/fetch_next" style="display:inline;">
+                                <input type="hidden" name="url" value="{{ thread.thread_url }}">
+                                <button type="submit">次スレ取得</button>
+                            </form>
+                            &nbsp;
+                            <form method="post" action="/admin/delete_thread" style="display:inline;" onsubmit="return confirm('このスレの保存データをすべて削除します。よろしいですか？');">
                                 <input type="hidden" name="url" value="{{ thread.thread_url }}">
                                 <button type="submit">このスレだけ削除</button>
                             </form>
