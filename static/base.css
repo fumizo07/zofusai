@@ -377,7 +377,7 @@ mark {
 
 .form-row input[type="text"] {
     min-width: 140px;
-    flex: 1 1 160px;
+    flex: 1 1 auto;  /* ★ここを修正: 以前は 1 1 160px だった */
 }
 
 .form-row select {
