@@ -63,6 +63,9 @@
             padding: 4px 6px;
             height: 32px;
             box-sizing: border-box;
+            -webkit-appearance: none;
+            appearance: none;
+            border-radius: 4px;
         }
         .form-row input[type="text"] {
             min-width: 140px;
@@ -116,11 +119,34 @@
             font-size: 12px;
             color: #6b7280;
             margin-top: 2px;
+            word-break: break-all;
+        }
+        .thread-actions-inline {
+            font-size: 12px;
+            margin-top: 4px;
+        }
+        .thread-actions-inline form {
+            display: inline;
+            margin-right: 6px;
         }
         .section-title {
             font-size: 15px;
             font-weight: 600;
             margin: 8px 0;
+        }
+        .history-list {
+            font-size: 13px;
+            padding-left: 16px;
+        }
+        .history-list li {
+            margin-bottom: 3px;
+        }
+        .history-list a {
+            color: #2563eb;
+            text-decoration: none;
+        }
+        .history-list a:hover {
+            text-decoration: underline;
         }
         @media (max-width: 768px) {
             main {
@@ -133,7 +159,8 @@
             .form-row label {
                 margin-bottom: 2px;
             }
-            .form-row input[type="text"] {
+            .form-row input[type="text"],
+            .form-row select {
                 width: 100%;
             }
         }
@@ -145,7 +172,8 @@
     <div class="nav-links">
         <a href="/">内部検索トップ</a>
         <a href="/admin/fetch">掲示板スレッドを取り込む</a>
-        <a href="/thread_search">外部スレッド検索</a>
+        <a href="/threads">保存スレッド一覧</a>
+        <!-- 自分自身（外部スレッド検索）へのリンクは表示しない -->
     </div>
 </header>
 
@@ -173,7 +201,9 @@
                         </option>
                     {% endfor %}
                 </select>
+            </div>
 
+            <div class="form-row">
                 <label for="board_category">板カテゴリ：</label>
                 <select name="board_category" id="board_category">
                     {% for c in board_category_options %}
@@ -186,7 +216,6 @@
 
                 <label for="board_id">板：</label>
                 <select name="board_id" id="board_id">
-                    <!-- JS で中身を差し込む -->
                     <option value="">（板カテゴリを先に選択）</option>
                 </select>
             </div>
@@ -205,6 +234,24 @@
             {% endif %}
         </form>
     </section>
+
+    {% if recent_external_searches %}
+    <section class="card">
+        <div class="section-title">最近の外部検索（最大15件）</div>
+        <ul class="history-list">
+            {% for e in recent_external_searches %}
+                <li>
+                    <a href="/thread_search?area={{ e.area }}&period={{ e.period }}&board_category={{ e.board_category }}&board_id={{ e.board_id }}&keyword={{ e.keyword }}">
+                        [{{ e.period_label }}]
+                        {% if e.board_category_label %}{{ e.board_category_label }}{% endif %}
+                        {% if e.board_label %} / {{ e.board_label }}{% endif %}
+                        ：「{{ e.keyword }}」
+                    </a>
+                </li>
+            {% endfor %}
+        </ul>
+    </section>
+    {% endif %}
 
     <!-- 検索結果（スレ一覧） -->
     <section class="card">
@@ -227,13 +274,21 @@
                                    value="{{ t.url|e }}"
                                    {% if loop.first %}checked{% endif %}
                                    style="margin-top:4px;">
-                            <div>
+                            <div style="flex:1 1 auto;">
                                 <div class="thread-title">
                                     {{ t.title }}
                                 </div>
                                 <div class="thread-meta">
                                     最新レス：{{ t.last_post_at_str }}<br>
                                     スレURL：{{ t.url }}
+                                </div>
+                                <div class="thread-actions-inline">
+                                    <form method="post" action="/thread_search/save">
+                                        <input type="hidden" name="thread_url" value="{{ t.url|e }}">
+                                        <button type="submit" class="btn-secondary">
+                                            そのスレを保存
+                                        </button>
+                                    </form>
                                 </div>
                             </div>
                         </label>
@@ -265,33 +320,8 @@
 
 <script>
 (function() {
-    // Python側 BOARD_MASTER と同じ内容を JS 側にも持たせる
-    const BOARD_MASTER = {
-        "103": [ // 風俗掲示板
-            { id: "332",  label: "大阪風俗・総合" },
-            { id: "410",  label: "大阪風俗・お店" },
-            { id: "1227", label: "大阪風俗・個人" },
-            { id: "5922", label: "大阪デリヘル・お店" },
-            { id: "5923", label: "大阪デリヘル・個人" },
-            { id: "5924", label: "大阪デリヘル・総合" },
-            { id: "3913", label: "大阪遊郭・新地お店" },
-            { id: "5384", label: "大阪遊郭・新地個人" },
-            { id: "3392", label: "大阪遊郭・新地総合" }
-        ],
-        "136": [ // メンエス・リフレ・癒し掲示板
-            { id: "1714", label: "大阪メンエス・リフレ・癒し・お店" },
-            { id: "4887", label: "大阪メンエス・リフレ・癒し・個人" },
-            { id: "2383", label: "大阪メンエス・リフレ・癒し・総合" },
-            { id: "5878", label: "大阪外国人メンエス・リフレ・癒し・お店" },
-            { id: "5882", label: "大阪外国人メンエス・リフレ・癒し・総合" }
-        ],
-        "122": [ // R18掲示板
-            { id: "61",   label: "Hな悩み" },
-            { id: "508",  label: "チョットHな雑談" },
-            { id: "1804", label: "ライブチャット" }
-        ]
-    };
-
+    // Python 側から渡された BOARD_MASTER をそのまま使う
+    const BOARD_MASTER = {{ board_master_json|safe }};
     const boardCategorySelect = document.getElementById("board_category");
     const boardSelect = document.getElementById("board_id");
 
@@ -299,7 +329,7 @@
     const currentBoardId = "{{ current_board_id|default('', true) }}";
 
     function populateBoards(categoryId, selectedId) {
-        // 一旦クリア
+        if (!boardSelect) return;
         while (boardSelect.firstChild) {
             boardSelect.removeChild(boardSelect.firstChild);
         }
@@ -314,7 +344,7 @@
         }
 
         const boards = BOARD_MASTER[categoryId] || [];
-        if (boards.length === 0) {
+        if (!boards.length) {
             const opt = document.createElement("option");
             opt.value = "";
             opt.textContent = "（このカテゴリの板マスタ未設定）";
@@ -336,7 +366,6 @@
         });
 
         boardSelect.disabled = false;
-
         if (selectedId) {
             boardSelect.value = selectedId;
         }
