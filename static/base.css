@@ -1,0 +1,648 @@
+:root {
+    --bg: #f5f5f7;
+    --card-bg: #ffffff;
+    --border: #dddddd;
+    --accent: #2563eb;
+    --accent-soft: #e0edff;
+    --text-main: #111827;
+    --text-sub: #4b5563;
+}
+
+* {
+    box-sizing: border-box;
+}
+
+body {
+    margin: 0;
+    font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    background: var(--bg);
+    color: #222;
+}
+
+header {
+    background: #111827;
+    color: #f9fafb;
+    padding: 12px 16px;
+}
+
+header h1 {
+    margin: 0;
+    font-size: 18px;
+}
+
+.nav-links {
+    margin-top: 4px;
+    font-size: 13px;
+}
+
+.nav-links a {
+    color: #e5e7eb;
+    text-decoration: none;
+    margin-right: 8px;
+}
+
+.nav-links a:hover {
+    text-decoration: underline;
+}
+
+/* ページ別 main レイアウト */
+body.page-index main {
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 16px;
+    line-height: 1.7;
+}
+
+body.page-fetch main {
+    max-width: 800px;
+    margin: 0 auto;
+    padding: 16px;
+    line-height: 1.6;
+}
+
+body.page-edit main {
+    max-width: 800px;
+    margin: 0 auto;
+    padding: 16px;
+    line-height: 1.6;
+}
+
+body.page-thread-search main {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 12px 8px 32px;
+}
+
+body.page-thread-posts main {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 12px 8px 32px;
+}
+
+body.page-threads main {
+    max-width: 1100px;
+    margin: 16px auto 24px;
+    padding: 0 12px;
+    display: grid;
+    grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+    gap: 16px;
+}
+
+@media (max-width: 800px) {
+    body.page-threads main {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}
+
+a.back {
+    font-size: 0.9rem;
+    display: inline-block;
+    margin-bottom: 12px;
+}
+
+/* 共通フォーム系 */
+form {
+    margin: 0;
+}
+
+input[type="text"],
+textarea,
+select {
+    width: 100%;
+    padding: 6px 8px;
+    box-sizing: border-box;
+    font-size: 0.95rem;
+    margin: 4px 0 10px;
+    height: 32px;
+    line-height: 20px;
+    -webkit-appearance: none;
+    appearance: none;
+    border-radius: 4px;
+    border: 1px solid #d1d5db;
+    background: #ffffff;
+}
+
+textarea {
+    height: auto;
+}
+
+button {
+    padding: 6px 14px;
+    font-size: 0.95rem;
+    cursor: pointer;
+    border-radius: 4px;
+    border: 1px solid #d1d5db;
+    background: #f9fafb;
+}
+
+button:disabled {
+    cursor: default;
+}
+
+/* 汎用ボタン種類 */
+.btn-primary {
+    background: #2563eb;
+    color: #fff;
+    border-color: #2563eb;
+}
+
+.btn-primary:hover {
+    background: #1d4ed8;
+}
+
+.btn-secondary {
+    background: #6b7280;
+    color: #fff;
+    border-color: #6b7280;
+}
+
+.btn-secondary:hover {
+    background: #4b5563;
+}
+
+.btn-mini {
+    padding: 2px 6px;
+    font-size: 11px;
+}
+
+/* カード系コンポーネント */
+.card {
+    background: #fff;
+    border-radius: 8px;
+    padding: 12px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+    margin-bottom: 16px;
+}
+
+.section-title {
+    font-size: 15px;
+    font-weight: 600;
+    margin: 8px 0;
+}
+
+/* エラーメッセージ */
+.error-message,
+.error {
+    color: #b91c1c;
+    font-size: 13px;
+    margin-top: 4px;
+}
+
+/* index.html 用 */
+.result {
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    padding: 10px 12px;
+    margin-bottom: 14px;
+    background: #fff;
+}
+
+.result-id {
+    font-weight: bold;
+    font-size: 0.9rem;
+    color: #333;
+}
+
+.result-meta {
+    font-size: 0.8rem;
+    color: #666;
+    margin-top: 2px;
+}
+
+.result-text {
+    margin-top: 8px;
+    white-space: pre-wrap;
+}
+
+.no-result {
+    color: #777;
+    font-size: 0.9rem;
+}
+
+.section-title-small {
+    margin-top: 10px;
+    margin-bottom: 4px;
+    font-size: 0.85rem;
+    font-weight: bold;
+    color: #444;
+}
+
+.context-line {
+    font-size: 0.85rem;
+    border-left: 2px solid #eee;
+    padding-left: 6px;
+    margin: 2px 0;
+    white-space: normal;
+}
+
+.context-line-root {
+    background: #fffbe6;
+    font-weight: bold;
+}
+
+.tree-item {
+    border-left: 2px solid #ddd;
+    padding-left: 6px;
+    margin: 3px 0;
+    font-size: 0.85rem;
+}
+
+.tree-meta {
+    color: #555;
+    font-size: 0.8rem;
+    margin-bottom: 1px;
+}
+
+.tree-body {
+    white-space: pre-wrap;
+}
+
+.tags {
+    font-size: 0.8rem;
+    color: #0b7285;
+    margin-top: 4px;
+}
+
+.memo {
+    font-size: 0.8rem;
+    color: #555;
+    margin-top: 2px;
+}
+
+mark {
+    background: #ffec99;
+}
+
+.thread-block {
+    margin-bottom: 18px;
+    border: 1px solid #ccc;
+    border-radius: 6px;
+    padding: 8px 10px;
+    background: #fafafa;
+}
+
+.thread-header {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 8px;
+}
+
+.thread-title {
+    font-weight: bold;
+    font-size: 0.95rem;
+    margin-right: 8px;
+}
+
+.thread-url {
+    font-size: 0.75rem;
+    color: #666;
+    word-break: break-all;
+}
+
+.thread-actions {
+    margin-top: 4px;
+    font-size: 0.8rem;
+}
+
+.thread-actions form {
+    display: inline-block;
+    margin: 0;
+    padding: 0;
+    background: none;
+}
+
+.thread-actions button {
+    font-size: 0.8rem;
+    padding: 4px 8px;
+}
+
+.thread-results {
+    margin-top: 6px;
+}
+
+/* fetch.html 用 */
+.status {
+    margin-top: 12px;
+    font-size: 0.9rem;
+}
+
+.status.ok {
+    color: #14854f;
+}
+
+.status.error {
+    color: #c0392b;
+}
+
+.note {
+    font-size: 0.8rem;
+    color: #777;
+}
+
+/* edit_post.html 用 */
+.post-preview {
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    padding: 8px 12px;
+    margin-top: 8px;
+    background: #f8f9fa;
+}
+
+.post-meta {
+    font-size: 0.85rem;
+    color: #555;
+}
+
+.post-body {
+    white-space: pre-wrap;
+    margin-top: 4px;
+}
+
+/* thread_search.html 用 */
+.form-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+    margin-bottom: 8px;
+}
+
+.form-row label {
+    font-size: 13px;
+    color: #374151;
+    white-space: nowrap;
+}
+
+.form-row input[type="text"] {
+    min-width: 140px;
+    flex: 1 1 160px;
+}
+
+.form-row select {
+    flex: 0 0 auto;
+    width: auto;
+    min-width: 140px;
+}
+
+.results-summary {
+    font-size: 14px;
+    margin-bottom: 8px;
+}
+
+.thread-item {
+    padding: 8px 4px;
+    border-bottom: 1px solid #e5e7eb;
+}
+
+.thread-meta {
+    font-size: 12px;
+    color: #6b7280;
+    margin-top: 2px;
+    word-break: break-all;
+}
+
+.thread-actions-inline {
+    font-size: 12px;
+    margin-top: 6px;
+}
+
+.history-list {
+    font-size: 13px;
+    padding-left: 16px;
+}
+
+.history-list li {
+    margin-bottom: 3px;
+}
+
+.history-list a {
+    color: #2563eb;
+    text-decoration: none;
+}
+
+.history-list a:hover {
+    text-decoration: underline;
+}
+
+/* thread_search_posts.html 用 */
+.thread-info {
+    font-size: 14px;
+    line-height: 1.5;
+}
+
+.thread-info .thread-url {
+    font-size: 12px;
+    color: #6b7280;
+    word-break: break-all;
+}
+
+.back-link {
+    font-size: 0.9rem;
+    margin-bottom: 8px;
+}
+
+.nav-prev-next {
+    margin-top: 8px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.nav-prev-next form {
+    display: inline;
+}
+
+.result-url {
+    font-size: 0.8rem;
+    color: #6b7280;
+    margin-top: 2px;
+    word-break: break-all;
+}
+
+.anchor-item {
+    border-left: 2px solid #eee;
+    padding-left: 6px;
+    margin: 4px 0;
+}
+
+.anchor-meta {
+    font-size: 0.8rem;
+    color: #666;
+    margin-bottom: 2px;
+}
+
+.anchor-body {
+    font-size: 0.9rem;
+    white-space: pre-wrap;
+}
+
+.context-collapsed {
+    max-height: 4.5em;
+    overflow: hidden;
+    position: relative;
+}
+
+.read-more-btn {
+    margin-left: 6px;
+    margin-top: 2px;
+    padding: 2px 6px;
+    font-size: 12px;
+    border-radius: 4px;
+    border: 1px solid #d1d5db;
+    background: #e5e7eb;
+    color: #374151;
+    cursor: pointer;
+}
+
+.read-more-btn:hover {
+    background: #d1d5db;
+}
+
+/* threads.html 用 */
+.card h2 {
+    margin: 0 0 8px;
+    font-size: 15px;
+}
+
+.card small {
+    color: var(--text-sub);
+}
+
+.threads-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+}
+
+.threads-table th,
+.threads-table td {
+    padding: 6px 4px;
+    border-bottom: 1px solid #e5e7eb;
+    vertical-align: middle;
+}
+
+.threads-table th {
+    text-align: left;
+    white-space: nowrap;
+    background: #f3f4f6;
+    position: sticky;
+    top: 0;
+    z-index: 1;
+}
+
+.label-form {
+    display: flex;
+    gap: 4px;
+    align-items: center;
+}
+
+.label-input {
+    width: 90px;
+    font-size: 12px;
+    padding: 3px 4px;
+}
+
+.btn-sm {
+    display: inline-block;
+    border-radius: 4px;
+    border: 1px solid #d1d5db;
+    background: #f9fafb;
+    font-size: 11px;
+    padding: 3px 6px;
+    cursor: pointer;
+}
+
+.btn-sm.primary {
+    border-color: var(--accent);
+    background: var(--accent-soft);
+    color: #1d4ed8;
+}
+
+.btn-sm.danger {
+    border-color: #b91c1c;
+    color: #b91c1c;
+    background: #fef2f2;
+}
+
+.btn-sm + .btn-sm {
+    margin-left: 2px;
+}
+
+.tag-list,
+.recent-searches {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+}
+
+.tag-pill {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 6px;
+    border-radius: 999px;
+    background: #eff6ff;
+    color: #1d4ed8;
+    font-size: 11px;
+    text-decoration: none;
+}
+
+.tag-pill span.count {
+    margin-left: 4px;
+    color: #6b7280;
+    font-size: 10px;
+}
+
+.tag-pill:hover {
+    background: #dbeafe;
+}
+
+.recent-item {
+    display: block;
+    font-size: 11px;
+    padding: 4px 6px;
+    border-radius: 6px;
+    background: #f9fafb;
+    text-decoration: none;
+    color: var(--text-main);
+}
+
+.recent-item + .recent-item {
+    margin-top: 4px;
+}
+
+.recent-item small {
+    color: var(--text-sub);
+    display: block;
+    margin-top: 2px;
+}
+
+.muted {
+    color: var(--text-sub);
+    font-size: 12px;
+}
+
+/* レスポンシブ微調整 */
+@media (max-width: 768px) {
+    body.page-index main,
+    body.page-fetch main,
+    body.page-edit main {
+        padding: 12px;
+    }
+
+    body.page-thread-search main,
+    body.page-thread-posts main {
+        padding: 8px 6px 24px;
+    }
+
+    .form-row {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    .form-row input[type="text"],
+    .form-row select {
+        width: 100%;
+    }
+}
