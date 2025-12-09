@@ -1,20 +1,7 @@
-<!DOCTYPE html>
-<html lang="ja">
-<head>
-    <meta charset="UTF-8">
-    <title>Personal Search</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <link rel="stylesheet" href="/static/base.css">
-</head>
-<body class="page-index">
-<header>
-    <h1>Personal Search - 内部検索</h1>
-    <div class="nav-links">
-        <a href="/thread_search">外部スレッド検索</a>
-        <a href="/admin/fetch">掲示板スレッドを取り込む</a>
-        <a href="/threads">保存スレッド一覧</a>
-    </div>
-</header>
+{% set page_title_suffix = "内部検索" %}
+{% set body_class = "page-index" %}
+{% set active_page = "index" %}
+{% include "_header.html" %}
 
 <main>
     {% if error_message %}
@@ -234,5 +221,50 @@
     {% endif %}
     {# ★ここまで #}
 </main>
+
+<script>
+/**
+ * 内部検索結果のコンテキスト行に対しても「もっと読む」折りたたみを適用
+ */
+document.addEventListener("DOMContentLoaded", function() {
+    const maxLines = 3;
+    const contextLines = document.querySelectorAll(".context-line");
+
+    contextLines.forEach(function(line) {
+        const style = window.getComputedStyle(line);
+        let lineHeight = parseFloat(style.lineHeight);
+
+        if (isNaN(lineHeight)) {
+            const fontSize = parseFloat(style.fontSize) || 14;
+            lineHeight = fontSize * 1.5;
+        }
+
+        const maxHeight = lineHeight * maxLines;
+
+        // 実際の高さが3行分より大きければ「もっと読む」対象
+        if (line.scrollHeight > maxHeight + 2) {
+            line.classList.add("context-collapsed");
+
+            const btn = document.createElement("button");
+            btn.type = "button";
+            btn.className = "read-more-btn";
+            btn.textContent = "もっと読む";
+
+            btn.addEventListener("click", function() {
+                if (line.classList.contains("context-collapsed")) {
+                    line.classList.remove("context-collapsed");
+                    btn.textContent = "閉じる";
+                } else {
+                    line.classList.add("context-collapsed");
+                    btn.textContent = "もっと読む";
+                }
+            });
+
+            line.insertAdjacentElement("afterend", btn);
+        }
+    });
+});
+</script>
+
 </body>
 </html>
