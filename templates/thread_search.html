@@ -98,6 +98,10 @@
         .btn-secondary:hover {
             background: #4b5563;
         }
+        .btn-mini {
+            padding: 2px 6px;
+            font-size: 11px;
+        }
         .error {
             color: #b91c1c;
             font-size: 13px;
@@ -123,11 +127,7 @@
         }
         .thread-actions-inline {
             font-size: 12px;
-            margin-top: 4px;
-        }
-        .thread-actions-inline form {
-            display: inline;
-            margin-right: 6px;
+            margin-top: 6px;
         }
         .section-title {
             font-size: 15px;
@@ -247,9 +247,16 @@
                         {% if e.board_label %} / {{ e.board_label }}{% endif %}
                         ：「{{ e.keyword }}」
                     </a>
+                    <form method="post" action="/thread_search/history/delete" style="display:inline; margin-left:4px;">
+                        <input type="hidden" name="key" value="{{ e.key }}">
+                        <button type="submit" class="btn-secondary btn-mini">削除</button>
+                    </form>
                 </li>
             {% endfor %}
         </ul>
+        <form method="post" action="/thread_search/history/clear" style="margin-top:6px;">
+            <button type="submit" class="btn-secondary btn-mini">履歴を全て削除</button>
+        </form>
     </section>
     {% endif %}
 
@@ -262,7 +269,8 @@
                 {{ keyword }} の検索結果（{{ results|length }}件）
             </div>
 
-            <form method="post" action="/thread_search/posts">
+            <!-- スレッド内検索フォーム（ラジオ選択＋本文キーワード） -->
+            <form id="thread-post-search-form" method="post" action="/thread_search/posts">
                 <input type="hidden" name="area" value="{{ current_area }}">
                 <input type="hidden" name="period" value="{{ current_period }}">
 
@@ -281,14 +289,6 @@
                                 <div class="thread-meta">
                                     最新レス：{{ t.last_post_at_str }}<br>
                                     スレURL：{{ t.url }}
-                                </div>
-                                <div class="thread-actions-inline">
-                                    <form method="post" action="/thread_search/save">
-                                        <input type="hidden" name="thread_url" value="{{ t.url|e }}">
-                                        <button type="submit" class="btn-secondary">
-                                            そのスレを保存
-                                        </button>
-                                    </form>
                                 </div>
                             </div>
                         </label>
@@ -310,6 +310,16 @@
                     <input type="text" id="title_keyword" name="title_keyword" value="{{ keyword|e }}" />
                 </div>
             </form>
+
+            <!-- 選択中スレを保存するフォーム（別フォームでネストを避ける） -->
+            <div class="thread-actions-inline">
+                <form id="save-thread-form" method="post" action="/thread_search/save">
+                    <input type="hidden" name="thread_url" id="save-thread-url" value="">
+                    <button type="submit" class="btn-secondary">
+                        このスレを保存
+                    </button>
+                </form>
+            </div>
         {% else %}
             <p style="font-size: 14px; color: #6b7280;">
                 まだ検索結果がありません。条件を指定して「外部スレッド検索」を実行してください。
@@ -382,6 +392,40 @@
         });
     });
 })();
+
+// 「このスレを保存」用：選択中ラジオのURLを hidden に入れる
+document.addEventListener("DOMContentLoaded", function() {
+    const radios = document.querySelectorAll('input[name="selected_thread"]');
+    const hidden = document.getElementById('save-thread-url');
+    const saveForm = document.getElementById('save-thread-form');
+
+    function updateHidden() {
+        if (!hidden) return;
+        let value = "";
+        radios.forEach(r => {
+            if (r.checked) {
+                value = r.value;
+            }
+        });
+        hidden.value = value;
+    }
+
+    if (radios.length && hidden) {
+        updateHidden();
+        radios.forEach(r => {
+            r.addEventListener('change', updateHidden);
+        });
+    }
+
+    if (saveForm && hidden) {
+        saveForm.addEventListener('submit', function(e) {
+            if (!hidden.value) {
+                e.preventDefault();
+                alert('保存するスレッドを選択してください。');
+            }
+        });
+    }
+});
 </script>
 
 </body>
