@@ -147,6 +147,12 @@
             font-size: 0.9rem;
             color: #333;
         }
+        .result-url {
+            font-size: 0.8rem;
+            color: #6b7280;
+            margin-top: 2px;
+            word-break: break-all;
+        }
         .result-text {
             margin-top: 8px;
             white-space: pre-wrap;   /* 本文は改行あり */
@@ -345,6 +351,9 @@
                         {% if post.posted_at %}
                             ／ {{ post.posted_at }}
                         {% endif %}
+                    </div>
+                    <div class="result-url">
+                        URL：{{ thread_url }}{% if post.post_no %}（レス #{{ post.post_no }}）{% endif %}
                     </div>
 
                     <!-- 本文 -->
