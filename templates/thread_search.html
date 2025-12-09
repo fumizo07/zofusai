@@ -160,12 +160,50 @@
     const BOARD_MASTER = {{ board_master_json|safe }};
     const boardCategorySelect = document.getElementById("board_category");
     const boardSelect = document.getElementById("board_id");
+    const areaSelect = document.getElementById("area");
 
     const currentBoardCategory = "{{ current_board_category|default('', true) }}";
     const currentBoardId = "{{ current_board_id|default('', true) }}";
 
+    // acodeごとの板ラベル接頭辞
+    // main.py のコメントに書いてある acode 対応：
+    // 1: 北海道, 18: 関西(滋賀/京都/兵庫), 7: 大阪, 5: 愛知, 3: 東京, 10: 福岡
+    const AREA_PREFIX_MAP = {
+        "1":  ["北海道", "札幌", "函館"],
+        "18": ["滋賀", "京都", "兵庫"],
+        "7":  ["大阪"],
+        "5":  ["愛知"],
+        "3":  ["東京", "西東京", "吉原"],
+        "10": ["福岡"]
+    };
+
+    function filterBoardsByArea(categoryId, areaCode) {
+        let boards = BOARD_MASTER[categoryId] || [];
+
+        // R18 は全地域共通で出す
+        if (categoryId === "122") {
+            return boards;
+        }
+
+        if (!areaCode) {
+            return [];
+        }
+
+        const prefixes = AREA_PREFIX_MAP[areaCode] || [];
+        if (!prefixes.length) {
+            return [];
+        }
+
+        return boards.filter(b => {
+            const label = b.label || "";
+            return prefixes.some(prefix => label.startsWith(prefix));
+        });
+    }
+
     function populateBoards(categoryId, selectedId) {
         if (!boardSelect) return;
+
+        // 一旦全部クリア
         while (boardSelect.firstChild) {
             boardSelect.removeChild(boardSelect.firstChild);
         }
@@ -179,11 +217,13 @@
             return;
         }
 
-        const boards = BOARD_MASTER[categoryId] || [];
+        const areaCode = areaSelect ? areaSelect.value : "";
+        const boards = filterBoardsByArea(categoryId, areaCode);
+
         if (!boards.length) {
             const opt = document.createElement("option");
             opt.value = "";
-            opt.textContent = "（このカテゴリの板マスタ未設定）";
+            opt.textContent = "（この地域×カテゴリの板マスタ未設定）";
             boardSelect.appendChild(opt);
             boardSelect.disabled = true;
             return;
@@ -202,6 +242,7 @@
         });
 
         boardSelect.disabled = false;
+
         if (selectedId) {
             boardSelect.value = selectedId;
         }
@@ -210,12 +251,22 @@
     document.addEventListener("DOMContentLoaded", function() {
         if (!boardCategorySelect || !boardSelect) return;
 
+        // 初期表示（検索結果から戻ってきたときなど）
         const initialCategory = currentBoardCategory || boardCategorySelect.value || "";
         populateBoards(initialCategory, currentBoardId || "");
 
+        // 板カテゴリ変更時
         boardCategorySelect.addEventListener("change", function() {
             populateBoards(this.value, "");
         });
+
+        // 地域変更時：同じカテゴリで再絞り込み（板選択はリセット）
+        if (areaSelect) {
+            areaSelect.addEventListener("change", function() {
+                const cat = boardCategorySelect.value || "";
+                populateBoards(cat, "");
+            });
+        }
     });
 })();
 
