@@ -2,6 +2,7 @@ import os
 import re
 import unicodedata
 import secrets
+import json
 from typing import List, Optional, Dict
 from collections import defaultdict, deque
 from datetime import datetime, timedelta
@@ -350,8 +351,9 @@ app = FastAPI(
 )
 templates = Jinja2Templates(directory="templates")
 
-# 最近の検索条件（メモリ上 5 件まで）
+# 最近の検索条件（メモリ上）
 RECENT_SEARCHES = deque(maxlen=5)
+EXTERNAL_SEARCHES = deque(maxlen=15)
 
 
 @app.on_event("startup")
@@ -1040,7 +1042,7 @@ def thread_search_page(
     results: List[dict] = []
     error_message = ""
 
-    # 板リストをカテゴリから取得
+    # 板リストをカテゴリから取得（履歴のラベル用にも使う）
     board_options = get_board_options_for_category(board_category)
 
     # 検索実行
@@ -1057,6 +1059,49 @@ def thread_search_page(
         except Exception as e:
             error_message = f"外部検索中にエラーが発生しました: {e}"
 
+        # 検索履歴を追加（エラーが出ていないときだけ）
+        if not error_message:
+            area_label = next(
+                (a["label"] for a in AREA_OPTIONS if a["code"] == area),
+                area,
+            )
+            period_label = next(
+                (p["label"] for p in PERIOD_OPTIONS if p["id"] == period),
+                period,
+            )
+            if board_category:
+                board_category_label = next(
+                    (c["label"] for c in BOARD_CATEGORY_OPTIONS if c["id"] == board_category),
+                    board_category,
+                )
+            else:
+                board_category_label = "（カテゴリ指定なし）"
+
+            board_label = ""
+            if board_category and board_id:
+                for b in board_options:
+                    if b["id"] == board_id:
+                        board_label = b["label"]
+                        break
+
+            key = f"{area}|{period}|{board_category}|{board_id}|{keyword}"
+            entry = {
+                "key": key,
+                "area": area,
+                "area_label": area_label,
+                "period": period,
+                "period_label": period_label,
+                "board_category": board_category,
+                "board_category_label": board_category_label,
+                "board_id": board_id,
+                "board_label": board_label,
+                "keyword": keyword,
+            }
+            if not any(e["key"] == key for e in EXTERNAL_SEARCHES):
+                EXTERNAL_SEARCHES.append(entry)
+
+    recent_external_searches = list(EXTERNAL_SEARCHES)[::-1]
+
     return templates.TemplateResponse(
         "thread_search.html",
         {
@@ -1072,8 +1117,32 @@ def thread_search_page(
             "board_options": board_options,
             "current_board_category": board_category,
             "current_board_id": board_id,
+            "recent_external_searches": recent_external_searches,
+            "board_master_json": json.dumps(BOARD_MASTER, ensure_ascii=False),
         },
     )
+
+
+# =========================
+# 外部スレッド → DB 保存
+# =========================
+@app.post("/thread_search/save")
+def save_external_thread(
+    request: Request,
+    thread_url: str = Form(""),
+    db: Session = Depends(get_db),
+):
+    back_url = request.headers.get("referer") or "/thread_search"
+    url = (thread_url or "").strip()
+    if not url:
+        return RedirectResponse(url=back_url, status_code=303)
+
+    try:
+        fetch_thread_into_db(db, url)
+    except Exception:
+        db.rollback()
+
+    return RedirectResponse(url=back_url, status_code=303)
 
 
 # =========================
@@ -1162,13 +1231,19 @@ def thread_search_posts(
 
             all_posts = fetch_posts_from_thread(selected_thread)
 
+            # post_no でソートしておく（コンテキスト順がバラつかないように）
+            def _post_key(p):
+                return p.post_no if getattr(p, "post_no", None) is not None else 10**9
+
+            all_posts_sorted = sorted(list(all_posts), key=_post_key)
+
             posts_by_no: Dict[int, object] = {}
-            for p in all_posts:
+            for p in all_posts_sorted:
                 if p.post_no is not None and p.post_no not in posts_by_no:
                     posts_by_no[p.post_no] = p
 
             replies: Dict[int, List[object]] = defaultdict(list)
-            for p in all_posts:
+            for p in all_posts_sorted:
                 if not getattr(p, "anchors", None):
                     continue
                 for a in p.anchors:
@@ -1197,7 +1272,7 @@ def thread_search_posts(
 
             post_keyword_norm = normalize_for_search(post_keyword)
 
-            for root in all_posts:
+            for root in all_posts_sorted:
                 body = root.body or ""
                 body_norm = normalize_for_search(body)
                 if post_keyword_norm not in body_norm:
@@ -1207,7 +1282,7 @@ def thread_search_posts(
                 if root.post_no is not None:
                     start_no = max(1, root.post_no - 5)
                     end_no = root.post_no + 5
-                    for p in all_posts:
+                    for p in all_posts_sorted:
                         if p.post_no is None:
                             continue
                         if start_no <= p.post_no <= end_no:
