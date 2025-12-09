@@ -15,6 +15,7 @@ from fastapi import FastAPI, Request, Depends, Form, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse, PlainTextResponse
 from fastapi.templating import Jinja2Templates
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
+from fastapi.staticfiles import StaticFiles  # ★追加
 
 from sqlalchemy import Column, Integer, Text, create_engine, func, text
 from sqlalchemy.orm import declarative_base, sessionmaker, Session
@@ -350,6 +351,9 @@ app = FastAPI(
     redoc_url=None,  # /redoc も封印
 )
 templates = Jinja2Templates(directory="templates")
+
+# 静的ファイル（CSS 等）
+app.mount("/static", StaticFiles(directory="static"), name="static")  # ★追加
 
 # 最近の検索条件（メモリ上）
 RECENT_SEARCHES = deque(maxlen=5)
@@ -772,7 +776,6 @@ def delete_thread_from_search(
 @app.get("/threads", response_class=HTMLResponse)
 def list_threads(
     request: Request,
-    saved: int = 0,
     db: Session = Depends(get_db),
 ):
     # スレ単位の集約
@@ -838,7 +841,6 @@ def list_threads(
             "threads": threads,
             "popular_tags": popular_tags,
             "recent_searches": recent_searches_view,
-            "saved": bool(saved),
         },
     )
 
@@ -1002,7 +1004,6 @@ def search_threads_external(
         if href.startswith("//"):
             full_url = "https:" + href
         elif href.startswith("/"):
-
             full_url = "https://bakusai.com" + href
         else:
             full_url = href
@@ -1141,6 +1142,8 @@ async def save_external_thread(
     - GET / POST どちらで来ても対応
     - thread_url / selected_thread のどちらかに URL が入っていれば保存
     """
+    back_url = request.headers.get("referer") or "/thread_search"
+
     url = ""
 
     try:
@@ -1158,16 +1161,14 @@ async def save_external_thread(
         url = ""
 
     if not url:
-        # 保存対象が取れなかった場合はとりあえず外部検索画面に戻す
-        return RedirectResponse(url="/thread_search", status_code=303)
+        return RedirectResponse(url=back_url, status_code=303)
 
     try:
         fetch_thread_into_db(db, url)
     except Exception:
         db.rollback()
 
-    # 保存完了後はスレッド一覧に戻し、クエリで完了フラグを渡す
-    return RedirectResponse(url="/threads?saved=1", status_code=303)
+    return RedirectResponse(url=back_url, status_code=303)
 
 
 # =========================
