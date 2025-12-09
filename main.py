@@ -1126,16 +1126,36 @@ def thread_search_page(
 # =========================
 # 外部スレッド → DB 保存
 # =========================
-@app.post("/thread_search/save")
-def save_external_thread(
+@app.api_route("/thread_search/save", methods=["GET", "POST"])
+async def save_external_thread(
     request: Request,
-    thread_url: str = Form(""),
-    selected_thread: str = Form(""),
     db: Session = Depends(get_db),
 ):
+    """
+    外部スレッド検索・スレッド内検索結果から
+    「このスレを保存」で呼び出されるエンドポイント。
+
+    - GET / POST どちらで来ても対応
+    - thread_url / selected_thread のどちらかに URL が入っていれば保存
+    """
     back_url = request.headers.get("referer") or "/thread_search"
-    # outer form から来た場合 selected_thread に入ることもあるので両方見る
-    url = (thread_url or selected_thread or "").strip()
+
+    url = ""
+
+    try:
+        if request.method == "POST":
+            form = await request.form()
+            thread_url = (form.get("thread_url") or "").strip()
+            selected_thread = (form.get("selected_thread") or "").strip()
+            url = thread_url or selected_thread
+        else:
+            params = request.query_params
+            thread_url = (params.get("thread_url") or "").strip()
+            selected_thread = (params.get("selected_thread") or "").strip()
+            url = thread_url or selected_thread
+    except Exception:
+        url = ""
+
     if not url:
         return RedirectResponse(url=back_url, status_code=303)
 
