@@ -4,210 +4,15 @@
     <meta charset="UTF-8">
     <title>Personal Search - スレッド一覧</title>
     <meta name="viewport" content="width=device-width,initial-scale=1">
-    <style>
-        :root {
-            --bg: #f5f5f7;
-            --card-bg: #ffffff;
-            --border: #dddddd;
-            --accent: #2563eb;
-            --accent-soft: #e0edff;
-            --text-main: #111827;
-            --text-sub: #4b5563;
-        }
-        * { box-sizing: border-box; }
-        body {
-            margin: 0;
-            font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-            background: var(--bg);
-            color: var(--text-main);
-        }
-        header {
-            background: #111827;
-            color: #fff;
-            padding: 10px 16px;
-        }
-        header h1 {
-            margin: 0;
-            font-size: 18px;
-        }
-        header nav {
-            margin-top: 4px;
-            font-size: 13px;
-        }
-        header nav a {
-            color: #e5e7eb;
-            text-decoration: none;
-            margin-right: 12px;
-        }
-        header nav a:hover {
-            text-decoration: underline;
-        }
-
-        main {
-            max-width: 1100px;
-            margin: 16px auto 24px;
-            padding: 0 12px;
-            display: grid;
-            grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
-            gap: 16px;
-        }
-        @media (max-width: 800px) {
-            main {
-                grid-template-columns: minmax(0, 1fr);
-            }
-        }
-
-        .card {
-            background: var(--card-bg);
-            border-radius: 10px;
-            border: 1px solid var(--border);
-            padding: 12px 14px;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.04);
-        }
-        .card h2 {
-            margin: 0 0 8px;
-            font-size: 15px;
-        }
-        .card small {
-            color: var(--text-sub);
-        }
-
-        .flash {
-            margin: 8px 0;
-            padding: 6px 8px;
-            border-radius: 6px;
-            font-size: 12px;
-        }
-        .flash.ok {
-            background: #ecfdf5;
-            border: 1px solid #22c55e;
-            color: #166534;
-        }
-
-        /* スレ一覧 */
-        .threads-table {
-            width: 100%;
-            border-collapse: collapse;
-            font-size: 13px;
-        }
-        .threads-table th,
-        .threads-table td {
-            padding: 6px 4px;
-            border-bottom: 1px solid #e5e7eb;
-            vertical-align: middle;
-        }
-        .threads-table th {
-            text-align: left;
-            white-space: nowrap;
-            background: #f3f4f6;
-            position: sticky;
-            top: 0;
-            z-index: 1;
-        }
-        .thread-title {
-            font-weight: 600;
-            font-size: 13px;
-        }
-        .thread-url {
-            font-size: 11px;
-            color: var(--text-sub);
-            word-break: break-all;
-        }
-        .thread-meta {
-            font-size: 11px;
-            color: var(--text-sub);
-        }
-
-        .label-form {
-            display: flex;
-            gap: 4px;
-            align-items: center;
-        }
-        .label-input {
-            width: 90px;
-            font-size: 12px;
-            padding: 3px 4px;
-        }
-        .btn-sm {
-            display: inline-block;
-            border-radius: 4px;
-            border: 1px solid #d1d5db;
-            background: #f9fafb;
-            font-size: 11px;
-            padding: 3px 6px;
-            cursor: pointer;
-        }
-        .btn-sm.primary {
-            border-color: var(--accent);
-            background: var(--accent-soft);
-            color: #1d4ed8;
-        }
-        .btn-sm.danger {
-            border-color: #b91c1c;
-            color: #b91c1c;
-            background: #fef2f2;
-        }
-        .btn-sm + .btn-sm {
-            margin-left: 2px;
-        }
-        form {
-            margin: 0;
-        }
-
-        /* サイドカード */
-        .tag-list, .recent-searches {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 4px;
-        }
-        .tag-pill {
-            display: inline-flex;
-            align-items: center;
-            padding: 2px 6px;
-            border-radius: 999px;
-            background: #eff6ff;
-            color: #1d4ed8;
-            font-size: 11px;
-            text-decoration: none;
-        }
-        .tag-pill span.count {
-            margin-left: 4px;
-            color: #6b7280;
-            font-size: 10px;
-        }
-        .tag-pill:hover {
-            background: #dbeafe;
-        }
-
-        .recent-item {
-            display: block;
-            font-size: 11px;
-            padding: 4px 6px;
-            border-radius: 6px;
-            background: #f9fafb;
-            text-decoration: none;
-            color: var(--text-main);
-        }
-        .recent-item + .recent-item {
-            margin-top: 4px;
-        }
-        .recent-item small {
-            color: var(--text-sub);
-            display: block;
-            margin-top: 2px;
-        }
-        .muted {
-            color: var(--text-sub);
-            font-size: 12px;
-        }
-    </style>
+    <link rel="stylesheet" href="/static/base.css">
 </head>
-<body>
+<body class="page-threads">
 <header>
     <h1>Personal Search - スレッド一覧</h1>
-    <nav>
+    <nav class="nav-links">
         <a href="/">内部検索トップ</a>
         <a href="/thread_search">外部スレッド検索</a>
+        <!-- 自分自身へのリンクは表示しない -->
     </nav>
 </header>
 
@@ -215,9 +20,6 @@
     <!-- 左：スレ一覧 -->
     <section class="card">
         <h2>取り込み済みスレッド一覧</h2>
-        {% if saved %}
-            <div class="flash ok">スレッドを保存しました。</div>
-        {% endif %}
         <small class="muted">最新レス日時の新しい順に表示しています。</small>
 
         {% if threads %}
