@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <title>Personal Search{% if page_title_suffix %} - {{ page_title_suffix }}{% endif %}</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="stylesheet" href="/static/base.css">
+</head>
+<body class="{{ body_class|default('') }}">
+<header>
+    <h1>{{ page_heading or page_title_suffix or "Personal Search" }}</h1>
+    <div class="nav-links">
+        {% if active_page != 'index' %}
+            <a href="/">内部検索</a>
+        {% endif %}
+        {% if active_page != 'thread_search' %}
+            <a href="/thread_search">外部検索</a>
+        {% endif %}
+        {% if active_page != 'fetch' %}
+            <a href="/admin/fetch">スレッド取込</a>
+        {% endif %}
+        {% if active_page != 'threads' %}
+            <a href="/threads">保存スレッド一覧</a>
+        {% endif %}
+    </div>
+</header>
