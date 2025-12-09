@@ -1,21 +1,7 @@
-<!DOCTYPE html>
-<html lang="ja">
-<head>
-    <meta charset="utf-8" />
-    <title>Personal Search - 外部スレッド検索</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <link rel="stylesheet" href="/static/base.css">
-</head>
-<body class="page-thread-search">
-<header>
-    <h1>Personal Search - 外部スレッド検索</h1>
-    <div class="nav-links">
-        <a href="/">内部検索トップ</a>
-        <a href="/admin/fetch">掲示板スレッドを取り込む</a>
-        <a href="/threads">保存スレッド一覧</a>
-        <!-- 自分自身へのリンクは表示しない -->
-    </div>
-</header>
+{% set page_title_suffix = "外部検索" %}
+{% set body_class = "page-thread-search" %}
+{% set active_page = "thread_search" %}
+{% include "_header.html" %}
 
 <main>
     <!-- 検索フォーム -->
