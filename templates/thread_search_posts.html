@@ -28,6 +28,40 @@
                 タイトルキーワード：<strong>{{ title_keyword or '（未指定）' }}</strong><br>
                 本文キーワード：<strong>{{ post_keyword or '（未指定）' }}</strong>
             </div>
+
+            {# ★ スレタイ近くに店舗ページ検索 #}
+            {% if store_title %}
+            <div class="store-search" style="margin-top:4px; font-size:13px;">
+                <span style="margin-right:4px;">店舗ページ検索：</span>
+                <a
+                    href="https://www.google.com/search?q={{ ('site:cityheaven.net ' ~ store_title)|urlencode }}"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    class="btn-mini"
+                >
+                    シティヘブン
+                </a>
+                <a
+                    href="https://www.google.com/search?q={{ ('デリヘルタウン ' ~ store_title)|urlencode }}"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    class="btn-mini"
+                    style="margin-left:4px;"
+                >
+                    デリヘルタウン
+                </a>
+                <a
+                    href="https://www.google.com/search?q={{ store_title|urlencode }}"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    class="btn-mini"
+                    style="margin-left:4px;"
+                >
+                    Google
+                </a>
+            </div>
+            {% endif %}
+            {# ★ ここまで #}
         </div>
 
         {% if not error_message %}
@@ -61,9 +95,8 @@
                 </div>
             </form>
 
-            <!-- 前後スレで再検索（上部） -->
+            <!-- 前スレで再検索（上部） -->
             <div class="nav-prev-next" style="display:flex; flex-wrap:wrap; gap:8px; align-items:center;">
-
                 {% if prev_thread_url %}
                 <form method="post" action="/thread_search/posts" style="display:flex; gap:8px; align-items:center;">
                     <input type="hidden" name="selected_thread" value="{{ prev_thread_url|e }}">
@@ -79,11 +112,10 @@
                     前スレは見つかりませんでした。
                 </div>
                 {% endif %}
-
             </div>
 
+            <!-- 次スレで再検索（上部） -->
             <div class="nav-prev-next" style="display:flex; flex-wrap:wrap; gap:8px; align-items:center;">
-
                 {% if next_thread_url %}
                 <form method="post" action="/thread_search/posts" style="display:flex; gap:8px; align-items:center;">
                     <input type="hidden" name="selected_thread" value="{{ next_thread_url|e }}">
@@ -100,62 +132,6 @@
                 </div>
                 {% endif %}
             </div>
-
-            <!-- ★ 店舗ページ検索リンク＋名前検索 -->
-            <div class="store-search" style="margin-top:4px; font-size:13px;">
-                <div class="form-row" style="margin-bottom:6px; gap:6px; align-items:center; flex-wrap:wrap;">
-                    <span>店舗ページ検索：</span>
-                    <a
-                        href="https://www.google.com/search?q={{ ('site:cityheaven.net ' ~ store_title)|urlencode }}"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        class="btn-mini"
-                    >
-                        シティヘブン
-                    </a>
-                    <a
-                        href="https://www.google.com/search?q={{ ('デリヘルタウン ' ~ store_title)|urlencode }}"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        class="btn-mini"
-                        style="margin-left:4px;"
-                    >
-                        デリヘルタウン
-                    </a>
-                    <a
-                        href="https://www.google.com/search?q={{ store_title|urlencode }}"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        class="btn-mini"
-                        style="margin-left:4px;"
-                    >
-                        Google
-                    </a>
-                </div>
-
-                <div id="name-search-box"
-                     data-store-title="{{ store_title }}"
-                     class="form-row"
-                     style="margin-bottom:0; gap:6px; align-items:center; flex-wrap:wrap;">
-                    <label for="name_keyword" style="min-width: 140px;">名前で店舗ページ検索：</label>
-                    <input
-                        type="text"
-                        id="name_keyword"
-                        placeholder="例：さやか"
-                        style="flex:1 1 160px;"
-                    >
-                    <button type="button" class="btn-mini" onclick="openNameStoreSearch('city')">
-                        シティヘブン
-                    </button>
-                    <button type="button" class="btn-mini" onclick="openNameStoreSearch('deli')">
-                        デリヘルタウン
-                    </button>
-                    <button type="button" class="btn-mini" onclick="openNameStoreSearch('google')">
-                        Google
-                    </button>
-                </div>
-            </div>
-            <!-- ★ ここまで 店舗ページ検索 -->
         </div>
         {% endif %}
     </section>
@@ -168,6 +144,31 @@
             {% for item in entries %}
                 {% set post = item.root %}
                 <div class="result">
+
+                    {# ★ 各ヒットレスの一番上に「名前で店舗ページ検索」 #}
+                    {% if store_title %}
+                    <div class="name-store-search"
+                         data-store-title="{{ store_title }}"
+                         style="margin-bottom:4px; font-size:13px; display:flex; flex-wrap:wrap; gap:6px; align-items:center;">
+                        <span style="min-width:140px;">名前で店舗ページ検索：</span>
+                        <input
+                            type="text"
+                            name="name_keyword"
+                            placeholder="例：さやか"
+                            style="flex:1 1 160px; max-width:220px;"
+                        >
+                        <button type="button" class="btn-mini" data-site="city">
+                            シティヘブン
+                        </button>
+                        <button type="button" class="btn-mini" data-site="deli">
+                            デリヘルタウン
+                        </button>
+                        <button type="button" class="btn-mini" data-site="google">
+                            Google
+                        </button>
+                    </div>
+                    {% endif %}
+
                     <div class="result-id">
                         {% if post.post_no %}
                             レス #{{ post.post_no }}
@@ -344,33 +345,42 @@
 
 <script>
 /**
- * 名前＋店舗名で CityHeaven / デリヘルタウン / Google を開く
+ * 「名前で店舗ページ検索」用
+ * 各 .name-store-search ボックスごとに
+ * 店舗名（data-store-title）＋名前入力値で検索クエリを作る
  */
-function openNameStoreSearch(site) {
-    const box = document.getElementById("name-search-box");
-    if (!box) return;
+document.addEventListener("DOMContentLoaded", function() {
+    document.querySelectorAll(".name-store-search").forEach(function(box) {
+        const storeTitle = (box.dataset.storeTitle || "").trim();
+        const input = box.querySelector('input[name="name_keyword"]');
+        if (!input || !storeTitle) {
+            return;
+        }
 
-    const storeTitle = (box.dataset.storeTitle || "").trim();
-    const input = document.getElementById("name_keyword");
-    const name = input ? input.value.trim() : "";
+        box.querySelectorAll("button[data-site]").forEach(function(btn) {
+            btn.addEventListener("click", function() {
+                const name = (input.value || "").trim();
+                if (!name) {
+                    alert("名前を入力してください。");
+                    return;
+                }
 
-    if (!name) {
-        alert("名前を入力してください。");
-        return;
-    }
+                const site = btn.getAttribute("data-site");
+                let query = "";
+                if (site === "city") {
+                    query = "site:cityheaven.net " + storeTitle + " " + name;
+                } else if (site === "deli") {
+                    query = "デリヘルタウン " + storeTitle + " " + name;
+                } else {
+                    query = storeTitle + " " + name;
+                }
 
-    let query = "";
-    if (site === "city") {
-        query = "site:cityheaven.net " + storeTitle + " " + name;
-    } else if (site === "deli") {
-        query = "デリヘルタウン " + storeTitle + " " + name;
-    } else {
-        query = storeTitle + " " + name;
-    }
-
-    const url = "https://www.google.com/search?q=" + encodeURIComponent(query);
-    window.open(url, "_blank", "noopener");
-}
+                const url = "https://www.google.com/search?q=" + encodeURIComponent(query);
+                window.open(url, "_blank", "noopener");
+            });
+        });
+    });
+});
 
 /**
  * コンテキスト行が3行以上に折り返されている場合だけ
