@@ -58,11 +58,44 @@
 
         {% if results %}
             {% for thread in results %}
+                {% set store_title = thread.thread_title or '' %}
                 <div class="thread-block">
                     <div class="thread-header">
                         <div>
                             <div class="thread-title">{{ thread.thread_title }}</div>
                             <div class="thread-url">{{ thread.thread_url }}</div>
+
+                            {# ★ 店舗ページ検索リンク（内部検索用） #}
+                            <div class="store-search" style="margin-top:4px; font-size:13px;">
+                                <span style="margin-right:4px;">店舗ページ検索：</span>
+                                <a
+                                    href="https://www.google.com/search?q={{ ('site:cityheaven.net ' ~ store_title)|urlencode }}"
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    class="btn-mini"
+                                >
+                                    シティヘブン
+                                </a>
+                                <a
+                                    href="https://www.google.com/search?q={{ ('デリヘルタウン ' ~ store_title)|urlencode }}"
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    class="btn-mini"
+                                    style="margin-left:4px;"
+                                >
+                                    デリヘルタウン
+                                </a>
+                                <a
+                                    href="https://www.google.com/search?q={{ store_title|urlencode }}"
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    class="btn-mini"
+                                    style="margin-left:4px;"
+                                >
+                                    Google
+                                </a>
+                            </div>
+                            {# ★ ここまで店舗ページ検索 #}
                         </div>
                         <div class="thread-actions">
                             <form method="post" action="/admin/refetch" style="display:inline;">
