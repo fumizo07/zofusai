@@ -65,7 +65,8 @@
                             <div class="thread-title">{{ thread.thread_title }}</div>
                             <div class="thread-url">{{ thread.thread_url }}</div>
 
-                            {# ★ 店舗ページ検索リンク（内部検索用） #}
+                            {# ★ スレタイトル近くに「店舗ページ検索」 #}
+                            {% if store_title %}
                             <div class="store-search" style="margin-top:4px; font-size:13px;">
                                 <span style="margin-right:4px;">店舗ページ検索：</span>
                                 <a
@@ -95,7 +96,8 @@
                                     Google
                                 </a>
                             </div>
-                            {# ★ ここまで店舗ページ検索 #}
+                            {% endif %}
+                            {# ★ ここまで 店舗ページ検索 #}
                         </div>
                         <div class="thread-actions">
                             <form method="post" action="/admin/refetch" style="display:inline;">
@@ -119,6 +121,31 @@
                         {% for item in thread.entries %}
                             {% set post = item.root %}
                             <div class="result">
+
+                                {# ★ 各ヒットレスの一番上に「名前で店舗ページ検索」 #}
+                                {% if store_title %}
+                                <div class="name-store-search"
+                                     data-store-title="{{ store_title }}"
+                                     style="margin-bottom:4px; font-size:13px; display:flex; flex-wrap:wrap; gap:6px; align-items:center;">
+                                    <span style="min-width:140px;">名前で店舗ページ検索：</span>
+                                    <input
+                                        type="text"
+                                        name="name_keyword"
+                                        placeholder="例：さやか"
+                                        style="flex:1 1 160px; max-width:220px;"
+                                    >
+                                    <button type="button" class="btn-mini" data-site="city">
+                                        シティヘブン
+                                    </button>
+                                    <button type="button" class="btn-mini" data-site="deli">
+                                        デリヘルタウン
+                                    </button>
+                                    <button type="button" class="btn-mini" data-site="google">
+                                        Google
+                                    </button>
+                                </div>
+                                {% endif %}
+
                                 <div class="result-id">
                                     {% if post.post_no %}
                                         レス #{{ post.post_no }}
@@ -261,6 +288,44 @@
 </main>
 
 <script>
+/**
+ * 「名前で店舗ページ検索」用
+ * 各 .name-store-search ボックスごとに
+ * 店舗名（data-store-title）＋名前入力値で検索クエリを作る
+ */
+document.addEventListener("DOMContentLoaded", function() {
+    document.querySelectorAll(".name-store-search").forEach(function(box) {
+        const storeTitle = (box.dataset.storeTitle || "").trim();
+        const input = box.querySelector('input[name="name_keyword"]');
+        if (!input || !storeTitle) {
+            return;
+        }
+
+        box.querySelectorAll("button[data-site]").forEach(function(btn) {
+            btn.addEventListener("click", function() {
+                const name = (input.value || "").trim();
+                if (!name) {
+                    alert("名前を入力してください。");
+                    return;
+                }
+
+                const site = btn.getAttribute("data-site");
+                let query = "";
+                if (site === "city") {
+                    query = "site:cityheaven.net " + storeTitle + " " + name;
+                } else if (site === "deli") {
+                    query = "デリヘルタウン " + storeTitle + " " + name;
+                } else {
+                    query = storeTitle + " " + name;
+                }
+
+                const url = "https://www.google.com/search?q=" + encodeURIComponent(query);
+                window.open(url, "_blank", "noopener");
+            });
+        });
+    });
+});
+
 /**
  * 内部検索結果のコンテキスト行に対しても「もっと読む」折りたたみを適用
  */
