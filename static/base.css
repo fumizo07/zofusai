@@ -623,6 +623,40 @@ mark {
     font-size: 12px;
 }
 
+/* 店舗検索 UI 共通 */
+.store-search {
+    margin-top: 4px;
+    font-size: 13px;
+}
+
+.store-search-label {
+    margin-right: 4px;
+}
+
+.store-search .btn-mini + .btn-mini {
+    margin-left: 4px;
+}
+
+.name-store-search {
+    margin-bottom: 4px;
+    font-size: 13px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    align-items: center;
+}
+
+.name-store-search-label {
+    min-width: 140px;
+    white-space: nowrap;
+    font-size: 13px;
+}
+
+.name-store-search input[type="text"] {
+    flex: 1 1 160px;
+    max-width: 220px;
+}
+
 /* レスポンシブ微調整 */
 @media (max-width: 768px) {
     body.page-index main,
@@ -644,5 +678,15 @@ mark {
     .form-row input[type="text"],
     .form-row select {
         width: 100%;
+    }
+
+    /* 名前検索欄はスマホでは幅優先 */
+    .name-store-search {
+        align-items: flex-start;
+    }
+
+    .name-store-search input[type="text"] {
+        flex: 1 1 auto;
+        max-width: 100%;
     }
 }
