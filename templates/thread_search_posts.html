@@ -31,8 +31,8 @@
 
             {# ★ スレタイ近くに店舗ページ検索 #}
             {% if store_title %}
-            <div class="store-search" style="margin-top:4px; font-size:13px;">
-                <span style="margin-right:4px;">店舗ページ検索：</span>
+            <div class="store-search">
+                <span class="store-search-label">店舗ページ検索：</span>
                 <a
                     href="https://www.google.com/search?q={{ ('site:cityheaven.net ' ~ store_title)|urlencode }}"
                     target="_blank"
@@ -46,7 +46,6 @@
                     target="_blank"
                     rel="noopener noreferrer"
                     class="btn-mini"
-                    style="margin-left:4px;"
                 >
                     デリヘルタウン
                 </a>
@@ -55,7 +54,6 @@
                     target="_blank"
                     rel="noopener noreferrer"
                     class="btn-mini"
-                    style="margin-left:4px;"
                 >
                     Google
                 </a>
@@ -147,15 +145,12 @@
 
                     {# ★ 各ヒットレスの一番上に「名前で店舗ページ検索」 #}
                     {% if store_title %}
-                    <div class="name-store-search"
-                         data-store-title="{{ store_title }}"
-                         style="margin-bottom:4px; font-size:13px; display:flex; flex-wrap:wrap; gap:6px; align-items:center;">
-                        <span style="min-width:140px;">名前で店舗ページ検索：</span>
+                    <div class="name-store-search" data-store-title="{{ store_title }}">
+                        <span class="name-store-search-label">名前で店舗ページ検索：</span>
                         <input
                             type="text"
                             name="name_keyword"
-                            placeholder="例：さやか"
-                            style="flex:1 1 160px; max-width:220px;"
+                            placeholder="例：ティアラ"
                         >
                         <button type="button" class="btn-mini" data-site="city">
                             シティヘブン
