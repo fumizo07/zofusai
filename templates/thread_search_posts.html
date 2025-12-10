@@ -1,154 +1,154 @@
-{% set page_title_suffix = "スレッド内検索結果" %}
-{% set body_class = "page-thread-posts" %}
-{# 外部検索のサブページ扱いなので active_page は thread_search に寄せる #}
+{% set page_title_suffix = "スレッド内検索" %}
+{% set body_class = "page-thread-search-posts" %}
 {% set active_page = "thread_search" %}
 {% include "_header.html" %}
 
 <main>
-    <!-- 上部：スレ情報＋再検索・保存など -->
+    <!-- 上部：対象スレ情報＋再検索フォーム -->
     <section class="card">
-        <div class="section-title">スレッド情報</div>
+        <div class="section-title">スレッド内検索</div>
 
-        <p class="back-link">
-            <a href="/thread_search?area={{ area }}&period={{ period }}&keyword={{ title_keyword|urlencode }}">
-                外部検索に戻る
-            </a>
-        </p>
-
-        {% if error_message %}
-            <div class="error">{{ error_message }}</div>
-        {% endif %}
-
-        <div class="thread-info">
-            <div>タイトル：{{ thread_title or "（取得できませんでした）" }}</div>
-            <div class="thread-url">URL：{{ thread_url }}</div>
-            <div>
-                タイトルキーワード：<strong>{{ title_keyword or '（未指定）' }}</strong><br>
-                本文キーワード：<strong>{{ post_keyword or '（未指定）' }}</strong>
+        <div style="margin-bottom: 8px;">
+            {% if thread_title %}
+                <div style="font-weight: 600;">{{ thread_title }}</div>
+            {% endif %}
+            {% if thread_url %}
+                <div style="font-size: 13px; color: #6b7280;">{{ thread_url }}</div>
+            {% endif %}
+            <div style="font-size: 12px; color: #9ca3af; margin-top: 4px;">
+                エリア: acode={{ area }} ／ 期間: {{ period }}
             </div>
         </div>
 
-        {% if not error_message %}
-        <div style="margin-top:8px; display:flex; flex-wrap:wrap; gap:8px; align-items:center;">
-            <!-- このスレを保存 -->
-            <form method="post" action="/thread_search/save">
-                <input type="hidden" name="thread_url" value="{{ thread_url|e }}">
-                <button type="submit" class="btn-secondary">このスレを保存</button>
-            </form>
-
-            <!-- 同じスレで別キーワード再検索 -->
-            <form method="post" action="/thread_search/posts">
-                <input type="hidden" name="selected_thread" value="{{ thread_url|e }}">
-                <input type="hidden" name="area" value="{{ area }}">
-                <input type="hidden" name="period" value="{{ period }}">
-                <input type="hidden" name="title_keyword" value="{{ title_keyword|e }}">
-                <div class="form-row" style="margin-bottom:0;">
-                    <label for="post_keyword_rescan">別キーワードで再検索：</label>
-                    <input type="text" id="post_keyword_rescan" name="post_keyword" value="{{ post_keyword|e }}">
-                    <button type="submit" class="btn-primary">再検索</button>
-                </div>
-            </form>
-        </div>
-
-        <!-- 前後スレで再検索 -->
-        <div class="nav-prev-next">
-            {% if prev_thread_url %}
-            <form method="post" action="/thread_search/posts">
-                <input type="hidden" name="selected_thread" value="{{ prev_thread_url|e }}">
-                <input type="hidden" name="area" value="{{ area }}">
-                <input type="hidden" name="period" value="{{ period }}">
-                <input type="hidden" name="post_keyword" value="{{ post_keyword|e }}">
-                <input type="hidden" name="title_keyword" value="{{ title_keyword|e }}">
-                <button type="submit" class="btn-secondary">前スレで再検索</button>
-            </form>
-            {% endif %}
-            {% if next_thread_url %}
-            <form method="post" action="/thread_search/posts">
-                <input type="hidden" name="selected_thread" value="{{ next_thread_url|e }}">
-                <input type="hidden" name="area" value="{{ area }}">
-                <input type="hidden" name="period" value="{{ period }}">
-                <input type="hidden" name="post_keyword" value="{{ post_keyword|e }}">
-                <input type="hidden" name="title_keyword" value="{{ title_keyword|e }}">
-                <button type="submit" class="btn-secondary">次スレで再検索</button>
-            </form>
-            {% endif %}
-        </div>
+        {% if error_message %}
+            <div class="error" style="margin-bottom: 8px;">{{ error_message }}</div>
         {% endif %}
+
+        <!-- 上部フォーム：同一スレで再検索 -->
+        <form method="post" action="/thread_search/posts">
+            <input type="hidden" name="selected_thread" value="{{ thread_url }}">
+            <input type="hidden" name="area" value="{{ area }}">
+            <input type="hidden" name="period" value="{{ period }}">
+
+            <div class="form-row">
+                <label for="post_keyword_top">本文キーワード：</label>
+                <input
+                    type="text"
+                    id="post_keyword_top"
+                    name="post_keyword"
+                    value="{{ post_keyword or '' }}"
+                    style="flex: 1 1 auto;"
+                />
+
+                <button type="submit" class="btn-primary">
+                    このスレで再検索
+                </button>
+            </div>
+
+            <div class="form-row">
+                <label for="title_keyword_top">（メモ用）タイトル検索ワード：</label>
+                <input
+                    type="text"
+                    id="title_keyword_top"
+                    name="title_keyword"
+                    value="{{ title_keyword or '' }}"
+                    style="flex: 1 1 auto;"
+                />
+            </div>
+        </form>
     </section>
 
-    <!-- 下部：ヒットしたレス一覧 -->
+    <!-- 検索結果一覧 -->
     <section class="card">
-        {% if entries and not error_message %}
-            <h2>ヒットしたレス（{{ entries|length }}件）</h2>
+        <div class="section-title">
+            検索結果
+            {% if post_keyword %}
+                （「{{ post_keyword }}」でヒットしたレス）
+            {% endif %}
+        </div>
 
+        {% if entries %}
             {% for item in entries %}
                 {% set post = item.root %}
-                <div class="result">
-                    <div class="result-id">
+                <div class="result" style="border-bottom: 1px solid #e5e7eb; padding: 8px 0;">
+                    <div class="result-id" style="font-size: 13px; color: #4b5563; margin-bottom: 4px;">
                         {% if post.post_no %}
                             レス #{{ post.post_no }}
                         {% else %}
-                            レス番号不明
+                            ID {{ post.id }}
                         {% endif %}
                         {% if post.posted_at %}
                             ／ {{ post.posted_at }}
                         {% endif %}
                     </div>
-                    <div class="result-url">
-                        URL：{{ thread_url }}{% if post.post_no %}（レス #{{ post.post_no }}）{% endif %}
+
+                    <div class="result-meta" style="font-size: 12px; color: #6b7280; margin-bottom: 4px;">
+                        <small>{{ thread_url }}</small>
                     </div>
 
-                    <!-- 本文 -->
-                    <div class="result-text">{{ highlight(post.body, post_keyword) }}</div>
+                    <div class="result-text" style="margin-bottom: 8px;">
+                        {{- highlight(post.body, post_keyword) -}}
+                    </div>
 
                     {% if item.anchor_targets %}
-                        <div class="section-title-small">このレスが参照しているレス</div>
+                        <div class="section-title" style="font-size: 13px; margin-top: 4px;">
+                            このレスが参照しているレス
+                        </div>
                         {% for a in item.anchor_targets %}
-                            <div class="anchor-item">
-                                <div class="anchor-meta">
-                                    {% if a.post_no %}
-                                        #{{ a.post_no }}
-                                    {% else %}
-                                        レス番号不明
-                                    {% endif %}
-                                    {% if a.posted_at %}
-                                        ／ {{ a.posted_at }}
-                                    {% endif %}
-                                </div>
-                                <div class="anchor-body">{{ highlight(a.body, post_keyword) }}</div>
+                            <div class="context-line" style="font-size: 13px; margin-left: 8px;">
+                                {% if a.post_no %}
+                                    #{{ a.post_no }}
+                                {% else %}
+                                    ID {{ a.id }}
+                                {% endif %}
+                                {% if a.posted_at %}
+                                    ／ {{ a.posted_at }}
+                                {% endif %}
+                                ：{{ highlight(a.body|replace('\n', ' '), post_keyword) }}
                             </div>
                         {% endfor %}
                     {% endif %}
 
-                    <div class="section-title-small">このレスへの返信ツリー</div>
+                    <div class="section-title" style="font-size: 13px; margin-top: 8px;">
+                        このレスへの返信ツリー
+                    </div>
                     {% if item.tree %}
                         {% for node in item.tree %}
-                            <div class="tree-item" style="margin-left: {{ node.depth * 20 }}px;">
-                                <div class="tree-meta">
+                            <div class="tree-item" style="margin-left: {{ node.depth * 20 }}px; font-size: 13px; margin-bottom: 2px;">
+                                <div class="tree-meta" style="color: #4b5563;">
                                     {% if node.post.post_no %}
                                         #{{ node.post.post_no }}
                                     {% else %}
-                                        レス番号不明
+                                        ID {{ node.post.id }}
                                     {% endif %}
                                     {% if node.post.posted_at %}
                                         ／ {{ node.post.posted_at }}
                                     {% endif %}
                                 </div>
-                                <div class="tree-body">{{ highlight(node.post.body, post_keyword) }}</div>
+                                <div class="tree-body">
+                                    {{- highlight(node.post.body, post_keyword) -}}
+                                </div>
                             </div>
                         {% endfor %}
                     {% else %}
-                        <p class="no-result">このレスへの返信（アンカー）は見つかりませんでした。</p>
+                        <p class="no-result" style="font-size: 12px; color: #9ca3af;">
+                            このレスへの返信（アンカー）は見つかりませんでした。
+                        </p>
                     {% endif %}
 
                     {% if item.context %}
-                        <div class="section-title-small">このレスの前後（コンテキスト）</div>
+                        <div class="section-title" style="font-size: 13px; margin-top: 8px;">
+                            このレスの前後（コンテキスト）
+                        </div>
                         {% for c in item.context %}
-                            <div class="context-line {% if c.post_no and post.post_no and c.post_no == post.post_no %}context-line-root{% endif %}">
+                            <div
+                                class="context-line {% if c is post %}context-line-root{% endif %}"
+                                style="font-size: 13px; margin-left: 4px;"
+                            >
                                 {% if c.post_no %}
                                     #{{ c.post_no }}
                                 {% else %}
-                                    レス番号不明
+                                    ID {{ c.id }}
                                 {% endif %}
                                 {% if c.posted_at %}
                                     ／ {{ c.posted_at }}
@@ -159,16 +159,110 @@
                     {% endif %}
                 </div>
             {% endfor %}
-        {% elif not error_message %}
-            <p class="no-result">指定したキーワードを含むレスは見つかりませんでした。</p>
+        {% else %}
+            {% if not error_message %}
+                <p class="no-result" style="font-size: 14px; color: #6b7280;">
+                    該当する投稿は見つかりませんでした。
+                </p>
+            {% endif %}
         {% endif %}
+    </section>
+
+    <!-- 下部：再検索＆前後スレで再検索 -->
+    <section class="card">
+        <div class="section-title">別キーワードで再検索</div>
+
+        <!-- 同じスレで別キーワード -->
+        <form method="post" action="/thread_search/posts" style="margin-bottom: 12px;">
+            <input type="hidden" name="selected_thread" value="{{ thread_url }}">
+            <input type="hidden" name="area" value="{{ area }}">
+            <input type="hidden" name="period" value="{{ period }}">
+
+            <div class="form-row">
+                <label for="post_keyword_bottom">本文キーワード：</label>
+                <input
+                    type="text"
+                    id="post_keyword_bottom"
+                    name="post_keyword"
+                    value="{{ post_keyword or '' }}"
+                    style="flex: 1 1 auto;"
+                />
+                <button type="submit" class="btn-primary">
+                    このスレで再検索
+                </button>
+            </div>
+
+            <div class="form-row">
+                <label for="title_keyword_bottom">（メモ用）タイトル検索ワード：</label>
+                <input
+                    type="text"
+                    id="title_keyword_bottom"
+                    name="title_keyword"
+                    value="{{ title_keyword or '' }}"
+                    style="flex: 1 1 auto;"
+                />
+            </div>
+        </form>
+
+        <!-- 前スレ／次スレで再検索 -->
+        <div class="section-title" style="margin-top: 8px;">前後スレで再検索</div>
+
+        <div class="form-row" style="gap: 8px;">
+            <!-- 前スレ -->
+            <form method="post" action="/thread_search/posts" style="display: flex; gap: 8px; align-items: center; flex: 1 1 0;">
+                <input type="hidden" name="area" value="{{ area }}">
+                <input type="hidden" name="period" value="{{ period }}">
+                <input type="hidden" name="post_keyword" value="{{ post_keyword or '' }}">
+                <input type="hidden" name="title_keyword" value="{{ title_keyword or '' }}">
+                <input type="hidden" name="selected_thread" value="{{ prev_thread_url or '' }}">
+
+                <button
+                    type="submit"
+                    class="btn-secondary"
+                    {% if not prev_thread_url %}disabled style="opacity:0.5; cursor:default;"{% endif %}
+                >
+                    前スレで再検索
+                </button>
+                <span style="font-size: 12px; color: #6b7280;">
+                    {% if prev_thread_url %}
+                        {{ prev_thread_url }}
+                    {% else %}
+                        前スレが見つかりません。
+                    {% endif %}
+                </span>
+            </form>
+
+            <!-- 次スレ -->
+            <form method="post" action="/thread_search/posts" style="display: flex; gap: 8px; align-items: center; flex: 1 1 0;">
+                <input type="hidden" name="area" value="{{ area }}">
+                <input type="hidden" name="period" value="{{ period }}">
+                <input type="hidden" name="post_keyword" value="{{ post_keyword or '' }}">
+                <input type="hidden" name="title_keyword" value="{{ title_keyword or '' }}">
+                <input type="hidden" name="selected_thread" value="{{ next_thread_url or '' }}">
+
+                <button
+                    type="submit"
+                    class="btn-secondary"
+                    {% if not next_thread_url %}disabled style="opacity:0.5; cursor:default;"{% endif %}
+                >
+                    次スレで再検索
+                </button>
+                <span style="font-size: 12px; color: #6b7280;">
+                    {% if next_thread_url %}
+                        {{ next_thread_url }}
+                    {% else %}
+                        次スレが見つかりません。
+                    {% endif %}
+                </span>
+            </form>
+        </div>
     </section>
 </main>
 
 <script>
 /**
- * コンテキスト行が3行以上に折り返されている場合だけ
- * 「もっと読む」ボタンを出して、初期状態では折りたたむ。
+ * コンテキスト行に対しても「もっと読む」折りたたみを適用
+ * （index.html の実装に合わせてレイアウト崩れ防止）
  */
 document.addEventListener("DOMContentLoaded", function() {
     const maxLines = 3;
@@ -185,7 +279,6 @@ document.addEventListener("DOMContentLoaded", function() {
 
         const maxHeight = lineHeight * maxLines;
 
-        // 実際の高さが3行分より大きければ「もっと読む」対象
         if (line.scrollHeight > maxHeight + 2) {
             line.classList.add("context-collapsed");
 
