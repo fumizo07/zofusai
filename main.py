@@ -25,7 +25,7 @@ from markupsafe import Markup, escape
 from scraper import fetch_posts_from_thread, ScrapingError, get_thread_title
 
 # ランキング読み込み
-from ranking import get_osaka_fuzoku_ranking
+from ranking import get_osaka_ranking
 
 
 # =========================
