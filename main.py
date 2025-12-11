@@ -1156,8 +1156,8 @@ def thread_search_page(
     area: str = "7",
     period: str = "3m",
     keyword: str = "",
-    board_category: str = "",
-    board_id: str = "",
+    board_category: str = "103",
+    board_id: str = "5922",
 ):
     # パラメータ整形
     area = (area or "").strip() or "7"
