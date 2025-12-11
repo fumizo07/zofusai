@@ -38,16 +38,28 @@ def _parse_ranking_links(soup: BeautifulSoup, src_url: str) -> BoardRanking:
     """
     爆サイのランキングページから
     「おすすめ / 総合アクセス / 急上昇」の各ランキングを抽出する。
+
+    ランキング見出しは「○○ ランキング」というテキストになっており、
+    それが入っている <dt> を起点に、その後ろの <a> から
+    「閲覧数」「レス数」を含む行を拾う。
     """
-    # alt に「ランキング」を含む img を起点にする（大阪/東京/デリヘル/風俗などを問わず汎用）
-    img = soup.find("img", alt=re.compile("ランキング"))
-    if not img:
-        raise ValueError("ランキング画像(img alt*='ランキング')が見つかりませんでした。")
+
+    # 1) 「◯◯ ランキング」と書かれている <dt> を探す
+    heading_dt = None
+    for dt in soup.find_all("dt"):
+        txt = dt.get_text(" ", strip=True)
+        if "ランキング" in txt:
+            heading_dt = dt
+            logging.info("ランキング見出し: %s", txt)
+            break
+
+    if not heading_dt:
+        raise ValueError("ランキング見出しテキスト（◯◯ ランキング）が見つかりませんでした。")
 
     rank_links: List[Tag] = []
 
-    # 画像の後ろ側を順に見ていき、「11位以下を見る」が出てきたら終了
-    for el in img.next_elements:
+    # 2) 見出しの後ろ側を順に見ていき、「11位以下を見る」が出てきたら終了
+    for el in heading_dt.next_elements:
         # テキストに「11位以下を見る」が出たらランキングブロック終端
         if isinstance(el, NavigableString):
             txt = str(el).strip()
@@ -110,6 +122,7 @@ def _parse_ranking_links(soup: BeautifulSoup, src_url: str) -> BoardRanking:
 
         return items
 
+    # 3カテゴリ分に割り振り（おすすめ / 総合アクセス / 急上昇）
     osusume_links = rank_links[0:chunk]
     sogo_links = rank_links[chunk : 2 * chunk]
     kyujo_links = rank_links[2 * chunk : 3 * chunk]
@@ -132,6 +145,7 @@ def _parse_ranking_links(soup: BeautifulSoup, src_url: str) -> BoardRanking:
         kyujo=kyujo_items,
         error=None,
     )
+
 
 
 def _fetch_from_web(acode: str, ctgid: str, bid: str) -> BoardRanking:
