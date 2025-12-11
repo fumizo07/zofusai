@@ -1169,6 +1169,10 @@ def thread_search_page(
     results: List[dict] = []
     error_message = ""
 
+    # ★ ランキング結果（板ごと）
+    ranking_board = None
+    ranking_board_label = ""
+
     # 板リストをカテゴリから取得（履歴のラベル用にも使う）
     board_options = get_board_options_for_category(board_category)
 
@@ -1185,6 +1189,18 @@ def thread_search_page(
             )
         except Exception as e:
             error_message = f"外部検索中にエラーが発生しました: {e}"
+
+        # ★ ランキング取得（検索が成功していて、板が指定されているときだけ）
+        if not error_message and board_category and board_id:
+            # 表示用ラベル（「大阪デリヘル・お店」など）を取得
+            board_label = ""
+            for b in board_options:
+                if b["id"] == board_id:
+                    board_label = b["label"]
+                    break
+
+            ranking_board_label = board_label or "選択した板"
+            ranking_board = get_board_ranking(area, board_category, board_id)
 
         # 検索履歴を追加（エラーが出ていないときだけ）
         if not error_message:
@@ -1254,6 +1270,9 @@ def thread_search_page(
             "current_board_id": board_id,
             "recent_external_searches": recent_external_searches,
             "board_master_json": json.dumps(BOARD_MASTER, ensure_ascii=False),
+            # ★ 追加
+            "ranking_board": ranking_board,
+            "ranking_board_label": ranking_board_label,
         },
     )
 
