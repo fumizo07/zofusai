@@ -62,15 +62,6 @@
             {# ★ ここまで #}
         </div>
 
-        {% if not error_message %}
-        <div class="thread-save">
-            <!-- このスレを保存 -->
-            <form method="post" action="/thread_search/save">
-              <input type="hidden" name="thread_url" value="{{ thread_url|e }}">
-              <button type="submit" class="btn-secondary">このスレを保存</button>
-            </form>
-        </div>
-        {% endif %}
     </section>
 
 
@@ -160,6 +151,15 @@
                 </span>
             </form>
         </div>
+        {% if not error_message %}
+        <div class="thread-save">
+            <!-- このスレを保存 -->
+            <form method="post" action="/thread_search/save">
+              <input type="hidden" name="thread_url" value="{{ thread_url|e }}">
+              <button type="submit" class="btn-secondary">このスレを保存</button>
+            </form>
+        </div>
+        {% endif %}
     </section>
 
     <!-- 下部：ヒットしたレス一覧 -->
