@@ -73,66 +73,104 @@
                 </form>
             </div>
 
-            <!-- 同じスレで別キーワード再検索（上部） -->
-            <form method="post" action="/thread_search/posts">
-                <input type="hidden" name="selected_thread" value="{{ thread_url|e }}">
-                <input type="hidden" name="area" value="{{ area }}">
-                <input type="hidden" name="period" value="{{ period }}">
-                <input type="hidden" name="title_keyword" value="{{ title_keyword|e }}">
-
-                <div class="form-row" style="margin-bottom:4px; align-items:center;">
-                    <label for="post_keyword_rescan" style="min-width: 140px;">別キーワードで再検索：</label>
-                    <input
-                        type="text"
-                        id="post_keyword_rescan"
-                        name="post_keyword"
-                        value="{{ post_keyword|e }}"
-                        style="flex:1 1 auto;"
-                    >
-                    <button type="submit" class="btn-primary">再検索</button>
-                </div>
-            </form>
-
-            <!-- 前スレで再検索（上部） -->
-            <div class="nav-prev-next" style="display:flex; flex-wrap:wrap; gap:8px; align-items:center;">
-                {% if prev_thread_url %}
-                <form method="post" action="/thread_search/posts" style="display:flex; gap:8px; align-items:center;">
-                    <input type="hidden" name="selected_thread" value="{{ prev_thread_url|e }}">
-                    <input type="hidden" name="area" value="{{ area }}">
-                    <input type="hidden" name="period" value="{{ period }}">
-                    <input type="hidden" name="post_keyword" value="{{ post_keyword|e }}">
-                    <input type="hidden" name="title_keyword" value="{{ title_keyword|e }}">
-                    <button type="submit" class="btn-secondary">前スレで再検索</button>
-                    <span style="font-size:12px; color:#6b7280;">{{ prev_thread_url }}</span>
-                </form>
-                {% else %}
-                <div style="font-size:12px; color:#9ca3af;">
-                    前スレは見つかりませんでした。
-                </div>
-                {% endif %}
-            </div>
-
-            <!-- 次スレで再検索（上部） -->
-            <div class="nav-prev-next" style="display:flex; flex-wrap:wrap; gap:8px; align-items:center;">
-                {% if next_thread_url %}
-                <form method="post" action="/thread_search/posts" style="display:flex; gap:8px; align-items:center;">
-                    <input type="hidden" name="selected_thread" value="{{ next_thread_url|e }}">
-                    <input type="hidden" name="area" value="{{ area }}">
-                    <input type="hidden" name="period" value="{{ period }}">
-                    <input type="hidden" name="post_keyword" value="{{ post_keyword|e }}">
-                    <input type="hidden" name="title_keyword" value="{{ title_keyword|e }}">
-                    <button type="submit" class="btn-secondary">次スレで再検索</button>
-                    <span style="font-size:12px; color:#6b7280;">{{ next_thread_url }}</span>
-                </form>
-                {% else %}
-                <div style="font-size:12px; color:#9ca3af;">
-                    次スレは見つかりませんでした。
-                </div>
-                {% endif %}
-            </div>
         </div>
         {% endif %}
     </section>
+
+
+
+    <section class="card">
+        <h2>別キーワードで再検索</h2>
+
+        <!-- 同じスレで別キーワード再検索（下部） -->
+        <form method="post" action="/thread_search/posts">
+            <input type="hidden" name="selected_thread" value="{{ thread_url|e }}">
+            <input type="hidden" name="area" value="{{ area }}">
+            <input type="hidden" name="period" value="{{ period }}">
+
+            <div class="form-row" style="margin-bottom:4px; align-items:center;">
+                <label for="post_keyword_bottom" style="min-width: 140px;">本文キーワード：</label>
+                <input
+                    type="text"
+                    id="post_keyword_bottom"
+                    name="post_keyword"
+                    value="{{ post_keyword|e }}"
+                    style="flex:1 1 auto;"
+                >
+                <button type="submit" class="btn-primary">このスレで再検索</button>
+            </div>
+
+            <div class="form-row" style="align-items:center;">
+                <label for="title_keyword_bottom" style="min-width: 140px;">（メモ用）タイトル検索ワード：</label>
+                <input
+                    type="text"
+                    id="title_keyword_bottom"
+                    name="title_keyword"
+                    value="{{ title_keyword|e }}"
+                    style="flex:1 1 auto;"
+                >
+            </div>
+        </form>
+
+        <h2 style="margin-top:12px;">前後スレで再検索</h2>
+
+        <div style="display:flex; flex-wrap:wrap; gap:8px; align-items:flex-start;">
+
+            <!-- 前スレで再検索 -->
+            <form method="post" action="/thread_search/posts"
+                  style="display:flex; gap:8px; align-items:center; flex:1 1 260px;">
+                <input type="hidden" name="area" value="{{ area }}">
+                <input type="hidden" name="period" value="{{ period }}">
+                <input type="hidden" name="post_keyword" value="{{ post_keyword|e }}">
+                <input type="hidden" name="title_keyword" value="{{ title_keyword|e }}">
+                <input type="hidden" name="selected_thread" value="{{ prev_thread_url or '' }}">
+
+                <button
+                    type="submit"
+                    class="btn-secondary"
+                    {% if not prev_thread_url %}disabled style="opacity:0.5; cursor:default;"{% endif %}
+                >
+                    前スレで再検索
+                </button>
+                <span style="font-size:12px; color:#6b7280;">
+                    {% if prev_thread_url %}
+                        {{ prev_thread_url }}
+                    {% else %}
+                        前スレが見つかりません。
+                    {% endif %}
+                </span>
+            </form>
+
+            <!-- 次スレで再検索 -->
+            <form method="post" action="/thread_search/posts"
+                  style="display:flex; gap:8px; align-items:center; flex:1 1 260px;">
+                <input type="hidden" name="area" value="{{ area }}">
+                <input type="hidden" name="period" value="{{ period }}">
+                <input type="hidden" name="post_keyword" value="{{ post_keyword|e }}">
+                <input type="hidden" name="title_keyword" value="{{ title_keyword|e }}">
+                <input type="hidden" name="selected_thread" value="{{ next_thread_url or '' }}">
+
+                <button
+                    type="submit"
+                    class="btn-secondary"
+                    {% if not next_thread_url %}disabled style="opacity:0.5; cursor:default;"{% endif %}
+                >
+                    次スレで再検索
+                </button>
+                <span style="font-size:12px; color:#6b7280;">
+                    {% if next_thread_url %}
+                        {{ next_thread_url }}
+                    {% else %}
+                        次スレが見つかりません。
+                    {% endif %}
+                </span>
+            </form>
+        </div>
+    </section>
+
+    <!-- 下部：ヒットしたレス一覧 -->
+    <section class="card">
+        <div class="section-title">スレッド情報</div>
 
     <!-- 下部：ヒットしたレス一覧 -->
     <section class="card">
@@ -247,6 +285,21 @@
     {# ★ここから：ページ下部の再検索エリア #}
     {% if not error_message %}
     <section class="card">
+    
+    {% if not error_message %}
+        <div style="margin-top:8px; display:flex; flex-direction:column; gap:8px;">
+
+            <!-- このスレを保存 -->
+            <div>
+                <form method="post" action="/thread_search/save" style="display:inline-block;">
+                    <input type="hidden" name="thread_url" value="{{ thread_url|e }}">
+                    <button type="submit" class="btn-secondary">このスレを保存</button>
+                </form>
+            </div>
+
+        </div>
+      {% endif %}
+      
         <h2>別キーワードで再検索</h2>
 
         <!-- 同じスレで別キーワード再検索（下部） -->
