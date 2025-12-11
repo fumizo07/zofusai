@@ -707,53 +707,17 @@ def show_search_page(
                     # ツリー表示用
                     tree_items = build_reply_tree(all_posts_thread, root)
 
-                    # アンカー先（このレスが参照しているレスを再帰的にたどる）
-
-                    # スレ内の post_no → 投稿オブジェクト のマップを作成
-                    posts_by_no: Dict[int, ThreadPost] = {}
-                    for p2 in all_posts_thread:
-                        if p2.post_no is not None and p2.post_no not in posts_by_no:
-                            posts_by_no[p2.post_no] = p2
-
-                    def collect_anchor_chain(root_post: ThreadPost) -> List[ThreadPost]:
-                        """
-                        root_post が参照しているレス → さらにその参照先 … を
-                        「参照が途切れるまで」たどって 1 本のリストにする。
-                        同じレスをぐるぐる回らないように visited で保護。
-                        """
-                        result: List[ThreadPost] = []
-                        visited: set[int] = set()
-
-                        def dfs(post: ThreadPost) -> None:
-                            if post.post_no is None:
-                                return
-                            if post.post_no in visited:
-                                return
-                            visited.add(post.post_no)
-
-                            # 自分自身（root_post）は result に入れない
-                            if post is not root_post:
-                                result.append(post)
-
-                            if not post.anchors:
-                                return
-
-                            nums = parse_anchors_csv(post.anchors)
-                            for n in nums:
-                                target = posts_by_no.get(n)
-                                if target:
-                                    dfs(target)
-
-                        if root_post.anchors:
-                            nums = parse_anchors_csv(root_post.anchors)
-                            for n in nums:
-                                target = posts_by_no.get(n)
-                                if target:
-                                    dfs(target)
-
-                        return result
-
-                    anchor_targets = collect_anchor_chain(root)
+                    # アンカー先
+                    anchor_targets: List[ThreadPost] = []
+                    if root.anchors:
+                        nums = parse_anchors_csv(root.anchors)
+                        if nums and all_posts_thread:
+                            num_set = set(nums)
+                            anchor_targets = [
+                                p
+                                for p in all_posts_thread
+                                if p.post_no is not None and p.post_no in num_set
+                            ]
 
                     block["entries"].append(
                         {
@@ -1606,51 +1570,24 @@ def thread_search_posts(
 
                 tree_items = build_reply_tree_external(root)
 
-            # このレスが参照しているレス（再帰的にたどる）
-            def collect_anchor_chain_external(root_post) -> List[object]:
-                """
-                root_post → anchors で参照しているレス → さらにその参照先…
-                を再帰的にたどって 1 本のリストにする。
-                """
-                result: List[object] = []
-                visited: set[int] = set()
-
-                def dfs(post) -> None:
-                    if post.post_no is None:
-                        return
-                    if post.post_no in visited:
-                        return
-                    visited.add(post.post_no)
-
-                    if post is not root_post:
-                        result.append(post)
-
-                    if not getattr(post, "anchors", None):
-                        return
-
-                    for n in post.anchors:
+                anchor_targets: List[object] = []
+                if getattr(root, "anchors", None):
+                    for n in root.anchors:
                         target = posts_by_no.get(n)
                         if target:
-                            dfs(target)
+                            anchor_targets.append(target)
 
-                if getattr(root_post, "anchors", None):
-                    for n in root_post.anchors:
-                        target = posts_by_no.get(n)
-                        if target:
-                            dfs(target)
+                entries.append(
+                    {
+                        "root": root,
+                        "context": context_posts,
+                        "tree": tree_items,
+                        "anchor_targets": anchor_targets,
+                    }
+                )
 
-                return result
-
-            anchor_targets = collect_anchor_chain_external(root)
-
-            entries.append(
-                {
-                    "root": root,
-                    "context": context_posts,
-                    "tree": tree_items,
-                    "anchor_targets": anchor_targets,
-                }
-            )
+        except Exception as e:
+            error_message = f"スレッド内検索中にエラーが発生しました: {e}"
 
 
         except Exception as e:
