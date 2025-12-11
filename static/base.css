@@ -780,3 +780,43 @@ mark {
         min-width: 0;
     }
 }
+
+
+
+.thread-save {
+    margin-top:8px;
+    display:flex;
+    flex-direction:column;
+    gap:8px;
+}
+
+.thread-pn-box {
+    display:flex;
+    flex-wrap:wrap;
+    gap:8px;
+    align-items:flex-start;
+}
+.thread-pn-box .thread-prev-next {
+    display:flex;
+    gap:8px;
+    align-items:center;
+    flex:1 1 260px;
+}
+.thread-pn-box .thread-prev-next .thread-url {
+    font-size:12px;
+    color:#6b7280;
+}
+@media (max-width: 768px) {
+    .thread-pn-box {
+        display:block;
+        flex-wrap:nowrap;
+        gap:unset;
+        align-items: normal;
+    }
+    .thread-pn-box .thread-prev-next {
+        display:block;
+    }
+    .thread-pn-box .thread-prev-next .thread-url {
+        display: block;
+    }
+}
