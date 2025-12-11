@@ -1,11 +1,10 @@
+{# templates/_ranking.html #}
 <section class="card ranking-card">
     <div class="section-title">大阪デリヘル ランキング（爆サイ）</div>
 
-    {# エラーがあればメッセージ表示 #}
+    {# エラーメッセージ（取得時の例外など） #}
     {% if ranking_osaka and ranking_osaka.error %}
-        <p class="ranking-error">
-            ランキング取得時にエラーが発生しました: {{ ranking_osaka.error }}
-        </p>
+        <p class="ranking-error">{{ ranking_osaka.error }}</p>
     {% endif %}
 
     {% if ranking_osaka %}
