@@ -61,6 +61,10 @@
         </form>
     </section>
 
+    {% if ranking_board %}
+    {% include "_ranking.html" %}
+    {% endif %}
+
     {% if recent_external_searches %}
     <section class="card">
         <div class="section-title">最近の外部検索（最大15件）</div>
