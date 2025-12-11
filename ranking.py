@@ -177,7 +177,3 @@ def _clean_title(raw: str) -> str:
 
     return " ".join(parts)
 
-# デバッグ用：あとで消してOK
-print("ranking status:", resp.status_code, file=sys.stderr)
-print("ranking snippet:", resp.text[:500], file=sys.stderr)
-
