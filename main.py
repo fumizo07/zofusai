@@ -449,60 +449,53 @@ def parse_posted_at_value(value: str) -> Optional[datetime]:
             continue
     return None
 
-# >>アンカーをリンクにする用
-ANCHOR_HTML_PATTERN = re.compile(r"&gt;&gt;(\d{1,5})")
-
-def build_rrid_base_from_thread_url(thread_url: str) -> Optional[str]:
+def linkify_anchors_in_html(thread_url: str, html: str) -> Markup:
     """
-    https://bakusai.com/thr_res/acode=7/ctgid=103/bid=410/tid=13010829/...
-    みたいなURLから、rrid付き詳細表示用のベースURLを作る。
-
-    例:
-    → https://bakusai.com/thr_res_show/acode=7/ctgid=103/bid=410/tid=13010829/rrid=
+    すでに escape / highlight 済みの HTML 文字列内の「&gt;&gt;数字」を
+    レス個別ページへのリンクに変換する。
     """
-    if not thread_url:
-        return None
-
-    m = re.search(r"acode=(\d+)/ctgid=(\d+)/bid=(\d+)/tid=(\d+)", thread_url)
-    if not m:
-        return None
-
-    acode, ctgid, bid, tid = m.groups()
-    return (
-        f"https://bakusai.com/thr_res_show/"
-        f"acode={acode}/ctgid={ctgid}/bid={bid}/tid={tid}/rrid="
-    )
-
-
-def linkify_anchors(thread_url: str, text_value: Optional[str]) -> Markup:
-    """
-    本文中の「>>850」みたいなアンカーを、同一スレ内の
-    thr_res_show ... rrid=850 へのリンクに変換する。
-
-    - 一旦 escape してから &gt;&gt;数字 を探すので
-      元の本文に HTML が混ざっていても原則安全。
-    """
-    if not text_value:
+    if not html:
         return Markup("")
 
-    base = build_rrid_base_from_thread_url(thread_url)
-    # ベースURLが作れなければ、そのまま escape のみ
-    escaped = escape(_normalize_lines(text_value))
+    base = thread_url or ""
 
-    if not base:
-        return Markup(escaped)
+    # thr_res / thr_res_show の acode〜tid までをベースURLにする
+    m = re.search(
+        r"(https://bakusai\.com/thr_res(?:_show)?/acode=\d+/ctgid=\d+/bid=\d+/tid=\d+/)",
+        base,
+    )
+    if m:
+        base_rr = m.group(1)
+    else:
+        base_rr = base
 
     def repl(match: re.Match) -> str:
-        num = match.group(1)
-        href = f"{base}{num}/"
+        no = match.group(1)
+        url = base_rr
+        if "thr_res_show" not in url:
+            url = url.replace("/thr_res/", "/thr_res_show/")
+        if not url.endswith("/"):
+            url += "/"
+        href = f"{url}rrid={no}/"
         return (
-            f'<a href="{href}" '
-            f'target="_blank" '
-            f'rel="nofollow noopener noreferrer">&gt;&gt;{num}</a>'
+            f'<a href="{href}" target="_blank" '
+            f'rel="nofollow noopener noreferrer">&gt;&gt;{no}</a>'
         )
 
-    linked = ANCHOR_HTML_PATTERN.sub(repl, str(escaped))
+    # highlight_text が escape 済みなので、「>>」は「&gt;&gt;」になっている
+    linked = re.sub(r"&gt;&gt;(\d+)", repl, html)
     return Markup(linked)
+
+
+def highlight_with_links(text_value: Optional[str], keyword: str, thread_url: str) -> Markup:
+    """
+    1) 検索キーワードのハイライト
+    2) >>番号 を個別レスへのリンク化
+    をまとめて行う。
+    """
+    highlighted = highlight_text(text_value, keyword)
+    return linkify_anchors_in_html(thread_url, str(highlighted))
+
 
 
 # =========================
@@ -807,7 +800,7 @@ def show_search_page(
             "error_message": error_message,
             "popular_tags": popular_tags,
             "recent_searches": recent_searches_view,
-            "linkify_anchors": linkify_anchors,
+            "highlight_with_links": highlight_with_links,
         },
     )
 
@@ -1665,6 +1658,6 @@ def thread_search_posts(
             "highlight": highlight_text,
             "prev_thread_url": prev_thread_url,
             "next_thread_url": next_thread_url,
-            "linkify_anchors": linkify_anchors,
+            "highlight_with_links": highlight_with_links,
         },
     )
