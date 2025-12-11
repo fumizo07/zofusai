@@ -227,7 +227,7 @@
                                         ／ {{ a.posted_at }}
                                     {% endif %}
                                 </div>
-                                <div class="anchor-body">{{ highlight(a.body, post_keyword) }}</div>
+                                <div class="anchor-body">{{ highlight_with_links(a.body, post_keyword, thread_url) }}</div>
                             </div>
                         {% endfor %}
                     {% endif %}
@@ -265,7 +265,7 @@
                                 {% if c.posted_at %}
                                     ／ {{ c.posted_at }}
                                 {% endif %}
-                                ：{{ highlight(c.body|replace('\n', ' '), post_keyword) }}
+                                ：{{ highlight_with_links(c.body|replace('\n', ' '), post_keyword, thread_url) }}
                             </div>
                         {% endfor %}
                     {% endif %}
