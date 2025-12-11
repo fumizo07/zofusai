@@ -8,11 +8,12 @@ import requests
 from bs4 import BeautifulSoup
 from bs4.element import Tag, NavigableString
 
-# 爆サイの「大阪デリヘル ランキング」が載っているスレ
+# 爆サイの「大阪デリヘル・お店掲示板（スレ一覧）」ページ
 RANKING_SOURCE_URL = (
     "https://bakusai.com/thr_tl/acode=7/ctgid=103/bid=5922/"
 )
 
+# キャッシュ有効期間
 CACHE_TTL = timedelta(minutes=30)
 
 
@@ -39,15 +40,28 @@ def _parse_ranking_links(soup: BeautifulSoup) -> OsakaRanking:
     爆サイのページから「大阪デリヘル ランキング」ブロックを見つけて、
     「おすすめ / 総合アクセス / 急上昇」の各ランキングを抽出します。
     """
-    # alt に「大阪デリヘル ランキング」を含む img を起点にする
-    img = soup.find("img", alt=re.compile("大阪デリヘル ランキング"))
-    if not img:
-        raise ValueError("ランキング画像(img alt*='大阪デリヘル ランキング')が見つかりませんでした。")
+
+    # まず「大阪デリヘル ランキング」というテキストを探す
+    marker_text = soup.find(string=re.compile(r"大阪デリヘル\s*ランキング"))
+    start_node: Optional[Tag] = None
+
+    if marker_text:
+        # テキストノードの親要素から後ろをたどる
+        parent = marker_text.parent
+        if isinstance(parent, Tag):
+            start_node = parent
+
+    # テキストが見つからなかった場合は、念のため img.alt をフォールバックで探す
+    if start_node is None:
+        img = soup.find("img", alt=re.compile(r"大阪デリヘル\s*ランキング"))
+        if not img:
+            raise ValueError("大阪デリヘル ランキングの基点が見つかりませんでした。")
+        start_node = img
 
     rank_links: List[Tag] = []
 
-    # 画像の後ろ側を順に見ていき、「11位以下を見る」が出てきたら終了
-    for el in img.next_elements:
+    # 「大阪デリヘル ランキング」のすぐ後ろから要素を走査していく
+    for el in start_node.next_elements:
         # テキストに「11位以下を見る」が出たらランキングブロック終端
         if isinstance(el, NavigableString):
             txt = str(el).strip()
@@ -92,7 +106,7 @@ def _parse_ranking_links(soup: BeautifulSoup) -> OsakaRanking:
             if m:
                 name = m.group(1)
             else:
-                # 失敗したら「閲覧数」以降を削るだけの雑なフォールバック
+                # 失敗したら「閲覧数」以降を削るだけのフォールバック
                 name = text
                 idx = name.find("閲覧数")
                 if idx != -1:
@@ -110,6 +124,7 @@ def _parse_ranking_links(soup: BeautifulSoup) -> OsakaRanking:
 
         return items
 
+    # 3等分して「おすすめ」「総合アクセス」「急上昇」に振り分け
     osusume_links = rank_links[0:chunk]
     sogo_links = rank_links[chunk : 2 * chunk]
     kyujo_links = rank_links[2 * chunk : 3 * chunk]
