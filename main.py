@@ -25,7 +25,7 @@ from markupsafe import Markup, escape
 from scraper import fetch_posts_from_thread, ScrapingError, get_thread_title
 
 # ランキング（外部検索用）で使うのは後ろの thread_search_page 側だけ
-from ranking import get_board_ranking
+from ranking import get_board_ranking, RANKING_URL_TEMPLATE
 
 
 # =========================
@@ -1172,6 +1172,7 @@ def thread_search_page(
     # ★ ランキング結果（板ごと）
     ranking_board = None
     ranking_board_label = ""
+    ranking_source_url = ""
 
     # 板リストをカテゴリから取得（履歴のラベル用にも使う）
     board_options = get_board_options_for_category(board_category)
@@ -1201,6 +1202,14 @@ def thread_search_page(
 
             ranking_board_label = board_label or "選択した板"
             ranking_board = get_board_ranking(area, board_category, board_id)
+
+            # ★ 爆サイ側のランキング元ページURL（thr_tl）を組み立て
+            if ranking_board:
+                ranking_source_url = RANKING_URL_TEMPLATE.format(
+                    acode=area,
+                    ctgid=board_category,
+                    bid=board_id,
+                )
 
         # 検索履歴を追加（エラーが出ていないときだけ）
         if not error_message:
@@ -1273,6 +1282,7 @@ def thread_search_page(
             # ★ 追加
             "ranking_board": ranking_board,
             "ranking_board_label": ranking_board_label,
+            "ranking_source_url": ranking_source_url,
         },
     )
 
