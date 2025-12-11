@@ -8,7 +8,7 @@ import requests
 from bs4 import BeautifulSoup
 from bs4.element import Tag, NavigableString
 
-# 爆サイの「大阪デリヘル ランキング」が載っているスレURL
+# 爆サイの「大阪デリヘル ランキング」が載っているスレ
 RANKING_SOURCE_URL = (
     "https://bakusai.com/thr_tl/acode=7/ctgid=103/bid=5922/"
 )
