@@ -176,7 +176,7 @@
                                             {% if a.posted_at %}
                                                 ／ {{ a.posted_at }}
                                             {% endif %}
-                                            ：{{ highlight(a.body|replace('\n', ' '), keyword) }}
+                                            ：{{ highlight_with_links(a.body|replace('\n', ' '), keyword, thread.thread_url) }}
                                         </div>
                                     {% endfor %}
                                 {% endif %}
@@ -214,7 +214,7 @@
                                             {% if c.posted_at %}
                                                 ／ {{ c.posted_at }}
                                             {% endif %}
-                                            ：{{ highlight(c.body|replace('\n', ' '), keyword) }}
+                                            ：{{ highlight_with_links(c.body|replace('\n', ' '), keyword, thread.thread_url) }}
                                         </div>
                                     {% endfor %}
                                 {% endif %}
