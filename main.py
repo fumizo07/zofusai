@@ -736,6 +736,9 @@ def show_search_page(
 
     recent_searches_view = list(RECENT_SEARCHES)[::-1]
 
+    # ★ ここでランキングを取得（失敗したら None が返る仕様）
+    ranking_osaka = get_osaka_fuzoku_ranking()
+
     return templates.TemplateResponse(
         "index.html",
         {
