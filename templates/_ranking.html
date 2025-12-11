@@ -1,0 +1,69 @@
+{% if ranking_osaka %}
+<section class="card ranking-card">
+    <div class="section-title">
+        大阪風俗 ランキング
+    </div>
+
+    <p class="ranking-note">
+        「大阪風俗・お店」板の「おすすめ」「総合アクセス」「急上昇」上位5件を、一定間隔で自動取得して表示しています。
+    </p>
+
+    <div class="ranking-columns">
+        <div class="ranking-column">
+            <div class="ranking-column-title">おすすめ</div>
+            {% if ranking_osaka.osusume %}
+                <ol class="ranking-list">
+                    {% for item in ranking_osaka.osusume %}
+                        <li class="ranking-item">
+                            <span class="ranking-rank">{{ item.rank }}</span>
+                            <span class="ranking-title">{{ item.title }}</span>
+                        </li>
+                    {% endfor %}
+                </ol>
+            {% else %}
+                <p class="ranking-empty">現在取得できませんでした。</p>
+            {% endif %}
+        </div>
+
+        <div class="ranking-column">
+            <div class="ranking-column-title">総合アクセス</div>
+            {% if ranking_osaka.access %}
+                <ol class="ranking-list">
+                    {% for item in ranking_osaka.access %}
+                        <li class="ranking-item">
+                            <span class="ranking-rank">{{ item.rank }}</span>
+                            <span class="ranking-title">{{ item.title }}</span>
+                        </li>
+                    {% endfor %}
+                </ol>
+            {% else %}
+                <p class="ranking-empty">現在取得できませんでした。</p>
+            {% endif %}
+        </div>
+
+        <div class="ranking-column">
+            <div class="ranking-column-title">急上昇</div>
+            {% if ranking_osaka.up %}
+                <ol class="ranking-list">
+                    {% for item in ranking_osaka.up %}
+                        <li class="ranking-item">
+                            <span class="ranking-rank">{{ item.rank }}</span>
+                            <span class="ranking-title">{{ item.title }}</span>
+                        </li>
+                    {% endfor %}
+                </ol>
+            {% else %}
+                <p class="ranking-empty">現在取得できませんでした。</p>
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="ranking-source-link">
+        ソース：
+        <a href="https://bakusai.com/thr_tl/acode=7/ctgid=103/bid=410/"
+           target="_blank" rel="noopener noreferrer">
+            爆サイ「大阪風俗・お店」板
+        </a>
+    </div>
+</section>
+{% endif %}
