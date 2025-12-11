@@ -103,9 +103,11 @@
         </p>
     {% endif %}
 
-    <div class="ranking-source-link">
-        <a href="{{ ranking_source_url }}" target="_blank" rel="nofollow noopener noreferrer">
-            爆サイの元ページを開く
-        </a>
-    </div>
+    {% if ranking_source_url %}
+        <div class="ranking-source-link">
+            <a href="{{ ranking_source_url }}" target="_blank" rel="nofollow noopener noreferrer">
+                爆サイの元ページを開く
+            </a>
+        </div>
+    {% endif %}
 </section>
