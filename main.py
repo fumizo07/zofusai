@@ -24,8 +24,8 @@ from markupsafe import Markup, escape
 
 from scraper import fetch_posts_from_thread, ScrapingError, get_thread_title
 
-# ランキング読み込み
-from ranking import get_osaka_ranking
+# ランキング（外部検索用）で使うのは後ろの thread_search_page 側だけ
+from ranking import get_board_ranking
 
 
 # =========================
