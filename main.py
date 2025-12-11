@@ -449,6 +449,61 @@ def parse_posted_at_value(value: str) -> Optional[datetime]:
             continue
     return None
 
+# >>アンカーをリンクにする用
+ANCHOR_HTML_PATTERN = re.compile(r"&gt;&gt;(\d{1,5})")
+
+def build_rrid_base_from_thread_url(thread_url: str) -> Optional[str]:
+    """
+    https://bakusai.com/thr_res/acode=7/ctgid=103/bid=410/tid=13010829/...
+    みたいなURLから、rrid付き詳細表示用のベースURLを作る。
+
+    例:
+    → https://bakusai.com/thr_res_show/acode=7/ctgid=103/bid=410/tid=13010829/rrid=
+    """
+    if not thread_url:
+        return None
+
+    m = re.search(r"acode=(\d+)/ctgid=(\d+)/bid=(\d+)/tid=(\d+)", thread_url)
+    if not m:
+        return None
+
+    acode, ctgid, bid, tid = m.groups()
+    return (
+        f"https://bakusai.com/thr_res_show/"
+        f"acode={acode}/ctgid={ctgid}/bid={bid}/tid={tid}/rrid="
+    )
+
+
+def linkify_anchors(thread_url: str, text_value: Optional[str]) -> Markup:
+    """
+    本文中の「>>850」みたいなアンカーを、同一スレ内の
+    thr_res_show ... rrid=850 へのリンクに変換する。
+
+    - 一旦 escape してから &gt;&gt;数字 を探すので
+      元の本文に HTML が混ざっていても原則安全。
+    """
+    if not text_value:
+        return Markup("")
+
+    base = build_rrid_base_from_thread_url(thread_url)
+    # ベースURLが作れなければ、そのまま escape のみ
+    escaped = escape(_normalize_lines(text_value))
+
+    if not base:
+        return Markup(escaped)
+
+    def repl(match: re.Match) -> str:
+        num = match.group(1)
+        href = f"{base}{num}/"
+        return (
+            f'<a href="{href}" '
+            f'target="_blank" '
+            f'rel="nofollow noopener noreferrer">&gt;&gt;{num}</a>'
+        )
+
+    linked = ANCHOR_HTML_PATTERN.sub(repl, str(escaped))
+    return Markup(linked)
+
 
 # =========================
 # FastAPI 初期化
@@ -752,6 +807,7 @@ def show_search_page(
             "error_message": error_message,
             "popular_tags": popular_tags,
             "recent_searches": recent_searches_view,
+            "linkify_anchors": linkify_anchors,
         },
     )
 
@@ -1609,5 +1665,6 @@ def thread_search_posts(
             "highlight": highlight_text,
             "prev_thread_url": prev_thread_url,
             "next_thread_url": next_thread_url,
+            "linkify_anchors": linkify_anchors,
         },
     )
