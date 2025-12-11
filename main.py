@@ -1606,21 +1606,52 @@ def thread_search_posts(
 
                 tree_items = build_reply_tree_external(root)
 
-                anchor_targets: List[object] = []
-                if getattr(root, "anchors", None):
-                    for n in root.anchors:
+            # このレスが参照しているレス（再帰的にたどる）
+            def collect_anchor_chain_external(root_post) -> List[object]:
+                """
+                root_post → anchors で参照しているレス → さらにその参照先…
+                を再帰的にたどって 1 本のリストにする。
+                """
+                result: List[object] = []
+                visited: set[int] = set()
+
+                def dfs(post) -> None:
+                    if post.post_no is None:
+                        return
+                    if post.post_no in visited:
+                        return
+                    visited.add(post.post_no)
+
+                    if post is not root_post:
+                        result.append(post)
+
+                    if not getattr(post, "anchors", None):
+                        return
+
+                    for n in post.anchors:
                         target = posts_by_no.get(n)
                         if target:
-                            anchor_targets.append(target)
+                            dfs(target)
 
-                entries.append(
-                    {
-                        "root": root,
-                        "context": context_posts,
-                        "tree": tree_items,
-                        "anchor_targets": anchor_targets,
-                    }
-                )
+                if getattr(root_post, "anchors", None):
+                    for n in root_post.anchors:
+                        target = posts_by_no.get(n)
+                        if target:
+                            dfs(target)
+
+                return result
+
+            anchor_targets = collect_anchor_chain_external(root)
+
+            entries.append(
+                {
+                    "root": root,
+                    "context": context_posts,
+                    "tree": tree_items,
+                    "anchor_targets": anchor_targets,
+                }
+            )
+
 
         except Exception as e:
             error_message = f"スレッド内検索中にエラーが発生しました: {e}"
