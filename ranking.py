@@ -2,18 +2,16 @@ import logging
 import re
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import List, Optional
+from typing import List, Optional, Dict, Tuple
 
 import requests
 from bs4 import BeautifulSoup
 from bs4.element import Tag, NavigableString
 
-# 爆サイの「大阪デリヘル・お店掲示板（スレ一覧）」ペー
-RANKING_SOURCE_URL = (
-    "https://bakusai.com/thr_tl/acode=7/ctgid=103/bid=5922/"
-)
+# ランキングページ URL テンプレート
+RANKING_URL_TEMPLATE = "https://bakusai.com/thr_tl/acode={acode}/ctgid={ctgid}/bid={bid}/"
 
-# キャッシュ有効期間
+# キャッシュ有効期限
 CACHE_TTL = timedelta(minutes=30)
 
 
@@ -24,44 +22,32 @@ class RankingItem:
 
 
 @dataclass
-class OsakaRanking:
+class BoardRanking:
     osusume: List[RankingItem]
     sogo: List[RankingItem]
     kyujo: List[RankingItem]
     error: Optional[str] = None
 
 
-_cache: Optional[OsakaRanking] = None
-_cache_time: Optional[datetime] = None
+# 板ごとのキャッシュ
+_cache: Dict[Tuple[str, str, str], BoardRanking] = {}
+_cache_time: Dict[Tuple[str, str, str], datetime] = {}
 
 
-def _parse_ranking_links(soup: BeautifulSoup) -> OsakaRanking:
+def _parse_ranking_links(soup: BeautifulSoup, src_url: str) -> BoardRanking:
     """
-    爆サイのページから「大阪デリヘル ランキング」ブロックを見つけて、
-    「おすすめ / 総合アクセス / 急上昇」の各ランキングを抽出します。
+    爆サイのランキングページから
+    「おすすめ / 総合アクセス / 急上昇」の各ランキングを抽出する。
     """
-
-    # まず「大阪デリヘル ランキング」というテキストを探す
-    marker_text = soup.find(string=re.compile(r"大阪デリヘル\s*ランキング"))
-    start_node: Optional[Tag] = None
-
-    if marker_text:
-        # テキストノードの親要素から後ろをたどる
-        parent = marker_text.parent
-        if isinstance(parent, Tag):
-            start_node = parent
-
-    # テキストが見つからなかった場合は、念のため img.alt をフォールバックで探す
-    if start_node is None:
-        img = soup.find("img", alt=re.compile(r"大阪デリヘル\s*ランキング"))
-        if not img:
-            raise ValueError("大阪デリヘル ランキングの基点が見つかりませんでした。")
-        start_node = img
+    # alt に「ランキング」を含む img を起点にする（大阪/東京/デリヘル/風俗などを問わず汎用）
+    img = soup.find("img", alt=re.compile("ランキング"))
+    if not img:
+        raise ValueError("ランキング画像(img alt*='ランキング')が見つかりませんでした。")
 
     rank_links: List[Tag] = []
 
-    # 「大阪デリヘル ランキング」のすぐ後ろから要素を走査していく
-    for el in start_node.next_elements:
+    # 画像の後ろ側を順に見ていき、「11位以下を見る」が出てきたら終了
+    for el in img.next_elements:
         # テキストに「11位以下を見る」が出たらランキングブロック終端
         if isinstance(el, NavigableString):
             txt = str(el).strip()
@@ -118,13 +104,12 @@ def _parse_ranking_links(soup: BeautifulSoup) -> OsakaRanking:
 
             if not href:
                 # どうしても URL が取れない場合は元ページに飛ばす
-                href = RANKING_SOURCE_URL
+                href = src_url
 
             items.append(RankingItem(name=name, url=href))
 
         return items
 
-    # 3等分して「おすすめ」「総合アクセス」「急上昇」に振り分け
     osusume_links = rank_links[0:chunk]
     sogo_links = rank_links[chunk : 2 * chunk]
     kyujo_links = rank_links[2 * chunk : 3 * chunk]
@@ -141,7 +126,7 @@ def _parse_ranking_links(soup: BeautifulSoup) -> OsakaRanking:
         len(kyujo_items),
     )
 
-    return OsakaRanking(
+    return BoardRanking(
         osusume=osusume_items,
         sogo=sogo_items,
         kyujo=kyujo_items,
@@ -149,11 +134,13 @@ def _parse_ranking_links(soup: BeautifulSoup) -> OsakaRanking:
     )
 
 
-def _fetch_from_web() -> OsakaRanking:
+def _fetch_from_web(acode: str, ctgid: str, bid: str) -> BoardRanking:
     """
     爆サイのページにアクセスしてランキングを取得。
     失敗した場合はダミーデータ＋errorメッセージ付きで返す。
     """
+    src_url = RANKING_URL_TEMPLATE.format(acode=acode, ctgid=ctgid, bid=bid)
+
     try:
         headers = {
             # 適当なブラウザっぽい UA を付けておく（403 対策）
@@ -163,48 +150,58 @@ def _fetch_from_web() -> OsakaRanking:
                 "Chrome/120.0 Safari/537.36"
             )
         }
-        resp = requests.get(RANKING_SOURCE_URL, headers=headers, timeout=10)
+        resp = requests.get(src_url, headers=headers, timeout=10)
         resp.raise_for_status()
 
         soup = BeautifulSoup(resp.text, "html.parser")
-        ranking = _parse_ranking_links(soup)
+        ranking = _parse_ranking_links(soup, src_url)
         return ranking
 
     except Exception as e:
         logging.exception("爆サイランキング取得でエラーが発生しました。")
 
         # ここで返すダミーは「サイトが落ちてる or 仕様変更」のときの保険
-        dummy = OsakaRanking(
+        dummy = BoardRanking(
             osusume=[
-                RankingItem("ダミー店 おすすめ1", "https://example.com/osusume1"),
-                RankingItem("ダミー店 おすすめ2", "https://example.com/osusume2"),
+                RankingItem("ダミー店 おすすめ1", src_url),
+                RankingItem("ダミー店 おすすめ2", src_url),
             ],
             sogo=[
-                RankingItem("ダミー店 総合1", "https://example.com/sogo1"),
-                RankingItem("ダミー店 総合2", "https://example.com/sogo2"),
+                RankingItem("ダミー店 総合1", src_url),
+                RankingItem("ダミー店 総合2", src_url),
             ],
             kyujo=[
-                RankingItem("ダミー店 急上昇1", "https://example.com/kyujo1"),
-                RankingItem("ダミー店 急上昇2", "https://example.com/kyujo2"),
+                RankingItem("ダミー店 急上昇1", src_url),
+                RankingItem("ダミー店 急上昇2", src_url),
             ],
             error=str(e),
         )
         return dummy
 
 
-def get_osaka_ranking() -> Optional[OsakaRanking]:
+def get_board_ranking(acode: str, ctgid: str, bid: str) -> Optional[BoardRanking]:
     """
-    外部から呼ぶ窓口。
-    一定時間（CACHE_TTL）の間はキャッシュを返す。
+    板ごとのランキング取得用窓口。
+
+    - (acode, ctgid, bid) が欠けている場合は None を返す
+    - 初回アクセス時は必ずWebから取得
+    - 2回目以降は CACHE_TTL の間キャッシュを返す
     """
-    global _cache, _cache_time
+    acode = (acode or "").strip()
+    ctgid = (ctgid or "").strip()
+    bid = (bid or "").strip()
+
+    if not acode or not ctgid or not bid:
+        return None
+
+    key = (acode, ctgid, bid)
     now = datetime.utcnow()
 
-    if _cache is not None and _cache_time is not None:
-        if now - _cache_time < CACHE_TTL:
-            return _cache
+    if key in _cache and key in _cache_time:
+        if now - _cache_time[key] < CACHE_TTL:
+            return _cache[key]
 
-    ranking = _fetch_from_web()
-    _cache = ranking
-    _cache_time = now
+    ranking = _fetch_from_web(acode, ctgid, bid)
+    _cache[key] = ranking
+    _cache_time[key] = now
     return ranking
