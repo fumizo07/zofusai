@@ -32,7 +32,7 @@
                                 <span class="ranking-rank">{{ loop.index }}位</span>
                                 <span class="ranking-title">
                                     {% if item.url %}
-                                        <a href="{{ item.url }}" target="_blank" rel="noopener">
+                                        <a href="{{ item.url }}" target="_blank" rel="nofollow noopener noreferrer">
                                             {{ item.name }}
                                         </a>
                                     {% else %}
@@ -57,7 +57,7 @@
                                 <span class="ranking-rank">{{ loop.index }}位</span>
                                 <span class="ranking-title">
                                     {% if item.url %}
-                                        <a href="{{ item.url }}" target="_blank" rel="noopener">
+                                        <a href="{{ item.url }}" target="_blank" rel="nofollow noopener noreferrer">
                                             {{ item.name }}
                                         </a>
                                     {% else %}
@@ -82,7 +82,7 @@
                                 <span class="ranking-rank">{{ loop.index }}位</span>
                                 <span class="ranking-title">
                                     {% if item.url %}
-                                        <a href="{{ item.url }}" target="_blank" rel="noopener">
+                                        <a href="{{ item.url }}" target="_blank" rel="nofollow noopener noreferrer">
                                             {{ item.name }}
                                         </a>
                                     {% else %}
@@ -102,4 +102,10 @@
             ランキングを取得できませんでした。
         </p>
     {% endif %}
+
+    <div class="ranking-source-link">
+        <a href="{{ ranking_source_url }}" target="_blank" rel="nofollow noopener noreferrer">
+            爆サイの元ページを開く
+        </a>
+    </div>
 </section>
