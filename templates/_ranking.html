@@ -1,63 +1,89 @@
-{# templates/_ranking.html #}
-{% if ranking_osaka %}
-<div class="card">
+<section class="card ranking-card">
     <div class="section-title">大阪デリヘル ランキング（爆サイ）</div>
 
-    {# エラーがあれば表示（ダミーデータでも error にメッセージが入る） #}
-    {% if ranking_osaka.error %}
-        <p class="error-message">
+    {# エラーがあればメッセージ表示 #}
+    {% if ranking_osaka and ranking_osaka.error %}
+        <p class="ranking-error">
             ランキング取得時にエラーが発生しました: {{ ranking_osaka.error }}
         </p>
     {% endif %}
 
-    <div>
-        {# おすすめ #}
-        <div class="section-title-small">おすすめ</div>
-        {% if ranking_osaka.osusume %}
-            <ol>
-                {% for item in ranking_osaka.osusume %}
-                    <li>
-                        <a href="{{ item.url }}" target="_blank" rel="noopener">
-                            {{ item.name }}
-                        </a>
-                    </li>
-                {% endfor %}
-            </ol>
-        {% else %}
-            <p class="muted">おすすめランキングが取得できませんでした。</p>
-        {% endif %}
+    {% if ranking_osaka %}
+        <div class="ranking-grid">
+            {# おすすめ #}
+            <div class="ranking-column">
+                <div class="ranking-column-title">おすすめ</div>
+                {% if ranking_osaka.osusume %}
+                    <ol class="ranking-list">
+                        {% for item in ranking_osaka.osusume %}
+                            <li>
+                                {% if item.url %}
+                                    <a href="{{ item.url }}" target="_blank" rel="noopener">
+                                        {{ item.name }}
+                                    </a>
+                                {% else %}
+                                    {{ item.name }}
+                                {% endif %}
+                            </li>
+                        {% endfor %}
+                    </ol>
+                {% else %}
+                    <p class="ranking-empty">データがありません。</p>
+                {% endif %}
+            </div>
 
-        {# 総合アクセス #}
-        <div class="section-title-small">総合アクセス</div>
-        {% if ranking_osaka.sogo %}
-            <ol>
-                {% for item in ranking_osaka.sogo %}
-                    <li>
-                        <a href="{{ item.url }}" target="_blank" rel="noopener">
-                            {{ item.name }}
-                        </a>
-                    </li>
-                {% endfor %}
-            </ol>
-        {% else %}
-            <p class="muted">総合アクセスランキングが取得できませんでした。</p>
-        {% endif %}
+            {# 総合アクセス #}
+            <div class="ranking-column">
+                <div class="ranking-column-title">総合アクセス</div>
+                {% if ranking_osaka.sogo %}
+                    <ol class="ranking-list">
+                        {% for item in ranking_osaka.sogo %}
+                            <li>
+                                {% if item.url %}
+                                    <a href="{{ item.url }}" target="_blank" rel="noopener">
+                                        {{ item.name }}
+                                    </a>
+                                {% else %}
+                                    {{ item.name }}
+                                {% endif %}
+                            </li>
+                        {% endfor %}
+                    </ol>
+                {% else %}
+                    <p class="ranking-empty">データがありません。</p>
+                {% endif %}
+            </div>
 
-        {# 急上昇 #}
-        <div class="section-title-small">急上昇</div>
-        {% if ranking_osaka.kyujo %}
-            <ol>
-                {% for item in ranking_osaka.kyujo %}
-                    <li>
-                        <a href="{{ item.url }}" target="_blank" rel="noopener">
-                            {{ item.name }}
-                        </a>
-                    </li>
-                {% endfor %}
-            </ol>
-        {% else %}
-            <p class="muted">急上昇ランキングが取得できませんでした。</p>
-        {% endif %}
+            {# 急上昇 #}
+            <div class="ranking-column">
+                <div class="ranking-column-title">急上昇</div>
+                {% if ranking_osaka.kyujo %}
+                    <ol class="ranking-list">
+                        {% for item in ranking_osaka.kyujo %}
+                            <li>
+                                {% if item.url %}
+                                    <a href="{{ item.url }}" target="_blank" rel="noopener">
+                                        {{ item.name }}
+                                    </a>
+                                {% else %}
+                                    {{ item.name }}
+                                {% endif %}
+                            </li>
+                        {% endfor %}
+                    </ol>
+                {% else %}
+                    <p class="ranking-empty">データがありません。</p>
+                {% endif %}
+            </div>
+        </div>
+    {% else %}
+        <p class="ranking-empty">ランキングを取得できませんでした。</p>
+    {% endif %}
+
+    <div class="ranking-source-link">
+        <a href="https://bakusai.com/thr_res/acode=7/ctgid=103/bid=5922/tid=12664804/ttgid=101/p=1/"
+           target="_blank" rel="noopener">
+            爆サイの元ページを開く
+        </a>
     </div>
-</div>
-{% endif %}
+</section>
