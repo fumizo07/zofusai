@@ -690,3 +690,93 @@ mark {
         max-width: 100%;
     }
 }
+/* ランキング表示用 */
+.ranking-card {
+    margin-top: 8px;
+}
+
+.ranking-note {
+    font-size: 12px;
+    color: var(--text-sub);
+    margin: 4px 0 8px;
+}
+
+.ranking-columns {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+}
+
+.ranking-column {
+    flex: 1 1 0;
+    min-width: 220px;
+}
+
+.ranking-column-title {
+    font-size: 13px;
+    font-weight: 600;
+    margin-bottom: 4px;
+    color: #111827;
+}
+
+.ranking-list {
+    list-style: none;
+    padding-left: 0;
+    margin: 0;
+    font-size: 13px;
+}
+
+.ranking-item {
+    display: flex;
+    align-items: center;
+    padding: 2px 0;
+    border-bottom: 1px solid #e5e7eb;
+}
+
+.ranking-item:last-child {
+    border-bottom: none;
+}
+
+.ranking-rank {
+    display: inline-block;
+    min-width: 1.8em;
+    font-weight: 600;
+    color: #1d4ed8;
+}
+
+.ranking-title {
+    flex: 1 1 auto;
+    word-break: break-all;
+}
+
+.ranking-empty {
+    font-size: 12px;
+    color: var(--text-sub);
+    margin: 4px 0 0;
+}
+
+.ranking-source-link {
+    margin-top: 8px;
+    font-size: 11px;
+    color: var(--text-sub);
+}
+
+.ranking-source-link a {
+    color: #2563eb;
+    text-decoration: none;
+}
+
+.ranking-source-link a:hover {
+    text-decoration: underline;
+}
+
+/* ランキング表示のレスポンシブ調整 */
+@media (max-width: 768px) {
+    .ranking-columns {
+        flex-direction: column;
+    }
+
+    .ranking-column {
+        min-width: 0;
+    }
+}
