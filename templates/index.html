@@ -53,6 +53,9 @@
         </div>
     </form>
 
+    {# ★ここでランキングを表示 #}
+    {% include "_ranking.html" %}
+
     {% if keyword or tags_input or thread_filter %}
         <h2>検索結果（{{ hit_count }}件）</h2>
 
