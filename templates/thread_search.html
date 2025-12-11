@@ -30,7 +30,7 @@
             </div>
 
             <div class="form-row">
-                <label for="board_category">板カテゴリ：</label>
+                <label for="board_category">カテゴリ：</label>
                 <select name="board_category" id="board_category">
                     {% for c in board_category_options %}
                         <option value="{{ c.id }}"
@@ -42,7 +42,7 @@
 
                 <label for="board_id">板：</label>
                 <select name="board_id" id="board_id">
-                    <option value="">（板カテゴリを先に選択）</option>
+                    <option value="">（カテゴリを先に選択）</option>
                 </select>
             </div>
 
@@ -215,7 +215,7 @@
         if (!categoryId) {
             const opt = document.createElement("option");
             opt.value = "";
-            opt.textContent = "（板カテゴリを先に選択）";
+            opt.textContent = "（カテゴリを先に選択）";
             boardSelect.appendChild(opt);
             boardSelect.disabled = true;
             return;
@@ -259,7 +259,7 @@
         const initialCategory = currentBoardCategory || boardCategorySelect.value || "";
         populateBoards(initialCategory, currentBoardId || "");
 
-        // 板カテゴリ変更時
+        // カテゴリ変更時
         boardCategorySelect.addEventListener("change", function() {
             populateBoards(this.value, "");
         });
