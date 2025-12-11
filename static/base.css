@@ -672,7 +672,7 @@ mark {
 
     .form-row {
         flex-direction: column;
-        align-items: flex-start;
+        align-items: center;
     }
 
     .form-row input[type="text"],
@@ -814,9 +814,15 @@ mark {
         flex-wrap:nowrap;
         gap:unset;
         align-items: normal;
+        justify-content: space-between;
     }
     .thread-pn-box .thread-prev-next {
         display:block;
+        max-width: 49.7%;
+    }
+    .thread-pn-box .thread-prev-next button{
+        margin: 0 auto;
+        display: block;
     }
     .thread-pn-box .thread-prev-next .thread-url {
         display: block;
