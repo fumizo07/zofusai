@@ -736,8 +736,6 @@ def show_search_page(
 
     recent_searches_view = list(RECENT_SEARCHES)[::-1]
 
-    # ★ ここでランキングを取得（失敗したら None が返る仕様）
-    ranking_osaka = get_osaka_ranking()
 
     return templates.TemplateResponse(
         "index.html",
@@ -753,7 +751,6 @@ def show_search_page(
             "error_message": error_message,
             "popular_tags": popular_tags,
             "recent_searches": recent_searches_view,
-            "ranking_osaka": ranking_osaka,
         },
     )
 
