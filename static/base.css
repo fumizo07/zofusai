@@ -807,8 +807,10 @@ mark {
     color:#6b7280;
 }
 @media (max-width: 768px) {
+    .thread-save {
+        text-align: center;
+    }
     .thread-pn-box {
-        display:block;
         flex-wrap:nowrap;
         gap:unset;
         align-items: normal;
