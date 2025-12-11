@@ -98,7 +98,16 @@
             <div class="results-summary">
                 {{ keyword }} の検索結果（{{ results|length }}件）
             </div>
-
+        
+            <div class="thread-actions-inline">
+                <form id="save-thread-form" method="post" action="/thread_search/save">
+                    <input type="hidden" name="thread_url" id="save-thread-url" value="">
+                    <button type="submit" class="btn-secondary">
+                        このスレを保存
+                    </button>
+                </form>
+            </div>
+        
             <!-- スレッド内検索フォーム（ラジオ選択＋本文キーワード） -->
             <form id="thread-post-search-form" method="post" action="/thread_search/posts">
                 <input type="hidden" name="area" value="{{ current_area }}">
