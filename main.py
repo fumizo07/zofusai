@@ -1531,6 +1531,8 @@ def thread_search_posts(
     post_keyword: str = Form(""),
     area: str = Form("7"),
     period: str = Form("3m"),
+    board_category: str = Form(""),   # ★追加
+    board_id: str = Form(""),         # ★追加
 ):
     selected_thread = (selected_thread or "").strip()
     title_keyword = (title_keyword or "").strip()
@@ -1543,6 +1545,11 @@ def thread_search_posts(
     thread_title_display: str = ""
     prev_thread_url: Optional[str] = None
     next_thread_url: Optional[str] = None
+    # ★ 追加: カテゴリ / 板情報
+    board_category = (board_category or "").strip()
+    board_id = (board_id or "").strip()
+    board_category_label: str = ""
+    board_label: str = ""
 
     if not selected_thread:
         error_message = "スレッドが選択されていません。"
@@ -1555,6 +1562,20 @@ def thread_search_posts(
                 thread_title_display = simplify_thread_title(t or "")
             except Exception:
                 thread_title_display = ""
+
+            # ★ここから追加: カテゴリ / 板のラベル決定
+            if board_category:
+                for c in BOARD_CATEGORY_OPTIONS:
+                    if c["id"] == board_category:
+                        board_category_label = c["label"]
+                        break
+
+            if board_category and board_id:
+                for b in get_board_options_for_category(board_category):
+                    if b["id"] == board_id:
+                        board_label = b["label"]
+                        break
+            # ★ここまで追加
 
             prev_thread_url, next_thread_url = find_prev_next_thread_urls(selected_thread, area)
 
@@ -1659,5 +1680,10 @@ def thread_search_posts(
             "prev_thread_url": prev_thread_url,
             "next_thread_url": next_thread_url,
             "highlight_with_links": highlight_with_links,
+            # ★追加
+            "board_category": board_category,
+            "board_id": board_id,
+            "board_category_label": board_category_label,
+            "board_label": board_label,
         },
     )
