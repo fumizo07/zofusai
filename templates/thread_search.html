@@ -112,6 +112,10 @@
             <form id="thread-post-search-form" method="post" action="/thread_search/posts">
                 <input type="hidden" name="area" value="{{ current_area }}">
                 <input type="hidden" name="period" value="{{ current_period }}">
+                <!-- ★ここを追加 -->
+                <input type="hidden" name="board_category" value="{{ current_board_category }}">
+                <input type="hidden" name="board_id" value="{{ current_board_id }}">
+                <!-- ★ここまで -->
 
                 {% for t in results %}
                     <div class="thread-item">
