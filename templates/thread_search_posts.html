@@ -74,6 +74,10 @@
             <input type="hidden" name="selected_thread" value="{{ thread_url|e }}">
             <input type="hidden" name="area" value="{{ area }}">
             <input type="hidden" name="period" value="{{ period }}">
+            <!-- ★追加 -->
+            <input type="hidden" name="board_category" value="{{ board_category }}">
+            <input type="hidden" name="board_id" value="{{ board_id }}">
+            <!-- ★ここまで -->
 
             <div class="form-row" style="margin-bottom:4px; align-items:center;">
                 <label for="post_keyword_bottom" style="min-width: 140px;">本文キーワード：</label>
@@ -110,6 +114,10 @@
                 <input type="hidden" name="post_keyword" value="{{ post_keyword|e }}">
                 <input type="hidden" name="title_keyword" value="{{ title_keyword|e }}">
                 <input type="hidden" name="selected_thread" value="{{ prev_thread_url or '' }}">
+                <!-- ★追加 -->
+                <input type="hidden" name="board_category" value="{{ board_category }}">
+                <input type="hidden" name="board_id" value="{{ board_id }}">
+                <!-- ★ここまで -->
 
                 <button
                     type="submit"
@@ -134,6 +142,10 @@
                 <input type="hidden" name="post_keyword" value="{{ post_keyword|e }}">
                 <input type="hidden" name="title_keyword" value="{{ title_keyword|e }}">
                 <input type="hidden" name="selected_thread" value="{{ next_thread_url or '' }}">
+                <!-- ★追加 -->
+                <input type="hidden" name="board_category" value="{{ board_category }}">
+                <input type="hidden" name="board_id" value="{{ board_id }}">
+                <!-- ★ここまで -->
 
                 <button
                     type="submit"
@@ -287,6 +299,10 @@
             <input type="hidden" name="selected_thread" value="{{ thread_url|e }}">
             <input type="hidden" name="area" value="{{ area }}">
             <input type="hidden" name="period" value="{{ period }}">
+            <!-- ★追加 -->
+            <input type="hidden" name="board_category" value="{{ board_category }}">
+            <input type="hidden" name="board_id" value="{{ board_id }}">
+            <!-- ★ここまで -->
 
             <div class="form-row">
                 <label for="post_keyword_bottom" style="min-width: 140px;">本文キーワード：</label>
@@ -311,6 +327,10 @@
                 <input type="hidden" name="post_keyword" value="{{ post_keyword|e }}">
                 <input type="hidden" name="title_keyword" value="{{ title_keyword|e }}">
                 <input type="hidden" name="selected_thread" value="{{ prev_thread_url or '' }}">
+                <!-- ★追加 -->
+                <input type="hidden" name="board_category" value="{{ board_category }}">
+                <input type="hidden" name="board_id" value="{{ board_id }}">
+                <!-- ★ここまで -->
 
                 <button
                     type="submit"
@@ -335,6 +355,10 @@
                 <input type="hidden" name="post_keyword" value="{{ post_keyword|e }}">
                 <input type="hidden" name="title_keyword" value="{{ title_keyword|e }}">
                 <input type="hidden" name="selected_thread" value="{{ next_thread_url or '' }}">
+                <!-- ★追加 -->
+                <input type="hidden" name="board_category" value="{{ board_category }}">
+                <input type="hidden" name="board_id" value="{{ board_id }}">
+                <!-- ★ここまで -->
 
                 <button
                     type="submit"
