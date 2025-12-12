@@ -395,6 +395,41 @@ def simplify_thread_title(title: str) -> str:
             title = title.split(sep)[0]
     return title.strip()
 
+# ★ここから追加：店舗ページ検索用のタイトル整形
+_EMOJI_PATTERN = re.compile(
+    "["  # ざっくり emoji / 記号レンジ
+    "\U0001F300-\U0001F5FF"
+    "\U0001F600-\U0001F64F"
+    "\U0001F680-\U0001F6FF"
+    "\U0001F700-\U0001F77F"
+    "\U0001F780-\U0001F7FF"
+    "\U0001F800-\U0001F8FF"
+    "\U0001F900-\U0001F9FF"
+    "\U0001FA00-\U0001FAFF"
+    "\u2600-\u26FF"
+    "\u2700-\u27BF"
+    "]"
+)
+
+
+def remove_emoji(text: str) -> str:
+    return _EMOJI_PATTERN.sub("", text or "")
+
+
+def build_store_search_title(title: str) -> str:
+    """
+    店舗ページ検索用：
+    - 絵文字を削除
+    - 末尾の「★12」「 12」などのスレ番を削る
+    """
+    if not title:
+        return ""
+    t = simplify_thread_title(title)
+    t = remove_emoji(t)
+    # 末尾の記号＋数字だけをざっくり落とす（★12 / 12 / ★ 12 など）
+    t = re.sub(r"[\s　]*[★☆◇◆◎○●⚫⚪※✕✖️✖︎-]*\s*\d{1,3}\s*$", "", t)
+    return t.strip()
+# ★ここまで追加
 
 def parse_anchors_csv(s: Optional[str]) -> List[int]:
     if not s:
@@ -734,6 +769,8 @@ def show_search_page(
                         block = {
                             "thread_url": thread_url,
                             "thread_title": title,
+                            # ★追加：店舗ページ検索用に整形済みタイトルを持たせる
+                            "store_title": build_store_search_title(title),
                             "entries": [],
                         }
                         thread_map[thread_url] = block
