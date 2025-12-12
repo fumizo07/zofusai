@@ -4,7 +4,7 @@
 {% set active_page = "thread_search" %}
 {% include "_header.html" %}
 
-{% set store_title = thread_title or title_keyword or '' %}
+{% set store_title = store_base_title or thread_title or title_keyword or '' %}
 
 <main>
     <!-- 上部：スレ情報＋再検索・保存など -->
