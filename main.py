@@ -330,33 +330,59 @@ def to_katakana(s: str) -> str:
     return "".join(result)
 
 
+# ★追加：小書き母音を通常の「あいうえお」に揃えるマップ
+SMALL_KANA_MAP = str.maketrans(
+    {
+        "ぁ": "あ",
+        "ぃ": "い",
+        "ぅ": "う",
+        "ぇ": "え",
+        "ぉ": "お",
+    }
+)
+
 def normalize_for_search(s: Optional[str]) -> str:
     """
     検索用の正規化：
     - NFKC
     - カタカナ → ひらがな
+    - 小書き母音（ぁぃぅぇぉ）を通常のあいうえおに揃える
     - 小文字化
     """
     if s is None:
         return ""
     s = unicodedata.normalize("NFKC", s)
     s = to_hiragana(s)
+    s = s.translate(SMALL_KANA_MAP)
     s = s.lower()
     return s
 
 
+
 def _build_highlight_variants(keyword: str) -> List[str]:
     """
-    強調表示のときに、ひらがな/カタカナ両対応でマッチさせるためのバリアント生成
+    強調表示用のバリアント生成：
+    - NFKC
+    - ひらがな / カタカナ両対応
+    - 小書き母音（ぁぃぅぇぉ）を通常のあいうえおに揃えた形も含める
     """
     if not keyword:
         return []
     base = unicodedata.normalize("NFKC", keyword)
     hira = to_hiragana(base)
     kata = to_katakana(hira)
-    variants = {base, hira, kata}
-    variants = {v for v in variants if v}
+
+    raw_variants = {base, hira, kata}
+    expanded: set[str] = set()
+    for v in raw_variants:
+        if not v:
+            continue
+        expanded.add(v)
+        expanded.add(v.translate(SMALL_KANA_MAP))
+
+    variants = {v for v in expanded if v}
     return sorted(variants, key=len, reverse=True)
+
 
 
 def highlight_text(text_value: Optional[str], keyword: str) -> Markup:
