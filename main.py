@@ -1587,6 +1587,7 @@ def thread_search_posts(
     board_id = (board_id or "").strip()
     board_category_label: str = ""
     board_label: str = ""
+    store_base_title: str = ""
 
     if not selected_thread:
         error_message = "スレッドが選択されていません。"
@@ -1599,6 +1600,9 @@ def thread_search_posts(
                 thread_title_display = simplify_thread_title(t or "")
             except Exception:
                 thread_title_display = ""
+            # ★追加：店舗ページ検索用タイトル
+            store_base_title = build_store_search_title(thread_title_display or title_keyword)
+
 
             # ★ここから追加: カテゴリ / 板のラベル決定
             if board_category:
@@ -1722,5 +1726,7 @@ def thread_search_posts(
             "board_id": board_id,
             "board_category_label": board_category_label,
             "board_label": board_label,
+            # ★追加
+            "store_base_title": store_base_title,
         },
     )
