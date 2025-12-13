@@ -1,0 +1,49 @@
+{% set page_title_suffix = "全レス表示" %}
+{% set body_class = "page-thread-posts" %}
+{% set active_page = "thread_search" %}
+{% include "_header.html" %}
+
+<main>
+  <section class="card">
+    <div class="section-title">スレッド情報（全レス表示）</div>
+
+    <p class="back-link">
+      <a href="/thread_search?area={{ area }}&period={{ period }}&keyword={{ title_keyword|urlencode }}">
+        外部検索に戻る
+      </a>
+    </p>
+
+    {% if error_message %}
+      <div class="error">{{ error_message }}</div>
+    {% endif %}
+
+    <div class="thread-info">
+      <div>タイトル：{{ thread_title or "（取得できませんでした）" }}</div>
+      <div class="thread-url">URL：{{ thread_url }}</div>
+      {% if posts %}
+        <div>取得レス数：{{ posts|length }}件</div>
+      {% endif %}
+    </div>
+  </section>
+
+  <section class="card">
+    {% if posts and not error_message %}
+      <h2>全レス（{{ posts|length }}件）</h2>
+
+      {% for p in posts %}
+        <div class="result">
+          <div class="result-id">
+            {% if p.post_no %}レス #{{ p.post_no }}{% else %}レス番号不明{% endif %}
+            {% if p.posted_at %}／ {{ p.posted_at }}{% endif %}
+          </div>
+          <div class="result-text">{{ p.body }}</div>
+        </div>
+      {% endfor %}
+    {% elif not error_message %}
+      <p class="no-result">レスを取得できませんでした。</p>
+    {% endif %}
+  </section>
+</main>
+
+</body>
+</html>
