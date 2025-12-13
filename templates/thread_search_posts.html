@@ -6,6 +6,90 @@
 
 {% set store_title = store_base_title or thread_title or title_keyword or '' %}
 
+<button
+    type="button"
+    class="hamburger-button"
+    id="quickMenuToggle"
+    aria-label="クイックメニュー"
+>
+    <span class="hamburger-button-inner">
+        <span class="hamburger-line"></span>
+        <span class="hamburger-line"></span>
+        <span class="hamburger-line"></span>
+    </span>
+</button>
+
+<div class="quick-menu-overlay" id="quickMenuOverlay">
+    <div class="quick-menu-panel">
+        <div class="quick-menu-header">
+            <div class="quick-menu-title">メニュー</div>
+            <button type="button" class="quick-menu-close" aria-label="閉じる">
+                ×
+            </button>
+        </div>
+        <div class="quick-menu-content">
+
+            <div class="quick-menu-section">
+                <div class="quick-menu-section-title">スレッド情報</div>
+                <div style="font-size:13px;">
+                    <div>タイトル：{{ thread_title or "（取得できませんでした）" }}</div>
+                    <div class="thread-url">URL：{{ thread_url }}</div>
+                    <div>
+                        タイトルキーワード：<strong>{{ title_keyword or '（未指定）' }}</strong><br>
+                        本文キーワード：<strong>{{ post_keyword or '（未指定）' }}</strong>
+                    </div>
+                </div>
+            </div>
+
+            <div class="quick-menu-section">
+                <div class="quick-menu-section-title">別キーワードで再検索</div>
+                <form method="post" action="/thread_search/posts" class="quick-menu-form">
+                    <input type="hidden" name="selected_thread" value="{{ thread_url|e }}">
+                    <input type="hidden" name="area" value="{{ area }}">
+                    <input type="hidden" name="period" value="{{ period }}">
+
+                    <div class="form-row">
+                        <label>本文キーワード：</label>
+                        <input
+                            type="text"
+                            name="post_keyword"
+                            value="{{ post_keyword|e }}"
+                        >
+                    </div>
+
+                    <div class="form-row">
+                        <button type="submit" class="btn-primary">このスレで再検索</button>
+                    </div>
+                </form>
+            </div>
+
+            {% if not error_message %}
+            <div class="quick-menu-section">
+                <div class="quick-menu-section-title">保存</div>
+                <form method="post" action="/thread_search/save">
+                    <input type="hidden" name="thread_url" value="{{ thread_url|e }}">
+                    <button type="submit" class="btn-secondary">このスレを保存</button>
+                </form>
+            </div>
+            {% endif %}
+
+            <div class="quick-menu-section">
+                <div class="quick-menu-section-title">スレ検索</div>
+                <div class="quick-menu-links">
+                    <a href="/thread_search?area={{ area }}&period={{ period }}&keyword={{ title_keyword|urlencode }}">
+                        外部検索に戻る
+                    </a>
+                    <a href="/">
+                        内部検索に戻る
+                    </a>
+                </div>
+            </div>
+
+        </div>
+    </div>
+</div>
+
+
 <main>
     <!-- 上部：スレ情報＋再検索・保存など -->
     <section class="card">
@@ -472,6 +556,56 @@ document.addEventListener("DOMContentLoaded", function() {
             });
 
             line.insertAdjacentElement("afterend", btn);
+        }
+    });
+});
+
+
+/**
+ * クイックメニュー（外部スレッド内検索ページ）
+ */
+document.addEventListener("DOMContentLoaded", function() {
+    var toggle = document.getElementById("quickMenuToggle");
+    var overlay = document.getElementById("quickMenuOverlay");
+    if (!toggle || !overlay) {
+        return;
+    }
+
+    var closeBtn = overlay.querySelector(".quick-menu-close");
+
+    function openMenu() {
+        overlay.classList.add("open");
+        document.body.classList.add("quick-menu-open");
+    }
+
+    function closeMenu() {
+        overlay.classList.remove("open");
+        document.body.classList.remove("quick-menu-open");
+    }
+
+    toggle.addEventListener("click", function() {
+        if (overlay.classList.contains("open")) {
+            closeMenu();
+        } else {
+            openMenu();
+        }
+    });
+
+    if (closeBtn) {
+        closeBtn.addEventListener("click", function() {
+            closeMenu();
+        });
+    }
+
+    overlay.addEventListener("click", function(e) {
+        if (e.target === overlay) {
+            closeMenu();
+        }
+    });
+
+    document.addEventListener("keydown", function(e) {
+        if (e.key === "Escape" && overlay.classList.contains("open")) {
+            closeMenu();
         }
     });
 });
