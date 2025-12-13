@@ -128,15 +128,16 @@
                             <div style="flex:1 1 auto;">
                                 <div class="thread-title">
                                     {{ t.title }}
+                                    　<a 
+                                        class="btn-sm primary"
+                                        href="/thread_search/showall?url={{ t.url|urlencode }}&area={{ current_area }}&period={{ current_period }}&title_keyword={{ keyword|urlencode }}"
+                                         target="_blank">
+                                        全レス表示
+                                    </a>
                                 </div>
                                 <div class="thread-meta">
                                     最新レス：{{ t.last_post_at_str }}<br>
                                     スレURL：{{ t.url }}
-                                    <a 
-                                        class="btn-sm primary"
-                                        href="/thread_search/showall?url={{ t.url|urlencode }}&area={{ current_area }}&period={{ current_period }}&title_keyword={{ keyword|urlencode }}">
-                                        全レス表示
-                                    </a>
                                 </div>
                             </div>
                         </label>
