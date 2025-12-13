@@ -7,6 +7,7 @@ from typing import List, Optional, Dict
 from collections import defaultdict, deque
 from datetime import datetime, timedelta
 from urllib.parse import quote_plus, urlencode
+from urllib.parse import urlparse
 
 import requests
 from bs4 import BeautifulSoup
@@ -1586,6 +1587,84 @@ def clear_external_history(request: Request):
 # =========================
 # 外部スレッド内検索
 # =========================
+def _is_valid_bakusai_thread_url(u: str) -> bool:
+    """
+    SSRF対策：取得対象URLを爆サイのスレURLに限定する
+    """
+    try:
+        p = urlparse(u)
+    except Exception:
+        return False
+
+    if p.scheme not in ("http", "https"):
+        return False
+
+    host = (p.netloc or "").lower()
+    if host not in ("bakusai.com", "www.bakusai.com"):
+        return False
+
+    path = p.path or ""
+    # スレ本体（/thr_res/）だけ許可（必要なら後で緩められます）
+    if "/thr_res/" not in path:
+        return False
+
+    return True
+
+@app.get("/thread_search/showall", response_class=HTMLResponse)
+def thread_showall_page(
+    request: Request,
+    url: str = "",
+    area: str = "7",
+    period: str = "3m",
+    title_keyword: str = "",
+):
+    url = (url or "").strip()
+    area = (area or "").strip() or "7"
+    period = (period or "").strip() or "3m"
+    title_keyword = (title_keyword or "").strip()
+
+    error_message = ""
+    thread_title_display = ""
+
+    posts_sorted: List[object] = []
+
+    if not url:
+        error_message = "URLが指定されていません。"
+    elif not _is_valid_bakusai_thread_url(url):
+        error_message = "爆サイのスレURLのみ表示できます。"
+    else:
+        try:
+            try:
+                t = get_thread_title(url)
+                thread_title_display = simplify_thread_title(t or "")
+            except Exception:
+                thread_title_display = ""
+
+            all_posts = fetch_posts_from_thread(url)
+
+            def _post_key(p):
+                return p.post_no if getattr(p, "post_no", None) is not None else 10**9
+
+            posts_sorted = sorted(list(all_posts), key=_post_key)
+        except Exception as e:
+            error_message = f"全レス取得中にエラーが発生しました: {e}"
+            posts_sorted = []
+
+    return templates.TemplateResponse(
+        "thread_showall.html",
+        {
+            "request": request,
+            "thread_url": url,
+            "thread_title": thread_title_display,
+            "area": area,
+            "period": period,
+            "title_keyword": title_keyword,
+            "posts": posts_sorted,
+            "error_message": error_message,
+        },
+    )
+
+
 @app.post("/thread_search/posts", response_class=HTMLResponse)
 def thread_search_posts(
     request: Request,
