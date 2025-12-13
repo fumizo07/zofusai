@@ -460,28 +460,30 @@ document.addEventListener("DOMContentLoaded", function() {
 
 
 /**
- * クイックメニュー（内部検索ページ）
+ * ハンバーガーメニュー開閉
  */
 document.addEventListener("DOMContentLoaded", function() {
-    var toggle = document.getElementById("quickMenuToggle");
-    var overlay = document.getElementById("quickMenuOverlay");
-    if (!toggle || !overlay) {
+    const btn = document.getElementById("hamburgerButton");
+    const overlay = document.getElementById("quickMenuOverlay");
+
+    if (!btn || !overlay) {
         return;
     }
 
-    var closeBtn = overlay.querySelector(".quick-menu-close");
-
     function openMenu() {
         overlay.classList.add("open");
+        btn.classList.add("open");
         document.body.classList.add("quick-menu-open");
     }
 
     function closeMenu() {
         overlay.classList.remove("open");
+        btn.classList.remove("open");
         document.body.classList.remove("quick-menu-open");
     }
 
-    toggle.addEventListener("click", function() {
+    // ボタンでトグル
+    btn.addEventListener("click", function() {
         if (overlay.classList.contains("open")) {
             closeMenu();
         } else {
@@ -489,20 +491,22 @@ document.addEventListener("DOMContentLoaded", function() {
         }
     });
 
-    if (closeBtn) {
-        closeBtn.addEventListener("click", function() {
-            closeMenu();
-        });
-    }
-
-    // 背景クリックで閉じる
+    // オーバーレイの黒い部分をクリックで閉じる
     overlay.addEventListener("click", function(e) {
         if (e.target === overlay) {
             closeMenu();
         }
     });
 
-    // ESCキーで閉じる
+    // パネル内の「×」ボタンで閉じる
+    const closeBtn = overlay.querySelector(".quick-menu-close");
+    if (closeBtn) {
+        closeBtn.addEventListener("click", function() {
+            closeMenu();
+        });
+    }
+
+    // Escキーでも閉じる（PC用）
     document.addEventListener("keydown", function(e) {
         if (e.key === "Escape" && overlay.classList.contains("open")) {
             closeMenu();
@@ -510,6 +514,7 @@ document.addEventListener("DOMContentLoaded", function() {
     });
 });
 </script>
+
 
 </body>
 </html>
