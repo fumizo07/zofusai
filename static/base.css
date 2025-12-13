@@ -828,3 +828,159 @@ mark {
         display: block;
     }
 }
+
+/* =========================
+   ハンバーガーメニュー共通
+   ========================= */
+.hamburger-button {
+    position: fixed;
+    top: 10px;
+    right: 10px;
+    z-index: 1000;
+    width: 36px;
+    height: 32px;
+    border-radius: 999px;
+    border: 1px solid #d1d5db;
+    background: #ffffff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.15);
+}
+
+.hamburger-button-inner {
+    width: 18px;
+    height: 14px;
+    position: relative;
+}
+
+.hamburger-line {
+    position: absolute;
+    left: 0;
+    right: 0;
+    height: 2px;
+    border-radius: 2px;
+    background: #111827;
+}
+
+.hamburger-line:nth-child(1) {
+    top: 0;
+}
+.hamburger-line:nth-child(2) {
+    top: 6px;
+}
+.hamburger-line:nth-child(3) {
+    top: 12px;
+}
+
+/* オーバーレイ全体 */
+.quick-menu-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 999;
+    display: none;              /* 初期は非表示 */
+    align-items: stretch;
+    justify-content: flex-end;
+    background: rgba(0,0,0,0.35);
+}
+
+/* open 時に表示 */
+.quick-menu-overlay.open {
+    display: flex;
+}
+
+/* メニューパネル本体 */
+.quick-menu-panel {
+    width: 100%;
+    max-width: 360px;
+    background: #ffffff;
+    box-shadow: -2px 0 8px rgba(0,0,0,0.2);
+    display: flex;
+    flex-direction: column;
+    max-height: 100vh;
+}
+
+/* パネル内ヘッダー */
+.quick-menu-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 12px;
+    border-bottom: 1px solid #e5e7eb;
+}
+
+.quick-menu-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: #111827;
+}
+
+.quick-menu-close {
+    border: none;
+    background: transparent;
+    cursor: pointer;
+    font-size: 18px;
+    line-height: 1;
+    padding: 4px 6px;
+    color: #4b5563;
+}
+
+/* 中身スクロール領域 */
+.quick-menu-content {
+    padding: 12px;
+    overflow-y: auto;
+}
+
+/* メニュー内の小見出し・ブロック */
+.quick-menu-section-title {
+    font-size: 13px;
+    font-weight: 600;
+    margin: 8px 0 6px;
+    color: #111827;
+}
+
+.quick-menu-section {
+    font-size: 13px;
+    margin-bottom: 10px;
+}
+
+/* メニュー内フォームを少し詰め気味に */
+.quick-menu-form .form-row {
+    margin-bottom: 6px;
+}
+
+.quick-menu-form label {
+    font-size: 12px;
+}
+
+.quick-menu-form input[type="text"] {
+    font-size: 13px;
+}
+
+/* メニュー内のリンク */
+.quick-menu-links {
+    font-size: 13px;
+    margin-top: 8px;
+}
+
+.quick-menu-links a {
+    color: #2563eb;
+    text-decoration: none;
+}
+
+.quick-menu-links a:hover {
+    text-decoration: underline;
+}
+
+/* メニューオープン時にスクロールロックしたくなったらこれを body に付ける */
+body.quick-menu-open {
+    overflow: hidden;
+}
+
+/* スマホではパネルを少し広めにしてもOK */
+@media (max-width: 600px) {
+    .quick-menu-panel {
+        max-width: 100%;
+    }
+}
