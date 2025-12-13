@@ -879,7 +879,7 @@ mark {
     position: fixed;
     inset: 0;
     z-index: 999;
-    display: none;              /* 初期は非表示 */
+    display: none;              /* ★ここが超重要：最初は非表示 */
     align-items: stretch;
     justify-content: flex-end;
     background: rgba(0,0,0,0.35);
@@ -984,3 +984,4 @@ body.quick-menu-open {
         max-width: 100%;
     }
 }
+
