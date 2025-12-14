@@ -8,6 +8,9 @@ from collections import defaultdict, deque
 from datetime import datetime, timedelta
 from urllib.parse import quote_plus, urlencode
 from urllib.parse import urlparse
+from types import SimpleNamespace
+from sqlalchemy import DateTime, UniqueConstraint
+
 
 import requests
 from bs4 import BeautifulSoup
@@ -72,6 +75,42 @@ def get_db():
         yield db
     finally:
         db.close()
+
+# =========================
+# 外部検索：スレ全文キャッシュ（DB）
+# =========================
+
+THREAD_CACHE_TTL = timedelta(hours=6)   # ここは好みで調整（例：30分〜24時間）
+MAX_CACHED_THREADS = 300                # ここも好みで調整（例：100〜1000）
+
+
+class CachedThread(Base):
+    """
+    スレ単位のキャッシュ管理（いつ取得したか、いつ使ったか）
+    """
+    __tablename__ = "cached_threads"
+
+    thread_url = Column(Text, primary_key=True)
+    fetched_at = Column(DateTime, nullable=False)        # 最後にWebから取得した時刻
+    last_accessed_at = Column(DateTime, nullable=False)  # 最後にこのキャッシュを使った時刻
+
+
+class CachedPost(Base):
+    """
+    スレの各レス（全文キャッシュ）
+    """
+    __tablename__ = "cached_posts"
+
+    id = Column(Integer, primary_key=True, index=True)
+    thread_url = Column(Text, nullable=False, index=True)
+    post_no = Column(Integer, nullable=True, index=True)
+    posted_at = Column(Text, nullable=True)
+    body = Column(Text, nullable=False)
+    anchors = Column(Text, nullable=True)
+
+    __table_args__ = (
+        UniqueConstraint("thread_url", "post_no", name="uq_cached_posts_thread_postno"),
+    )
 
 
 # =========================
@@ -510,6 +549,146 @@ def parse_posted_at_value(value: str) -> Optional[datetime]:
         except ValueError:
             continue
     return None
+
+def _evict_old_cached_threads(db: Session) -> None:
+    """
+    キャッシュが増えすぎたら、最終アクセスが古いスレから削除する。
+    """
+    try:
+        cnt = db.query(func.count(CachedThread.thread_url)).scalar() or 0
+        if cnt <= MAX_CACHED_THREADS:
+            return
+
+        over = cnt - MAX_CACHED_THREADS
+        old_threads = (
+            db.query(CachedThread)
+            .order_by(CachedThread.last_accessed_at.asc())
+            .limit(over)
+            .all()
+        )
+
+        for t in old_threads:
+            db.query(CachedPost).filter(CachedPost.thread_url == t.thread_url).delete(synchronize_session=False)
+            db.query(CachedThread).filter(CachedThread.thread_url == t.thread_url).delete(synchronize_session=False)
+
+        db.commit()
+    except Exception:
+        db.rollback()
+
+
+def _save_thread_posts_to_cache(db: Session, thread_url: str, posts: List[object]) -> None:
+    """
+    scraper.fetch_posts_from_thread() の結果を、キャッシュDBに保存する。
+    （安全優先：一旦そのスレのキャッシュを全削除→入れ直し）
+    """
+    now = datetime.utcnow()
+
+    # スレ分を全消し→入れ直し（堅牢だがシンプル）
+    db.query(CachedPost).filter(CachedPost.thread_url == thread_url).delete(synchronize_session=False)
+
+    bulk = []
+    for p in posts:
+        body = (getattr(p, "body", None) or "").strip()
+        if not body:
+            continue
+
+        post_no = getattr(p, "post_no", None)
+        posted_at = getattr(p, "posted_at", None)
+
+        # anchors は list[int] 想定（scraperの構造）
+        anchors_list = getattr(p, "anchors", None)
+        if anchors_list:
+            anchors_str = "," + ",".join(str(a) for a in anchors_list) + ","
+        else:
+            anchors_str = None
+
+        bulk.append(
+            CachedPost(
+                thread_url=thread_url,
+                post_no=post_no,
+                posted_at=posted_at,
+                body=body,
+                anchors=anchors_str,
+            )
+        )
+
+    if bulk:
+        db.bulk_save_objects(bulk)
+
+    meta = db.query(CachedThread).filter(CachedThread.thread_url == thread_url).first()
+    if not meta:
+        meta = CachedThread(
+            thread_url=thread_url,
+            fetched_at=now,
+            last_accessed_at=now,
+        )
+        db.add(meta)
+    else:
+        meta.fetched_at = now
+        meta.last_accessed_at = now
+
+    db.commit()
+
+    # 上限超えたら削除
+    _evict_old_cached_threads(db)
+
+
+def _load_thread_posts_from_cache(db: Session, thread_url: str) -> List[CachedPost]:
+    return (
+        db.query(CachedPost)
+        .filter(CachedPost.thread_url == thread_url)
+        .order_by(CachedPost.post_no.asc().nullslast(), CachedPost.id.asc())
+        .all()
+    )
+
+
+def get_thread_posts_cached(db: Session, thread_url: str) -> List[object]:
+    """
+    外部検索用：
+    - キャッシュが新しければDBから返す
+    - 古い/無ければWebから取得してDB保存して返す
+    返すのは「scraperのpostっぽいオブジェクト」（templatesが壊れない形）
+    """
+    thread_url = (thread_url or "").strip()
+    if not thread_url:
+        return []
+
+    now = datetime.utcnow()
+    meta = db.query(CachedThread).filter(CachedThread.thread_url == thread_url).first()
+
+    need_refresh = True
+    if meta:
+        # TTL内なら refreshしない
+        if now - meta.fetched_at < THREAD_CACHE_TTL:
+            need_refresh = False
+
+    if need_refresh:
+        posts = fetch_posts_from_thread(thread_url)
+        _save_thread_posts_to_cache(db, thread_url, list(posts))
+        cached_rows = _load_thread_posts_from_cache(db, thread_url)
+    else:
+        # アクセス時刻更新
+        try:
+            meta.last_accessed_at = now
+            db.commit()
+        except Exception:
+            db.rollback()
+        cached_rows = _load_thread_posts_from_cache(db, thread_url)
+
+    # cached_rows(SQLAlchemy) -> scraperっぽい形へ
+    result = []
+    for r in cached_rows:
+        result.append(
+            SimpleNamespace(
+                post_no=r.post_no,
+                posted_at=r.posted_at,
+                body=r.body,
+                anchors=parse_anchors_csv(r.anchors),
+            )
+        )
+
+    return result
+
 
 def linkify_anchors_in_html(thread_url: str, html: str) -> Markup:
     """
@@ -1640,7 +1819,7 @@ def thread_showall_page(
             except Exception:
                 thread_title_display = ""
 
-            all_posts = fetch_posts_from_thread(url)
+            all_posts = get_thread_posts_cached(db, url)
 
             def _post_key(p):
                 return p.post_no if getattr(p, "post_no", None) is not None else 10**9
@@ -1675,6 +1854,7 @@ def thread_search_posts(
     period: str = Form("3m"),
     board_category: str = Form(""),   # ★追加
     board_id: str = Form(""),         # ★追加
+    db: Session = Depends(get_db),   # ★これを追加
 ):
     selected_thread = (selected_thread or "").strip()
     title_keyword = (title_keyword or "").strip()
@@ -1725,7 +1905,7 @@ def thread_search_posts(
 
             prev_thread_url, next_thread_url = find_prev_next_thread_urls(selected_thread, area)
 
-            all_posts = fetch_posts_from_thread(selected_thread)
+            all_posts = get_thread_posts_cached(db, selected_thread)
 
             # post_no でソートしておく（コンテキスト順がバラつかないように）
             def _post_key(p):
