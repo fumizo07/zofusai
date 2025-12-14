@@ -28,6 +28,10 @@
                     <div>タイトル：{{ thread_title or "（取得できませんでした）" }}</div>
                     <div class="thread-url">URL：{{ thread_url }}</div>
                     <div>
+                        カテゴリ：<strong>{{ board_category_label or '（未指定）' }}</strong><br>
+                        板：<strong>{{ board_label or '（未指定）' }}</strong>
+                    </div>
+                    <div>
                         タイトルキーワード：<strong>{{ title_keyword or '（未指定）' }}</strong><br>
                         本文キーワード：<strong>{{ post_keyword or '（未指定）' }}</strong>
                     </div>
@@ -40,6 +44,9 @@
                     <input type="hidden" name="selected_thread" value="{{ thread_url|e }}">
                     <input type="hidden" name="area" value="{{ area }}">
                     <input type="hidden" name="period" value="{{ period }}">
+                    <input type="hidden" name="board_category" value="{{ board_category|e }}">
+                    <input type="hidden" name="board_id" value="{{ board_id|e }}">
+
 
                     <div class="form-row">
                         <label>本文キーワード：</label>
