@@ -150,6 +150,11 @@
                 <div class="form-row">
                     <label for="post_keyword">本文キーワード：</label>
                     <input type="text" id="post_keyword" name="post_keyword" value="" />
+                    <input type="hidden" name="selected_thread" value="{{ thread_url|e }}">
+                    <input type="hidden" name="area" value="{{ area }}">
+                    <input type="hidden" name="period" value="{{ period }}">
+                    <input type="hidden" name="board_category" value="{{ board_category|e }}">
+                    <input type="hidden" name="board_id" value="{{ board_id|e }}">
                     <button type="submit" class="btn-primary">
                         スレッド内検索
                     </button>
