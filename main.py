@@ -1796,6 +1796,7 @@ def thread_showall_page(
     area: str = "7",
     period: str = "3m",
     title_keyword: str = "",
+    db: Session = Depends(get_db),  # ★これを追加
 ):
     url = (url or "").strip()
     area = (area or "").strip() or "7"
