@@ -9,7 +9,7 @@ from app.db.session import get_db
 from app.db.models import ThreadPost
 from app.web.templates import templates
 from app.services.text_utils import simplify_thread_title, normalize_for_search
-from app.services.bakusai_service import find_prev_next_thread_urls
+from app.services.client_service import find_prev_next_thread_urls
 from scraper import fetch_posts_from_thread, ScrapingError, get_thread_title
 
 
