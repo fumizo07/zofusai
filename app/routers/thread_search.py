@@ -9,7 +9,7 @@ from collections import defaultdict
 from app.db.session import get_db
 from app.web.templates import templates
 from app.state import EXTERNAL_SEARCHES
-from app.constants.bakusai import (
+from app.constants.catalog import (
     AREA_OPTIONS,
     PERIOD_OPTIONS,
     BOARD_CATEGORY_OPTIONS,
@@ -17,7 +17,7 @@ from app.constants.bakusai import (
     get_period_days,
     get_board_options_for_category,
 )
-from app.services.bakusai_service import (
+from app.services.client_service import (
     search_threads_external,
     _is_valid_bakusai_thread_url,
     find_prev_next_thread_urls,
