@@ -1985,10 +1985,6 @@ def thread_search_posts(
 
         except Exception as e:
             error_message = f"スレッド内検索中にエラーが発生しました: {e}"
-
-
-        except Exception as e:
-            error_message = f"スレッド内検索中にエラーが発生しました: {e}"
             entries = []
 
     return templates.TemplateResponse(
