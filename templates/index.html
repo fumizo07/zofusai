@@ -96,6 +96,10 @@
         <p class="error-message">{{ error_message }}</p>
     {% endif %}
 
+    {% if info_message %}
+        <p class="muted" style="margin-top:6px;">{{ info_message }}</p>
+    {% endif %}
+
     <!-- 上部検索フォーム -->
     <form method="get" action="/">
         <label for="q">キーワード：</label><br>
@@ -157,8 +161,12 @@
                             {% if store_title %}
                             <div class="store-search">
                                 <span class="store-search-label">店舗ページ検索：</span>
+
+                                {% set city_url = thread.store_cityheaven_url if thread.store_cityheaven_url is defined else ("https://www.google.com/search?q=" ~ ("site:cityheaven.net " ~ store_title)|urlencode) %}
+                                {% set dto_url  = thread.store_dto_url if thread.store_dto_url is defined else ("https://www.google.com/search?q=" ~ ("site:dto.jp " ~ store_title)|urlencode) %}
+
                                 <a
-                                    href="https://www.google.com/search?q={{ ('site:cityheaven.net ' ~ store_title)|urlencode }}"
+                                    href="{{ city_url }}"
                                     target="_blank"
                                     rel="noopener noreferrer"
                                     class="btn-mini"
@@ -166,7 +174,7 @@
                                     シティヘブン
                                 </a>
                                 <a
-                                    href="https://www.google.com/search?q={{ ('デリヘルタウン ' ~ store_title)|urlencode }}"
+                                    href="{{ dto_url }}"
                                     target="_blank"
                                     rel="noopener noreferrer"
                                     class="btn-mini"
@@ -206,7 +214,7 @@
                     <div class="thread-results">
                         {% for item in thread.entries %}
                             {% set post = item.root %}
-                            <div class="result">
+                            <div class="result" {% if post.post_no %}data-post-no="{{ post.post_no }}"{% endif %}>
 
                                 {# ★ 各ヒットレスの一番上に「名前で店舗ページ検索」 #}
                                 {% if store_title %}
@@ -255,7 +263,7 @@
                                 {% if item.anchor_targets %}
                                     <div class="section-title">このレスが参照しているレス</div>
                                     {% for a in item.anchor_targets %}
-                                        <div class="context-line">
+                                        <div class="context-line" {% if a.post_no %}data-post-no="{{ a.post_no }}"{% endif %}>
                                             {% if a.post_no %}
                                                 #{{ a.post_no }}
                                             {% else %}
@@ -272,7 +280,7 @@
                                 <div class="section-title">このレスへの返信ツリー</div>
                                 {% if item.tree %}
                                     {% for node in item.tree %}
-                                        <div class="tree-item" style="margin-left: {{ node.depth * 20 }}px;">
+                                        <div class="tree-item" style="margin-left: {{ node.depth * 20 }}px;" {% if node.post.post_no %}data-post-no="{{ node.post.post_no }}"{% endif %}>
                                             <div class="tree-meta">
                                                 {% if node.post.post_no %}
                                                     #{{ node.post.post_no }}
@@ -293,7 +301,7 @@
                                 {% if item.context %}
                                     <div class="section-title">このレスの前後（コンテキスト）</div>
                                     {% for c in item.context %}
-                                        <div class="context-line {% if c.id == post.id %}context-line-root{% endif %}">
+                                        <div class="context-line {% if c.id == post.id %}context-line-root{% endif %}" {% if c.post_no %}data-post-no="{{ c.post_no }}"{% endif %}>
                                             {% if c.post_no %}
                                                 #{{ c.post_no }}
                                             {% else %}
@@ -397,7 +405,8 @@ document.addEventListener("DOMContentLoaded", function() {
                 if (site === "city") {
                     query = "site:cityheaven.net " + storeTitle + " " + name;
                 } else if (site === "deli") {
-                    query = "デリヘルタウン " + storeTitle + " " + name;
+                    // ★ dto.jp を site: 検索
+                    query = "site:dto.jp " + storeTitle + " " + name;
                 } else {
                     query = storeTitle + " " + name;
                 }
@@ -427,7 +436,6 @@ document.addEventListener("DOMContentLoaded", function() {
 
         const maxHeight = lineHeight * maxLines;
 
-        // 実際の高さが3行分より大きければ「もっと読む」対象
         if (line.scrollHeight > maxHeight + 2) {
             line.classList.add("context-collapsed");
 
@@ -451,6 +459,38 @@ document.addEventListener("DOMContentLoaded", function() {
     });
 });
 
+/**
+ * ★アンカープレビュー：>>123 にホバーすると、このページ内にある #123 の本文を title で見せる
+ *（ページ内に無ければ「未表示」と出す）
+ */
+document.addEventListener("DOMContentLoaded", function() {
+    const map = new Map();
+
+    document.querySelectorAll("[data-post-no]").forEach(function(el) {
+        const no = el.getAttribute("data-post-no");
+        if (!no || map.has(no)) return;
+
+        const bodyEl = el.querySelector(".result-text, .tree-body, .anchor-body, .post-body");
+        if (!bodyEl) return;
+
+        const txt = (bodyEl.textContent || "").trim().replace(/\s+/g, " ");
+        if (!txt) return;
+
+        map.set(no, txt.slice(0, 220));
+    });
+
+    document.querySelectorAll("a.anchor-link[data-anchor-no]").forEach(function(a) {
+        const no = a.getAttribute("data-anchor-no");
+        if (!no) return;
+
+        const snippet = map.get(no);
+        if (snippet) {
+            a.setAttribute("title", ">>" + no + " " + snippet);
+        } else {
+            a.setAttribute("title", ">>" + no + "（このページ内に未表示）");
+        }
+    });
+});
 
 /**
  * ハンバーガーメニュー開閉
@@ -475,7 +515,6 @@ document.addEventListener("DOMContentLoaded", function() {
         document.body.classList.remove("quick-menu-open");
     }
 
-    // ボタンでトグル
     btn.addEventListener("click", function() {
         if (overlay.classList.contains("open")) {
             closeMenu();
@@ -484,14 +523,12 @@ document.addEventListener("DOMContentLoaded", function() {
         }
     });
 
-    // オーバーレイの黒い部分をクリックで閉じる
     overlay.addEventListener("click", function(e) {
         if (e.target === overlay) {
             closeMenu();
         }
     });
 
-    // パネル内の「×」ボタンで閉じる
     const closeBtn = overlay.querySelector(".quick-menu-close");
     if (closeBtn) {
         closeBtn.addEventListener("click", function() {
@@ -499,7 +536,6 @@ document.addEventListener("DOMContentLoaded", function() {
         });
     }
 
-    // Escキーでも閉じる（PC用）
     document.addEventListener("keydown", function(e) {
         if (e.key === "Escape" && overlay.classList.contains("open")) {
             closeMenu();
@@ -507,7 +543,6 @@ document.addEventListener("DOMContentLoaded", function() {
     });
 });
 </script>
-
 
 </body>
 </html>
