@@ -1,28 +1,11 @@
-# main.py
 import os
 import re
-import unicodedata
 import secrets
 import json
-from typing import List, Optional, Dict
 from collections import defaultdict, deque
-from datetime import datetime, timedelta
-from urllib.parse import quote_plus, urlencode
-from urllib.parse import urlparse
-from types import SimpleNamespace
-from sqlalchemy import DateTime, UniqueConstraint
-
-# constants.pyから読み込み
-from constants import THREAD_CACHE_TTL, MAX_CACHED_THREADS, AREA_OPTIONS, BOARD_CATEGORY_OPTIONS, BOARD_MASTER, PERIOD_OPTIONS, get_period_days, get_board_options_for_category
-
-# db.pyから読み込み
-from db import engine, Base, get_db
-
-# models.pyから読み込み
-from models import ThreadPost, ThreadMeta, CachedThread, CachedPost
-
-# utils.pyから読み込み
-from utils import (normalize_for_search, highlight_text, simplify_thread_title, build_store_search_title, parse_anchors_csv, highlight_with_links)
+from datetime import datetime
+from typing import List, Optional, Dict
+from urllib.parse import urlencode
 
 import requests
 from bs4 import BeautifulSoup
@@ -31,18 +14,52 @@ from fastapi import FastAPI, Request, Depends, Form, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse, PlainTextResponse
 from fastapi.templating import Jinja2Templates
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
-from fastapi.staticfiles import StaticFiles  # 追加
+from fastapi.staticfiles import StaticFiles
 
-from sqlalchemy import Column, Integer, Text, func, text
+from sqlalchemy import func, text as sa_text
 from sqlalchemy.orm import Session
 
-from markupsafe import Markup, escape
+# constants.py から読み込み（UI用・検索条件用）
+from constants import (
+    AREA_OPTIONS,
+    BOARD_CATEGORY_OPTIONS,
+    BOARD_MASTER,
+    PERIOD_OPTIONS,
+    get_period_days,
+    get_board_options_for_category,
+)
 
-from scraper import fetch_posts_from_thread, ScrapingError, get_thread_title
+# db.py から読み込み
+from db import engine, Base, get_db
 
-# ランキング（外部検索用）で使うのは後ろの thread_search_page 側だけ
+# models.py から読み込み
+from models import ThreadPost, ThreadMeta
+
+# utils.py から読み込み
+from utils import (
+    normalize_for_search,
+    highlight_text,
+    simplify_thread_title,
+    build_store_search_title,
+    parse_anchors_csv,
+    highlight_with_links,
+    parse_posted_at_value,
+)
+
+# scraper.py（タイトル表示用）
+from scraper import ScrapingError, get_thread_title
+
+# services.py（集約した処理）
+from services import (
+    fetch_thread_into_db,
+    search_threads_external,
+    find_prev_next_thread_urls,
+    get_thread_posts_cached,
+    is_valid_bakusai_thread_url,
+)
+
+# ranking.py（外部検索UI用）
 from ranking import get_board_ranking, RANKING_URL_TEMPLATE
-
 
 
 # =========================
@@ -67,18 +84,62 @@ def verify_basic(credentials: HTTPBasicCredentials = Depends(security)):
         )
 
 
+# =========================
+# FastAPI 初期化
+# =========================
+app = FastAPI(
+    dependencies=[Depends(verify_basic)],
+    docs_url=None,
+    redoc_url=None,
+)
+templates = Jinja2Templates(directory="templates")
+
+# 静的ファイル（CSS 等）
+app.mount("/static", StaticFiles(directory="static"), name="static")
+
+# 最近の検索条件（メモリ上）
+RECENT_SEARCHES = deque(maxlen=5)
+EXTERNAL_SEARCHES = deque(maxlen=15)
 
 
+@app.on_event("startup")
+def on_startup():
+    # テーブル作成
+    Base.metadata.create_all(bind=engine)
+
+    # 既存テーブルに列追加（なければ）
+    with engine.begin() as conn:
+        conn.execute(sa_text("ALTER TABLE thread_posts ADD COLUMN IF NOT EXISTS tags TEXT"))
+        conn.execute(sa_text("ALTER TABLE thread_posts ADD COLUMN IF NOT EXISTS memo TEXT"))
+        conn.execute(sa_text("ALTER TABLE thread_posts ADD COLUMN IF NOT EXISTS thread_title TEXT"))
+
+        # ⑤ 余裕があれば：DB制約（重複防止）
+        # 既存データに重複があると失敗するので、失敗してもアプリは落とさない方針。
+        # Postgres想定：部分ユニーク（post_no が NULL の行は除外）
+        try:
+            conn.execute(
+                sa_text(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS uq_thread_posts_url_postno "
+                    "ON thread_posts (thread_url, post_no) "
+                    "WHERE post_no IS NOT NULL"
+                )
+            )
+        except Exception:
+            # SQLite等や既存重複で失敗する可能性あり。ここでは握りつぶす（ログ基盤があるなら logging 推奨）
+            pass
 
 
+# =========================
+# robots.txt でクロール拒否
+# =========================
+@app.get("/robots.txt", response_class=PlainTextResponse)
+def robots_txt():
+    return "User-agent: *\nDisallow: /\n"
 
 
 # =========================
 # テキスト整形・検索用ユーティリティ
 # =========================
-
-
-
 def build_reply_tree(all_posts: List["ThreadPost"], root: "ThreadPost") -> List[dict]:
     """
     root（ヒットしたレス）にぶら下がる返信ツリーを構築
@@ -106,276 +167,6 @@ def build_reply_tree(all_posts: List["ThreadPost"], root: "ThreadPost") -> List[
         for child in replies.get(root.post_no, []):
             dfs(child, 0)
     return result
-
-
-def _evict_old_cached_threads(db: Session) -> None:
-    """
-    キャッシュが増えすぎたら、最終アクセスが古いスレから削除する。
-    """
-    try:
-        cnt = db.query(func.count(CachedThread.thread_url)).scalar() or 0
-        if cnt <= MAX_CACHED_THREADS:
-            return
-
-        over = cnt - MAX_CACHED_THREADS
-        old_threads = (
-            db.query(CachedThread)
-            .order_by(CachedThread.last_accessed_at.asc())
-            .limit(over)
-            .all()
-        )
-
-        for t in old_threads:
-            db.query(CachedPost).filter(CachedPost.thread_url == t.thread_url).delete(synchronize_session=False)
-            db.query(CachedThread).filter(CachedThread.thread_url == t.thread_url).delete(synchronize_session=False)
-
-        db.commit()
-    except Exception:
-        db.rollback()
-
-
-def _save_thread_posts_to_cache(db: Session, thread_url: str, posts: List[object]) -> None:
-    """
-    scraper.fetch_posts_from_thread() の結果を、キャッシュDBに保存する。
-    （安全優先：一旦そのスレのキャッシュを全削除→入れ直し）
-    """
-    now = datetime.utcnow()
-
-    # スレ分を全消し→入れ直し（堅牢だがシンプル）
-    db.query(CachedPost).filter(CachedPost.thread_url == thread_url).delete(synchronize_session=False)
-
-    bulk = []
-    for p in posts:
-        body = (getattr(p, "body", None) or "").strip()
-        if not body:
-            continue
-
-        post_no = getattr(p, "post_no", None)
-        posted_at = getattr(p, "posted_at", None)
-
-        # anchors は list[int] 想定（scraperの構造）
-        anchors_list = getattr(p, "anchors", None)
-        if anchors_list:
-            anchors_str = "," + ",".join(str(a) for a in anchors_list) + ","
-        else:
-            anchors_str = None
-
-        bulk.append(
-            CachedPost(
-                thread_url=thread_url,
-                post_no=post_no,
-                posted_at=posted_at,
-                body=body,
-                anchors=anchors_str,
-            )
-        )
-
-    if bulk:
-        db.bulk_save_objects(bulk)
-
-    meta = db.query(CachedThread).filter(CachedThread.thread_url == thread_url).first()
-    if not meta:
-        meta = CachedThread(
-            thread_url=thread_url,
-            fetched_at=now,
-            last_accessed_at=now,
-        )
-        db.add(meta)
-    else:
-        meta.fetched_at = now
-        meta.last_accessed_at = now
-
-    db.commit()
-
-    # 上限超えたら削除
-    _evict_old_cached_threads(db)
-
-
-def _load_thread_posts_from_cache(db: Session, thread_url: str) -> List[CachedPost]:
-    return (
-        db.query(CachedPost)
-        .filter(CachedPost.thread_url == thread_url)
-        .order_by(CachedPost.post_no.asc().nullslast(), CachedPost.id.asc())
-        .all()
-    )
-
-
-def get_thread_posts_cached(db: Session, thread_url: str) -> List[object]:
-    """
-    外部検索用：
-    - キャッシュが新しければDBから返す
-    - 古い/無ければWebから取得してDB保存して返す
-    返すのは「scraperのpostっぽいオブジェクト」（templatesが壊れない形）
-    """
-    thread_url = (thread_url or "").strip()
-    if not thread_url:
-        return []
-
-    now = datetime.utcnow()
-    meta = db.query(CachedThread).filter(CachedThread.thread_url == thread_url).first()
-
-    need_refresh = True
-    if meta:
-        # TTL内なら refreshしない
-        if now - meta.fetched_at < THREAD_CACHE_TTL:
-            need_refresh = False
-
-    if need_refresh:
-        posts = fetch_posts_from_thread(thread_url)
-        _save_thread_posts_to_cache(db, thread_url, list(posts))
-        cached_rows = _load_thread_posts_from_cache(db, thread_url)
-    else:
-        # アクセス時刻更新
-        try:
-            meta.last_accessed_at = now
-            db.commit()
-        except Exception:
-            db.rollback()
-        cached_rows = _load_thread_posts_from_cache(db, thread_url)
-
-    # cached_rows(SQLAlchemy) -> scraperっぽい形へ
-    result = []
-    for r in cached_rows:
-        result.append(
-            SimpleNamespace(
-                post_no=r.post_no,
-                posted_at=r.posted_at,
-                body=r.body,
-                anchors=parse_anchors_csv(r.anchors),
-            )
-        )
-
-    return result
-
-
-
-
-
-
-
-
-# =========================
-# FastAPI 初期化
-# =========================
-app = FastAPI(
-    dependencies=[Depends(verify_basic)],
-    docs_url=None,   # /docs を封印
-    redoc_url=None,  # /redoc も封印
-)
-templates = Jinja2Templates(directory="templates")
-
-# 静的ファイル（CSS 等）
-app.mount("/static", StaticFiles(directory="static"), name="static")  # ★追加
-
-# 最近の検索条件（メモリ上）
-RECENT_SEARCHES = deque(maxlen=5)
-EXTERNAL_SEARCHES = deque(maxlen=15)
-
-
-@app.on_event("startup")
-def on_startup():
-    Base.metadata.create_all(bind=engine)
-    # 既存テーブルに列追加（なければ）
-    with engine.begin() as conn:
-        conn.execute(text("ALTER TABLE thread_posts ADD COLUMN IF NOT EXISTS tags TEXT"))
-        conn.execute(text("ALTER TABLE thread_posts ADD COLUMN IF NOT EXISTS memo TEXT"))
-        conn.execute(text("ALTER TABLE thread_posts ADD COLUMN IF NOT EXISTS thread_title TEXT"))
-
-
-# =========================
-# robots.txt でクロール拒否
-# =========================
-@app.get("/robots.txt", response_class=PlainTextResponse)
-def robots_txt():
-    return "User-agent: *\nDisallow: /\n"
-
-
-# =========================
-# スレ取り込み共通処理
-# =========================
-def fetch_thread_into_db(db: Session, url: str) -> int:
-    url = (url or "").strip()
-    if not url:
-        return 0
-
-    last_no = (
-        db.query(func.max(ThreadPost.post_no))
-        .filter(ThreadPost.thread_url == url)
-        .scalar()
-    )
-    if last_no is None:
-        last_no = 0
-
-    # タイトル取得・簡略化
-    thread_title = get_thread_title(url)
-    if thread_title:
-        thread_title = simplify_thread_title(thread_title)
-        db.query(ThreadPost).filter(
-            ThreadPost.thread_url == url,
-            ThreadPost.thread_title.is_(None),
-        ).update(
-            {ThreadPost.thread_title: thread_title},
-            synchronize_session=False,
-        )
-
-    scraped_posts = fetch_posts_from_thread(url)
-    count = 0
-    for sp in scraped_posts:
-        body = (sp.body or "").strip()
-        if not body:
-            continue
-        if sp.post_no is not None and sp.post_no <= last_no:
-            # すでに取り込み済みのレスはスキップ
-            continue
-
-        if getattr(sp, "anchors", None):
-            anchors_str = "," + ",".join(str(a) for a in sp.anchors) + ","
-        else:
-            anchors_str = None
-
-        # すでに同じレスが入っていれば更新のみ
-        if sp.post_no is not None:
-            existing = (
-                db.query(ThreadPost)
-                .filter(
-                    ThreadPost.thread_url == url,
-                    ThreadPost.post_no == sp.post_no,
-                )
-                .first()
-            )
-        else:
-            existing = (
-                db.query(ThreadPost)
-                .filter(
-                    ThreadPost.thread_url == url,
-                    ThreadPost.body == body,
-                )
-                .first()
-            )
-
-        if existing:
-            if not existing.posted_at and getattr(sp, "posted_at", None):
-                existing.posted_at = sp.posted_at
-            if not existing.anchors and anchors_str:
-                existing.anchors = anchors_str
-            if thread_title and not existing.thread_title:
-                existing.thread_title = thread_title
-            continue
-
-        db.add(
-            ThreadPost(
-                thread_url=url,
-                thread_title=thread_title,
-                post_no=sp.post_no,
-                posted_at=getattr(sp, "posted_at", None),  # ★ここを修正
-                body=body,
-                anchors=anchors_str,
-            )
-        )
-        count += 1
-
-    db.commit()
-    return count
 
 
 # =========================
@@ -490,7 +281,6 @@ def show_search_page(
                         block = {
                             "thread_url": thread_url,
                             "thread_title": title,
-                            # ★追加：店舗ページ検索用に整形済みタイトルを持たせる
                             "store_title": build_store_search_title(title),
                             "entries": [],
                         }
@@ -534,7 +324,6 @@ def show_search_page(
                         }
                     )
 
-
     except Exception as e:
         db.rollback()
         error_message = f"検索中にエラーが発生しました: {e}"
@@ -542,7 +331,6 @@ def show_search_page(
         hit_count = 0
 
     recent_searches_view = list(RECENT_SEARCHES)[::-1]
-
 
     return templates.TemplateResponse(
         "index.html",
@@ -623,6 +411,15 @@ def fetch_thread_post(
     imported: Optional[int] = None
     error: str = ""
     url = (url or "").strip()
+
+    # ④ SSRF対策
+    if url and not is_valid_bakusai_thread_url(url):
+        error = "爆サイのスレURL（/thr_res/ または /thr_res_show/）のみ取り込みできます。"
+        return templates.TemplateResponse(
+            "fetch.html",
+            {"request": request, "url": url, "imported": None, "error": error},
+        )
+
     if url:
         try:
             imported = fetch_thread_into_db(db, url)
@@ -655,6 +452,10 @@ def refetch_thread_from_search(
     back_url = request.headers.get("referer") or "/"
     url = (url or "").strip()
     if not url:
+        return RedirectResponse(url=back_url, status_code=303)
+
+    # ④ SSRF対策
+    if not is_valid_bakusai_thread_url(url):
         return RedirectResponse(url=back_url, status_code=303)
 
     try:
@@ -695,7 +496,6 @@ def list_threads(
     request: Request,
     db: Session = Depends(get_db),
 ):
-    # スレ単位の集約
     rows = (
         db.query(
             ThreadPost.thread_url,
@@ -705,7 +505,6 @@ def list_threads(
             func.count().label("post_count"),
         )
         .group_by(ThreadPost.thread_url)
-        .order_by(func.max(ThreadPost.posted_at).desc())
         .all()
     )
 
@@ -717,9 +516,7 @@ def list_threads(
 
     threads = []
     for r in rows:
-        label = None
-        if r.thread_url in meta_map:
-            label = meta_map[r.thread_url].label
+        label = meta_map.get(r.thread_url).label if r.thread_url in meta_map else None
         threads.append(
             {
                 "thread_url": r.thread_url,
@@ -730,6 +527,14 @@ def list_threads(
                 "label": label or "",
             }
         )
+
+    # ⑤ posted_at が Text のままでも “正しく並べる” 対策（Python側で解釈してソート）
+    def _thread_sort_key(t: dict):
+        dt = parse_posted_at_value(t.get("last_posted_at") or "")
+        # dt が取れないものは最古扱い
+        return dt or datetime(1970, 1, 1)
+
+    threads.sort(key=_thread_sort_key, reverse=True)
 
     # タグ一覧
     tag_rows = db.query(ThreadPost.tags).filter(ThreadPost.tags.isnot(None)).all()
@@ -748,10 +553,8 @@ def list_threads(
         for name, count in sorted(tag_counts.items(), key=lambda x: x[1], reverse=True)[:50]
     ]
 
-    # 最近の検索条件
     recent_searches_view = list(RECENT_SEARCHES)[::-1]
 
-    # 次スレ取得結果メッセージ
     info_message = ""
     try:
         params = request.query_params
@@ -843,121 +646,6 @@ def edit_post_post(
 # =========================
 # 外部スレッド検索（爆サイ）
 # =========================
-def search_threads_external(
-    area_code: str,
-    keyword: str,
-    max_days: Optional[int],
-    board_category: str = "",
-    board_id: str = "",
-) -> List[dict]:
-    """
-    爆サイの「スレッド検索」結果から、タイトル一覧を取得する。
-    board_category, board_id が指定されていればそれをURLに反映。
-    """
-    keyword = (keyword or "").strip()
-    area_code = (area_code or "").strip()
-    board_category = (board_category or "").strip()
-    board_id = (board_id or "").strip()
-
-    if not area_code or not keyword:
-        return []
-
-    # URL 組み立て
-    # 例： https://bakusai.com/sch_thr_thread/acode=7/ctgid=103/bid=410/p=1/sch=thr_sch/sch_range=board/word=ピンク/
-    base = f"https://bakusai.com/sch_thr_thread/acode={area_code}/"
-    if board_category:
-        base += f"ctgid={board_category}/"
-    if board_id:
-        base += f"bid={board_id}/"
-
-    url = (
-        base
-        + "p=1/sch=thr_sch/sch_range=board/word="
-        + quote_plus(keyword)
-        + "/"
-    )
-
-    resp = requests.get(
-        url,
-        timeout=20,
-        headers={"User-Agent": "Mozilla/5.0"},
-    )
-    resp.raise_for_status()
-
-    soup = BeautifulSoup(resp.text, "html.parser")
-    threads: List[dict] = []
-
-    threshold: Optional[datetime] = None
-    if max_days is not None:
-        threshold = datetime.now() - timedelta(days=max_days)
-
-    keyword_norm = normalize_for_search(keyword)
-
-    # 「最新レス投稿日時」テキストを手掛かりにスレブロックを探す
-    for s in soup.find_all(string=re.compile("最新レス投稿日時")):
-        text = str(s)
-        m = re.search(r"(\d{4}/\d{2}/\d{2} \d{2}:\d{2})", text)
-        if not m:
-            continue
-        try:
-            dt = datetime.strptime(m.group(1), "%Y/%m/%d %H:%M")
-        except ValueError:
-            continue
-
-        if threshold is not None and dt < threshold:
-            continue
-
-        parent = s.parent
-        link = None
-        # 近くの /thr_res/ へのリンクを探す
-        while parent is not None and parent.name not in ("html", "body"):
-            candidate = parent.find("a", href=True)
-            if candidate and "/thr_res/" in candidate.get("href", ""):
-                link = candidate
-                break
-            parent = parent.parent
-
-        if not link:
-            continue
-
-        title = (link.get_text() or "").strip()
-        if not title:
-            continue
-
-        title_norm = normalize_for_search(title)
-        if keyword_norm not in title_norm:
-            continue
-
-        href = link.get("href", "")
-        if not href:
-            continue
-
-        if href.startswith("//"):
-            full_url = "https:" + href
-        elif href.startswith("/"):
-            full_url = "https://bakusai.com" + href
-        else:
-            full_url = href
-
-        threads.append(
-            {
-                "title": title,
-                "url": full_url,
-                "last_post_at_str": dt.strftime("%Y-%m-%d %H:%M"),
-            }
-        )
-
-    # URL でユニーク化
-    unique_by_url: Dict[str, dict] = {}
-    for t in threads:
-        if t["url"] not in unique_by_url:
-            unique_by_url[t["url"]] = t
-
-    result = list(unique_by_url.values())
-    result.sort(key=lambda x: x.get("last_post_at_str") or "", reverse=True)
-    return result
-
-
 @app.get("/thread_search", response_class=HTMLResponse)
 def thread_search_page(
     request: Request,
@@ -967,7 +655,6 @@ def thread_search_page(
     board_category: str = "103",
     board_id: str = "5922",
 ):
-    # パラメータ整形
     area = (area or "").strip() or "7"
     period = (period or "").strip() or "3m"
     keyword = (keyword or "").strip()
@@ -977,15 +664,12 @@ def thread_search_page(
     results: List[dict] = []
     error_message = ""
 
-    # ★ ランキング結果（板ごと）
     ranking_board = None
     ranking_board_label = ""
     ranking_source_url = ""
 
-    # 板リストをカテゴリから取得（履歴のラベル用にも使う）
     board_options = get_board_options_for_category(board_category)
 
-    # 検索実行
     if keyword and area:
         max_days = get_period_days(period)
         try:
@@ -999,9 +683,7 @@ def thread_search_page(
         except Exception as e:
             error_message = f"外部検索中にエラーが発生しました: {e}"
 
-        # ★ ランキング取得（検索が成功していて、板が指定されているときだけ）
         if not error_message and board_category and board_id:
-            # 表示用ラベル（「大阪デリヘル・お店」など）を取得
             board_label = ""
             for b in board_options:
                 if b["id"] == board_id:
@@ -1011,7 +693,6 @@ def thread_search_page(
             ranking_board_label = board_label or "選択した板"
             ranking_board = get_board_ranking(area, board_category, board_id)
 
-            # ★ 爆サイ側のランキング元ページURL（thr_tl）を組み立て
             if ranking_board:
                 ranking_source_url = RANKING_URL_TEMPLATE.format(
                     acode=area,
@@ -1019,7 +700,6 @@ def thread_search_page(
                     bid=board_id,
                 )
 
-        # 検索履歴を追加（エラーが出ていないときだけ）
         if not error_message:
             area_label = next(
                 (a["label"] for a in AREA_OPTIONS if a["code"] == area),
@@ -1062,7 +742,6 @@ def thread_search_page(
 
     recent_external_searches = list(EXTERNAL_SEARCHES)[::-1]
 
-    # スレ保存完了フラグ（/thread_search/save からのリダイレクト時）
     try:
         saved_flag = request.query_params.get("saved")
     except Exception:
@@ -1087,7 +766,6 @@ def thread_search_page(
             "current_board_id": board_id,
             "recent_external_searches": recent_external_searches,
             "board_master_json": json.dumps(BOARD_MASTER, ensure_ascii=False),
-            # ★ 追加
             "ranking_board": ranking_board,
             "ranking_board_label": ranking_board_label,
             "ranking_source_url": ranking_source_url,
@@ -1096,10 +774,6 @@ def thread_search_page(
 
 
 def _add_flag_to_url(back_url: str, key: str) -> str:
-    """
-    クエリに {key}=1 を付与するヘルパー。
-    すでに付いている場合はそのまま返す。
-    """
     if not back_url:
         return f"/thread_search?{key}=1"
     if f"{key}=" in back_url:
@@ -1117,18 +791,7 @@ async def save_external_thread(
     request: Request,
     db: Session = Depends(get_db),
 ):
-    """
-    外部スレッド検索・スレッド内検索結果から
-    「このスレを保存」で呼び出されるエンドポイント。
-
-    - GET / POST どちらで来ても対応
-    - thread_url / selected_thread のどちらかに URL が入っていれば保存
-    """
     back_url = request.headers.get("referer") or "/thread_search"
-
-    # スレ内検索結果（/thread_search/posts）から呼ばれた場合、
-    # そのまま戻すと GET /thread_search/posts になり 405 になるので
-    # 安全な /thread_search に退避させる。
     if back_url and "/thread_search/posts" in back_url:
         back_url = "/thread_search"
 
@@ -1152,76 +815,29 @@ async def save_external_thread(
     if not url:
         return RedirectResponse(url=back_url, status_code=303)
 
+    # ④ SSRF対策
+    if not is_valid_bakusai_thread_url(url):
+        return RedirectResponse(url=back_url, status_code=303)
+
     try:
         fetch_thread_into_db(db, url)
         saved_ok = True
     except Exception:
         db.rollback()
 
-    if saved_ok:
-        redirect_to = _add_flag_to_url(back_url, "saved")
-    else:
-        redirect_to = back_url
-
+    redirect_to = _add_flag_to_url(back_url, "saved") if saved_ok else back_url
     return RedirectResponse(url=redirect_to, status_code=303)
 
 
 # =========================
 # 次スレ取得（保存スレ・内部検索共通で使える）
 # =========================
-def _normalize_bakusai_href(href: str) -> str:
-    if href.startswith("//"):
-        return "https:" + href
-    if href.startswith("/"):
-        return "https://bakusai.com" + href
-    return href
-
-
-def find_prev_next_thread_urls(thread_url: str, area_code: str) -> tuple[Optional[str], Optional[str]]:
-    try:
-        resp = requests.get(
-            thread_url,
-            timeout=20,
-            headers={"User-Agent": "Mozilla/5.0"},
-        )
-        resp.raise_for_status()
-    except Exception:
-        return (None, None)
-
-    soup = BeautifulSoup(resp.text, "html.parser")
-    pager = soup.find("div", id="thr_pager")
-    if not pager:
-        return (None, None)
-
-    prev_div = pager.find("div", class_="sre_mae")
-    next_div = pager.find("div", class_="sre_tsugi")
-
-    def pick_url(div) -> Optional[str]:
-        if not div:
-            return None
-        a = div.find("a", href=True)
-        if not a:
-            return None
-        href = a.get("href", "")
-        if not href:
-            return None
-        return _normalize_bakusai_href(href)
-
-    prev_url = pick_url(prev_div)
-    next_url = pick_url(next_div)
-    return (prev_url, next_url)
-
-
 @app.post("/admin/fetch_next")
 def fetch_next_thread(
     request: Request,
     url: str = Form(""),
     db: Session = Depends(get_db),
 ):
-    """
-    取り込み済みスレの「次スレ」を取得して DB に保存する。
-    呼び出し元（/threads や /）にリダイレクトし、クエリパラメータで結果を返す。
-    """
     back_url = request.headers.get("referer") or "/threads"
     url = (url or "").strip()
 
@@ -1229,7 +845,11 @@ def fetch_next_thread(
         redirect_to = _add_flag_to_url(back_url, "next_error")
         return RedirectResponse(url=redirect_to, status_code=303)
 
-    # ページャーから次スレ URL を取得
+    # ④ SSRF対策
+    if not is_valid_bakusai_thread_url(url):
+        redirect_to = _add_flag_to_url(back_url, "next_error")
+        return RedirectResponse(url=redirect_to, status_code=303)
+
     _, next_url = find_prev_next_thread_urls(url, "")
     if not next_url:
         redirect_to = _add_flag_to_url(back_url, "no_next")
@@ -1279,31 +899,8 @@ def clear_external_history(request: Request):
 
 
 # =========================
-# 外部スレッド内検索
+# 外部スレッド全レス表示
 # =========================
-def _is_valid_bakusai_thread_url(u: str) -> bool:
-    """
-    SSRF対策：取得対象URLを爆サイのスレURLに限定する
-    """
-    try:
-        p = urlparse(u)
-    except Exception:
-        return False
-
-    if p.scheme not in ("http", "https"):
-        return False
-
-    host = (p.netloc or "").lower()
-    if host not in ("bakusai.com", "www.bakusai.com"):
-        return False
-
-    path = p.path or ""
-    # スレ本体（/thr_res/）だけ許可（必要なら後で緩められます）
-    if "/thr_res/" not in path:
-        return False
-
-    return True
-
 @app.get("/thread_search/showall", response_class=HTMLResponse)
 def thread_showall_page(
     request: Request,
@@ -1311,7 +908,7 @@ def thread_showall_page(
     area: str = "7",
     period: str = "3m",
     title_keyword: str = "",
-    db: Session = Depends(get_db),  # ★これを追加
+    db: Session = Depends(get_db),
 ):
     url = (url or "").strip()
     area = (area or "").strip() or "7"
@@ -1320,12 +917,11 @@ def thread_showall_page(
 
     error_message = ""
     thread_title_display = ""
-
     posts_sorted: List[object] = []
 
     if not url:
         error_message = "URLが指定されていません。"
-    elif not _is_valid_bakusai_thread_url(url):
+    elif not is_valid_bakusai_thread_url(url):
         error_message = "爆サイのスレURLのみ表示できます。"
     else:
         try:
@@ -1360,6 +956,9 @@ def thread_showall_page(
     )
 
 
+# =========================
+# 外部スレッド内検索
+# =========================
 @app.post("/thread_search/posts", response_class=HTMLResponse)
 def thread_search_posts(
     request: Request,
@@ -1368,24 +967,24 @@ def thread_search_posts(
     post_keyword: str = Form(""),
     area: str = Form("7"),
     period: str = Form("3m"),
-    board_category: str = Form(""),   # ★追加
-    board_id: str = Form(""),         # ★追加
-    db: Session = Depends(get_db),   # ★これを追加
+    board_category: str = Form(""),
+    board_id: str = Form(""),
+    db: Session = Depends(get_db),
 ):
     selected_thread = (selected_thread or "").strip()
     title_keyword = (title_keyword or "").strip()
     post_keyword = (post_keyword or "").strip()
     area = (area or "").strip() or "7"
     period = (period or "").strip() or "3m"
+    board_category = (board_category or "").strip()
+    board_id = (board_id or "").strip()
 
     entries: List[dict] = []
     error_message = ""
     thread_title_display: str = ""
     prev_thread_url: Optional[str] = None
     next_thread_url: Optional[str] = None
-    # ★ 追加: カテゴリ / 板情報
-    board_category = (board_category or "").strip()
-    board_id = (board_id or "").strip()
+
     board_category_label: str = ""
     board_label: str = ""
     store_base_title: str = ""
@@ -1394,6 +993,9 @@ def thread_search_posts(
         error_message = "スレッドが選択されていません。"
     elif not post_keyword:
         error_message = "本文キーワードが入力されていません。"
+    elif not is_valid_bakusai_thread_url(selected_thread):
+        # ④ SSRF対策
+        error_message = "爆サイのスレURLのみ検索できます。"
     else:
         try:
             try:
@@ -1401,11 +1003,9 @@ def thread_search_posts(
                 thread_title_display = simplify_thread_title(t or "")
             except Exception:
                 thread_title_display = ""
-            # ★追加：店舗ページ検索用タイトル
+
             store_base_title = build_store_search_title(thread_title_display or title_keyword)
 
-
-            # ★ここから追加: カテゴリ / 板のラベル決定
             if board_category:
                 for c in BOARD_CATEGORY_OPTIONS:
                     if c["id"] == board_category:
@@ -1417,13 +1017,11 @@ def thread_search_posts(
                     if b["id"] == board_id:
                         board_label = b["label"]
                         break
-            # ★ここまで追加
 
             prev_thread_url, next_thread_url = find_prev_next_thread_urls(selected_thread, area)
 
             all_posts = get_thread_posts_cached(db, selected_thread)
 
-            # post_no でソートしておく（コンテキスト順がバラつかないように）
             def _post_key(p):
                 return p.post_no if getattr(p, "post_no", None) is not None else 10**9
 
@@ -1518,12 +1116,10 @@ def thread_search_posts(
             "prev_thread_url": prev_thread_url,
             "next_thread_url": next_thread_url,
             "highlight_with_links": highlight_with_links,
-            # ★追加
             "board_category": board_category,
             "board_id": board_id,
             "board_category_label": board_category_label,
             "board_label": board_label,
-            # ★追加
             "store_base_title": store_base_title,
         },
     )
