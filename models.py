@@ -1,3 +1,4 @@
+# models.py
 from sqlalchemy import Column, Integer, Text, DateTime, UniqueConstraint
 from db import Base
 
