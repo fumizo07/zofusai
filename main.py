@@ -14,6 +14,12 @@ from sqlalchemy import DateTime, UniqueConstraint
 # constants.pyから読み込み
 from constants import THREAD_CACHE_TTL, MAX_CACHED_THREADS, AREA_OPTIONS, BOARD_CATEGORY_OPTIONS, BOARD_MASTER, PERIOD_OPTIONS, get_period_days, get_board_options_for_category
 
+# db.pyから読み込み
+from db import engine, Base, get_db
+
+# models.pyから読み込み
+from models import ThreadPost, ThreadMeta, CachedThread, CachedPost
+
 import requests
 from bs4 import BeautifulSoup
 
@@ -23,8 +29,8 @@ from fastapi.templating import Jinja2Templates
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.staticfiles import StaticFiles  # 追加
 
-from sqlalchemy import Column, Integer, Text, create_engine, func, text
-from sqlalchemy.orm import declarative_base, sessionmaker, Session
+from sqlalchemy import Column, Integer, Text, func, text
+from sqlalchemy.orm import Session
 
 from markupsafe import Markup, escape
 
@@ -33,84 +39,6 @@ from scraper import fetch_posts_from_thread, ScrapingError, get_thread_title
 # ランキング（外部検索用）で使うのは後ろの thread_search_page 側だけ
 from ranking import get_board_ranking, RANKING_URL_TEMPLATE
 
-
-# =========================
-# DB 初期化
-# =========================
-DATABASE_URL = os.getenv("DATABASE_URL")
-if not DATABASE_URL:
-    raise RuntimeError("DATABASE_URL が設定されていません。環境変数 DATABASE_URL を確認してください。")
-
-engine = create_engine(DATABASE_URL, pool_pre_ping=True)
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-Base = declarative_base()
-
-
-class ThreadPost(Base):
-    __tablename__ = "thread_posts"
-
-    id = Column(Integer, primary_key=True, index=True)
-    thread_url = Column(Text, nullable=False, index=True)
-    thread_title = Column(Text, nullable=True)
-    post_no = Column(Integer, nullable=True, index=True)
-    posted_at = Column(Text, nullable=True)
-    body = Column(Text, nullable=False)
-    anchors = Column(Text, nullable=True)
-    tags = Column(Text, nullable=True)
-    memo = Column(Text, nullable=True)
-
-
-class ThreadMeta(Base):
-    """
-    スレッド単位のメタ情報（自分用ラベルなど）を持たせるテーブル
-    """
-    __tablename__ = "thread_meta"
-
-    id = Column(Integer, primary_key=True, index=True)
-    thread_url = Column(Text, nullable=False, unique=True, index=True)
-    label = Column(Text, nullable=True)
-
-
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
-
-# =========================
-# 外部検索：スレ全文キャッシュ（DB）
-# =========================
-
-
-
-class CachedThread(Base):
-    """
-    スレ単位のキャッシュ管理（いつ取得したか、いつ使ったか）
-    """
-    __tablename__ = "cached_threads"
-
-    thread_url = Column(Text, primary_key=True)
-    fetched_at = Column(DateTime, nullable=False)        # 最後にWebから取得した時刻
-    last_accessed_at = Column(DateTime, nullable=False)  # 最後にこのキャッシュを使った時刻
-
-
-class CachedPost(Base):
-    """
-    スレの各レス（全文キャッシュ）
-    """
-    __tablename__ = "cached_posts"
-
-    id = Column(Integer, primary_key=True, index=True)
-    thread_url = Column(Text, nullable=False, index=True)
-    post_no = Column(Integer, nullable=True, index=True)
-    posted_at = Column(Text, nullable=True)
-    body = Column(Text, nullable=False)
-    anchors = Column(Text, nullable=True)
-
-    __table_args__ = (
-        UniqueConstraint("thread_url", "post_no", name="uq_cached_posts_thread_postno"),
-    )
 
 
 # =========================
