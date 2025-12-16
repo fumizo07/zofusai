@@ -2,7 +2,7 @@
 import re
 import unicodedata
 from datetime import datetime
-from typing import List, Optional
+from typing import List, Optional, Dict
 
 from markupsafe import Markup, escape
 
@@ -18,10 +18,8 @@ def _normalize_lines(text_value: str) -> str:
     cleaned: List[str] = []
     leading = True
     for line in lines:
-        # 先頭側の空白行は丸ごと削る
         if leading and line.strip() == "":
             continue
-        # 行頭の半角/全角スペースを削る
         line = re.sub(r"^[\s\u3000\xa0]+", "", line)
         cleaned.append(line)
         leading = False
@@ -50,7 +48,6 @@ def to_katakana(s: str) -> str:
     return "".join(result)
 
 
-# 小書き母音を通常の「あいうえお」に揃える
 SMALL_KANA_MAP = str.maketrans(
     {
         "ぁ": "あ",
@@ -159,6 +156,19 @@ _EMOJI_PATTERN = re.compile(
     "]"
 )
 
+# 丸数字 / 括弧付き数字など、末尾に来がちな “数字っぽい記号” を広めにカバー
+# ①〜⑳: U+2460..U+2473, ⓪: U+24EA, ❶..❿: U+2776..U+277F
+_TRAILING_NUMBERLIKE_PATTERN = re.compile(
+    r"[\s　]*"
+    r"[★☆◇◆◎○●⚫⚪※✕✖️✖︎\-]*"
+    r"\s*"
+    r"(?:"
+    r"\d{1,4}"
+    r"|[\u2460-\u2473\u24EA\u2776-\u277F]+"  # ①②… / ⓪ / ❶❷…
+    r")"
+    r"\s*$"
+)
+
 
 def remove_emoji(text: str) -> str:
     return _EMOJI_PATTERN.sub("", text or "")
@@ -169,14 +179,34 @@ def build_store_search_title(title: str) -> str:
     店舗ページ検索用：
     - 絵文字を削除
     - 末尾の「★12」「 12」などのスレ番を削除
+    - 末尾の「①②③…」などの丸数字も削除（要望対応）
     """
     if not title:
         return ""
     t = simplify_thread_title(title)
     t = remove_emoji(t)
-    # 末尾の記号＋数字だけをざっくり落とす（★12 / 12 / ★ 12 など）
-    t = re.sub(r"[\s　]*[★☆◇◆◎○●⚫⚪※✕✖️✖︎-]*\s*\d{1,3}\s*$", "", t)
+
+    # 末尾の “数字っぽいもの” を繰り返し落とす（例: "店名 ①" や "店名 12" や "店名 ★12"）
+    # 連続して付いてるケースにも効くように while で剥がす
+    while True:
+        new_t = _TRAILING_NUMBERLIKE_PATTERN.sub("", t)
+        if new_t == t:
+            break
+        t = new_t
+
     return t.strip()
+
+
+def build_google_site_search_url(site: str, query: str) -> str:
+    """
+    Google で site:xxx を付けて検索する URL を返す
+    """
+    site = (site or "").strip()
+    query = (query or "").strip()
+    q = f"site:{site} {query}".strip()
+    # ここでは最小実装（テンプレ側で target=_blank など付ける想定）
+    from urllib.parse import quote_plus
+    return "https://www.google.com/search?q=" + quote_plus(q)
 
 
 # =========================
@@ -211,13 +241,14 @@ def linkify_anchors_in_html(thread_url: str, html: str) -> Markup:
     """
     すでに escape / highlight 済みの HTML 文字列内の「&gt;&gt;数字」を
     レス個別ページへのリンクに変換する。
+
+    ★ 追加: data-anchor-no を付与（JSでホバー表示したい場合のフック）
     """
     if not html:
         return Markup("")
 
     base = thread_url or ""
 
-    # thr_res / thr_res_show の acode〜tid までをベースURLにする
     m = re.search(
         r"(https://bakusai\.com/thr_res(?:_show)?/acode=\d+/ctgid=\d+/bid=\d+/tid=\d+/)",
         base,
@@ -236,11 +267,11 @@ def linkify_anchors_in_html(thread_url: str, html: str) -> Markup:
             url += "/"
         href = f"{url}rrid={no}/"
         return (
-            f'<a href="{href}" target="_blank" '
+            f'<a class="anchor-link" data-anchor-no="{no}" '
+            f'href="{href}" target="_blank" '
             f'rel="nofollow noopener noreferrer">&gt;&gt;{no}</a>'
         )
 
-    # highlight_text が escape 済みなので、「>>」は「&gt;&gt;」になっている
     linked = re.sub(r"&gt;&gt;(\d+)", repl, html)
     return Markup(linked)
 
