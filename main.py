@@ -3,9 +3,9 @@ import os
 import re
 import secrets
 import json
-from collections import defaultdict, deque
-from datetime import datetime
 from typing import List, Optional, Dict
+from collections import defaultdict, deque
+from datetime import datetime, timedelta
 from urllib.parse import urlencode
 
 import requests
@@ -17,11 +17,12 @@ from fastapi.templating import Jinja2Templates
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.staticfiles import StaticFiles
 
-from sqlalchemy import func, text as sa_text
+from sqlalchemy import func, text
 from sqlalchemy.orm import Session
 
-# constants.py から読み込み（UI用・検索条件用）
 from constants import (
+    THREAD_CACHE_TTL,
+    MAX_CACHED_THREADS,
     AREA_OPTIONS,
     BOARD_CATEGORY_OPTIONS,
     BOARD_MASTER,
@@ -30,13 +31,8 @@ from constants import (
     get_board_options_for_category,
 )
 
-# db.py から読み込み
 from db import engine, Base, get_db
-
-# models.py から読み込み
 from models import ThreadPost, ThreadMeta
-
-# utils.py から読み込み
 from utils import (
     normalize_for_search,
     highlight_text,
@@ -44,22 +40,20 @@ from utils import (
     build_store_search_title,
     parse_anchors_csv,
     highlight_with_links,
-    parse_posted_at_value,
+    build_google_site_search_url,
 )
 
-# scraper.py（タイトル表示用）
-from scraper import ScrapingError, get_thread_title
-
-# services.py（集約した処理）
 from services import (
     fetch_thread_into_db,
     search_threads_external,
     find_prev_next_thread_urls,
     get_thread_posts_cached,
     is_valid_bakusai_thread_url,
+    cleanup_thread_posts_duplicates,
+    backfill_posted_at_dt,
 )
 
-# ranking.py（外部検索UI用）
+from scraper import ScrapingError
 from ranking import get_board_ranking, RANKING_URL_TEMPLATE
 
 
@@ -94,40 +88,44 @@ app = FastAPI(
     redoc_url=None,
 )
 templates = Jinja2Templates(directory="templates")
-
-# 静的ファイル（CSS 等）
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
-# 最近の検索条件（メモリ上）
 RECENT_SEARCHES = deque(maxlen=5)
 EXTERNAL_SEARCHES = deque(maxlen=15)
 
 
 @app.on_event("startup")
 def on_startup():
-    # テーブル作成
     Base.metadata.create_all(bind=engine)
 
     # 既存テーブルに列追加（なければ）
     with engine.begin() as conn:
-        conn.execute(sa_text("ALTER TABLE thread_posts ADD COLUMN IF NOT EXISTS tags TEXT"))
-        conn.execute(sa_text("ALTER TABLE thread_posts ADD COLUMN IF NOT EXISTS memo TEXT"))
-        conn.execute(sa_text("ALTER TABLE thread_posts ADD COLUMN IF NOT EXISTS thread_title TEXT"))
+        conn.execute(text("ALTER TABLE thread_posts ADD COLUMN IF NOT EXISTS tags TEXT"))
+        conn.execute(text("ALTER TABLE thread_posts ADD COLUMN IF NOT EXISTS memo TEXT"))
+        conn.execute(text("ALTER TABLE thread_posts ADD COLUMN IF NOT EXISTS thread_title TEXT"))
 
-        # ⑤ 余裕があれば：DB制約（重複防止）
-        # 既存データに重複があると失敗するので、失敗してもアプリは落とさない方針。
-        # Postgres想定：部分ユニーク（post_no が NULL の行は除外）
+        # ★ 追加：posted_at_dt（DateTime）列
+        conn.execute(text("ALTER TABLE thread_posts ADD COLUMN IF NOT EXISTS posted_at_dt TIMESTAMP"))
+
+        # ★ 追加：Postgresなら部分ユニークインデックス（post_no NULL は除外）
+        # 失敗しても握りつぶす（SQLite等環境差を吸収）
         try:
             conn.execute(
-                sa_text(
+                text(
                     "CREATE UNIQUE INDEX IF NOT EXISTS uq_thread_posts_url_postno "
-                    "ON thread_posts (thread_url, post_no) "
-                    "WHERE post_no IS NOT NULL"
+                    "ON thread_posts(thread_url, post_no) WHERE post_no IS NOT NULL"
                 )
             )
         except Exception:
-            # SQLite等や既存重複で失敗する可能性あり。ここでは握りつぶす（ログ基盤があるなら logging 推奨）
             pass
+
+    # ★ ⑤：重複掃除＆ posted_at_dt バックフィル（安全側に try）
+    try:
+        db = next(get_db())
+        cleanup_thread_posts_duplicates(db)
+        backfill_posted_at_dt(db, limit=10000)
+    except Exception:
+        pass
 
 
 # =========================
@@ -139,12 +137,23 @@ def robots_txt():
 
 
 # =========================
-# テキスト整形・検索用ユーティリティ
+# 共通：URLメッセージ生成（fetch_next の結果）
 # =========================
+def _get_next_thread_message(request: Request) -> str:
+    try:
+        params = request.query_params
+        if params.get("next_ok"):
+            return "次スレを取り込みました。"
+        if params.get("no_next"):
+            return "次スレが見つかりませんでした。"
+        if params.get("next_error"):
+            return "次スレ取得中にエラーが発生しました。"
+    except Exception:
+        pass
+    return ""
+
+
 def build_reply_tree(all_posts: List["ThreadPost"], root: "ThreadPost") -> List[dict]:
-    """
-    root（ヒットしたレス）にぶら下がる返信ツリーを構築
-    """
     replies: Dict[int, List[ThreadPost]] = defaultdict(list)
     for p in all_posts:
         for a in parse_anchors_csv(p.anchors):
@@ -204,8 +213,9 @@ def show_search_page(
     popular_tags: List[dict] = []
     recent_searches_view: List[dict] = []
 
+    info_message = _get_next_thread_message(request)
+
     try:
-        # 全タグの集計（タグ一覧用）
         tag_rows = db.query(ThreadPost.tags).filter(ThreadPost.tags.isnot(None)).all()
         tag_counts: Dict[str, int] = {}
         for (tags_str,) in tag_rows:
@@ -222,9 +232,7 @@ def show_search_page(
             for name, count in sorted(tag_counts.items(), key=lambda x: x[1], reverse=True)[:50]
         ]
 
-        # 検索条件が入力されている場合のみ検索を実行
         if keyword_raw or thread_filter_raw or tags_input_raw:
-            # 最近の検索条件をメモリに保存
             params = {
                 "q": keyword_raw,
                 "thread_filter": thread_filter_raw,
@@ -279,10 +287,15 @@ def show_search_page(
                     if not block:
                         title = root.thread_title or thread_url
                         title = simplify_thread_title(title)
+                        store_title = build_store_search_title(title)
+
                         block = {
                             "thread_url": thread_url,
                             "thread_title": title,
-                            "store_title": build_store_search_title(title),
+                            "store_title": store_title,
+                            # ★ ③：店舗検索リンク（Cityheaven / DTO）
+                            "store_cityheaven_url": build_google_site_search_url("cityheaven.net", store_title),
+                            "store_dto_url": build_google_site_search_url("dto.jp", store_title),
                             "entries": [],
                         }
                         thread_map[thread_url] = block
@@ -290,7 +303,6 @@ def show_search_page(
 
                     all_posts_thread = posts_by_thread.get(thread_url, [])
 
-                    # 前後 5 レスのコンテキスト
                     context_posts: List[ThreadPost] = []
                     if root.post_no is not None and all_posts_thread:
                         start_no = max(1, root.post_no - 5)
@@ -301,10 +313,8 @@ def show_search_page(
                             if p.post_no is not None and start_no <= p.post_no <= end_no
                         ]
 
-                    # ツリー表示用
                     tree_items = build_reply_tree(all_posts_thread, root)
 
-                    # アンカー先
                     anchor_targets: List[ThreadPost] = []
                     if root.anchors:
                         nums = parse_anchors_csv(root.anchors)
@@ -348,43 +358,10 @@ def show_search_page(
             "popular_tags": popular_tags,
             "recent_searches": recent_searches_view,
             "highlight_with_links": highlight_with_links,
+            # ★ ①：次スレ結果メッセージ
+            "info_message": info_message,
         },
     )
-
-
-# =========================
-# JSON API（簡易）
-# =========================
-@app.get("/api/search")
-def api_search(
-    q: str,
-    thread_filter: str = "",
-    db: Session = Depends(get_db),
-):
-    keyword = (q or "").strip()
-    thread_filter = (thread_filter or "").strip()
-    if not keyword:
-        return []
-
-    query = db.query(ThreadPost).filter(ThreadPost.body.contains(keyword))
-    if thread_filter:
-        query = query.filter(ThreadPost.thread_url.contains(thread_filter))
-
-    posts = query.order_by(ThreadPost.id.asc()).all()
-    return [
-        {
-            "id": p.id,
-            "thread_url": p.thread_url,
-            "thread_title": p.thread_title,
-            "post_no": p.post_no,
-            "posted_at": p.posted_at,
-            "body": p.body,
-            "anchors": p.anchors,
-            "tags": p.tags,
-            "memo": p.memo,
-        }
-        for p in posts
-    ]
 
 
 # =========================
@@ -413,23 +390,19 @@ def fetch_thread_post(
     error: str = ""
     url = (url or "").strip()
 
-    # ④ SSRF対策
-    if url and not is_valid_bakusai_thread_url(url):
-        error = "爆サイのスレURL（/thr_res/ または /thr_res_show/）のみ取り込みできます。"
-        return templates.TemplateResponse(
-            "fetch.html",
-            {"request": request, "url": url, "imported": None, "error": error},
-        )
-
     if url:
-        try:
-            imported = fetch_thread_into_db(db, url)
-        except ScrapingError as e:
-            db.rollback()
-            error = str(e)
-        except Exception as e:
-            db.rollback()
-            error = f"想定外のエラーが発生しました: {e}"
+        # ★ ④：SSRFチェック
+        if not is_valid_bakusai_thread_url(url):
+            error = "爆サイのスレURLのみ取り込みできます。"
+        else:
+            try:
+                imported = fetch_thread_into_db(db, url)
+            except ScrapingError as e:
+                db.rollback()
+                error = str(e)
+            except Exception as e:
+                db.rollback()
+                error = f"想定外のエラーが発生しました: {e}"
     else:
         error = "URLが入力されていません。"
 
@@ -455,7 +428,6 @@ def refetch_thread_from_search(
     if not url:
         return RedirectResponse(url=back_url, status_code=303)
 
-    # ④ SSRF対策
     if not is_valid_bakusai_thread_url(url):
         return RedirectResponse(url=back_url, status_code=303)
 
@@ -501,11 +473,12 @@ def list_threads(
         db.query(
             ThreadPost.thread_url,
             func.max(ThreadPost.post_no).label("max_no"),
-            func.max(ThreadPost.posted_at).label("last_posted_at"),
+            func.max(ThreadPost.posted_at_dt).label("last_posted_at_dt"),
             func.min(ThreadPost.thread_title).label("thread_title"),
             func.count().label("post_count"),
         )
         .group_by(ThreadPost.thread_url)
+        .order_by(func.max(ThreadPost.posted_at_dt).desc().nullslast(), func.max(ThreadPost.id).desc())
         .all()
     )
 
@@ -517,27 +490,18 @@ def list_threads(
 
     threads = []
     for r in rows:
-        label = meta_map.get(r.thread_url).label if r.thread_url in meta_map else None
+        label = meta_map.get(r.thread_url).label if r.thread_url in meta_map else ""
         threads.append(
             {
                 "thread_url": r.thread_url,
                 "thread_title": simplify_thread_title(r.thread_title or r.thread_url),
                 "max_no": r.max_no,
-                "last_posted_at": r.last_posted_at,
+                "last_posted_at": r.last_posted_at_dt,
                 "post_count": r.post_count,
                 "label": label or "",
             }
         )
 
-    # ⑤ posted_at が Text のままでも “正しく並べる” 対策（Python側で解釈してソート）
-    def _thread_sort_key(t: dict):
-        dt = parse_posted_at_value(t.get("last_posted_at") or "")
-        # dt が取れないものは最古扱い
-        return dt or datetime(1970, 1, 1)
-
-    threads.sort(key=_thread_sort_key, reverse=True)
-
-    # タグ一覧
     tag_rows = db.query(ThreadPost.tags).filter(ThreadPost.tags.isnot(None)).all()
     tag_counts: Dict[str, int] = {}
     for (tags_str,) in tag_rows:
@@ -555,18 +519,7 @@ def list_threads(
     ]
 
     recent_searches_view = list(RECENT_SEARCHES)[::-1]
-
-    info_message = ""
-    try:
-        params = request.query_params
-        if params.get("next_ok"):
-            info_message = "次スレを取り込みました。"
-        elif params.get("no_next"):
-            info_message = "次スレが見つかりませんでした。"
-        elif params.get("next_error"):
-            info_message = "次スレ取得中にエラーが発生しました。"
-    except Exception:
-        info_message = ""
+    info_message = _get_next_thread_message(request)
 
     return templates.TemplateResponse(
         "threads.html",
@@ -575,6 +528,7 @@ def list_threads(
             "threads": threads,
             "popular_tags": popular_tags,
             "recent_searches": recent_searches_view,
+            # ★ ①：次スレ結果メッセージ
             "info_message": info_message,
         },
     )
@@ -604,43 +558,6 @@ def update_thread_label(
     except Exception:
         db.rollback()
 
-    return RedirectResponse(url=back_url, status_code=303)
-
-
-# =========================
-# 投稿単位のタグ・メモ編集
-# =========================
-@app.get("/post/{post_id}/edit", response_class=HTMLResponse)
-def edit_post_get(
-    request: Request,
-    post_id: int,
-    db: Session = Depends(get_db),
-):
-    post = db.query(ThreadPost).filter(ThreadPost.id == post_id).first()
-    return templates.TemplateResponse(
-        "edit_post.html",
-        {
-            "request": request,
-            "post": post,
-        },
-    )
-
-
-@app.post("/post/{post_id}/edit")
-def edit_post_post(
-    request: Request,
-    post_id: int,
-    tags: str = Form(""),
-    memo: str = Form(""),
-    db: Session = Depends(get_db),
-):
-    post = db.query(ThreadPost).filter(ThreadPost.id == post_id).first()
-    if post:
-        post.tags = (tags or "").strip() or None
-        post.memo = (memo or "").strip() or None
-        db.commit()
-
-    back_url = request.headers.get("referer") or "/"
     return RedirectResponse(url=back_url, status_code=303)
 
 
@@ -776,7 +693,7 @@ def thread_search_page(
 
 def _add_flag_to_url(back_url: str, key: str) -> str:
     if not back_url:
-        return f"/thread_search?{key}=1"
+        return f"/?{key}=1"
     if f"{key}=" in back_url:
         return back_url
     if "?" in back_url:
@@ -797,7 +714,6 @@ async def save_external_thread(
         back_url = "/thread_search"
 
     url = ""
-    saved_ok = False
 
     try:
         if request.method == "POST":
@@ -816,22 +732,22 @@ async def save_external_thread(
     if not url:
         return RedirectResponse(url=back_url, status_code=303)
 
-    # ④ SSRF対策
+    # ★ ④：SSRFチェック
     if not is_valid_bakusai_thread_url(url):
         return RedirectResponse(url=back_url, status_code=303)
 
     try:
         fetch_thread_into_db(db, url)
-        saved_ok = True
+        redirect_to = _add_flag_to_url(back_url, "saved")
     except Exception:
         db.rollback()
+        redirect_to = back_url
 
-    redirect_to = _add_flag_to_url(back_url, "saved") if saved_ok else back_url
     return RedirectResponse(url=redirect_to, status_code=303)
 
 
 # =========================
-# 次スレ取得（保存スレ・内部検索共通で使える）
+# 次スレ取得
 # =========================
 @app.post("/admin/fetch_next")
 def fetch_next_thread(
@@ -842,16 +758,11 @@ def fetch_next_thread(
     back_url = request.headers.get("referer") or "/threads"
     url = (url or "").strip()
 
-    if not url:
+    if not url or not is_valid_bakusai_thread_url(url):
         redirect_to = _add_flag_to_url(back_url, "next_error")
         return RedirectResponse(url=redirect_to, status_code=303)
 
-    # ④ SSRF対策
-    if not is_valid_bakusai_thread_url(url):
-        redirect_to = _add_flag_to_url(back_url, "next_error")
-        return RedirectResponse(url=redirect_to, status_code=303)
-
-    _, next_url = find_prev_next_thread_urls(url, "")
+    _, next_url = find_prev_next_thread_urls(url)
     if not next_url:
         redirect_to = _add_flag_to_url(back_url, "no_next")
         return RedirectResponse(url=redirect_to, status_code=303)
@@ -864,39 +775,6 @@ def fetch_next_thread(
         redirect_to = _add_flag_to_url(back_url, "next_error")
 
     return RedirectResponse(url=redirect_to, status_code=303)
-
-
-# =========================
-# 外部検索履歴の削除
-# =========================
-@app.post("/thread_search/history/delete")
-def delete_external_history(
-    request: Request,
-    key: str = Form(""),
-):
-    back_url = request.headers.get("referer") or "/thread_search"
-    key = (key or "").strip()
-    if not key:
-        return RedirectResponse(url=back_url, status_code=303)
-
-    try:
-        remaining = [e for e in EXTERNAL_SEARCHES if e.get("key") != key]
-        EXTERNAL_SEARCHES.clear()
-        EXTERNAL_SEARCHES.extend(remaining)
-    except Exception:
-        pass
-
-    return RedirectResponse(url=back_url, status_code=303)
-
-
-@app.post("/thread_search/history/clear")
-def clear_external_history(request: Request):
-    back_url = request.headers.get("referer") or "/thread_search"
-    try:
-        EXTERNAL_SEARCHES.clear()
-    except Exception:
-        pass
-    return RedirectResponse(url=back_url, status_code=303)
 
 
 # =========================
@@ -927,7 +805,7 @@ def thread_showall_page(
     else:
         try:
             try:
-                t = get_thread_title(url)
+                t = get_thread_title(url)  # type: ignore[name-defined]
                 thread_title_display = simplify_thread_title(t or "")
             except Exception:
                 thread_title_display = ""
@@ -942,6 +820,11 @@ def thread_showall_page(
             error_message = f"全レス取得中にエラーが発生しました: {e}"
             posts_sorted = []
 
+    # ★ ③：店舗検索（DTO/Cityheaven）
+    store_title = build_store_search_title(thread_title_display or title_keyword)
+    store_cityheaven_url = build_google_site_search_url("cityheaven.net", store_title)
+    store_dto_url = build_google_site_search_url("dto.jp", store_title)
+
     return templates.TemplateResponse(
         "thread_showall.html",
         {
@@ -953,6 +836,9 @@ def thread_showall_page(
             "title_keyword": title_keyword,
             "posts": posts_sorted,
             "error_message": error_message,
+            "store_title": store_title,
+            "store_cityheaven_url": store_cityheaven_url,
+            "store_dto_url": store_dto_url,
         },
     )
 
@@ -988,24 +874,20 @@ def thread_search_posts(
 
     board_category_label: str = ""
     board_label: str = ""
-    store_base_title: str = ""
 
     if not selected_thread:
         error_message = "スレッドが選択されていません。"
     elif not post_keyword:
         error_message = "本文キーワードが入力されていません。"
     elif not is_valid_bakusai_thread_url(selected_thread):
-        # ④ SSRF対策
         error_message = "爆サイのスレURLのみ検索できます。"
     else:
         try:
             try:
-                t = get_thread_title(selected_thread)
+                t = get_thread_title(selected_thread)  # type: ignore[name-defined]
                 thread_title_display = simplify_thread_title(t or "")
             except Exception:
                 thread_title_display = ""
-
-            store_base_title = build_store_search_title(thread_title_display or title_keyword)
 
             if board_category:
                 for c in BOARD_CATEGORY_OPTIONS:
@@ -1019,7 +901,7 @@ def thread_search_posts(
                         board_label = b["label"]
                         break
 
-            prev_thread_url, next_thread_url = find_prev_next_thread_urls(selected_thread, area)
+            prev_thread_url, next_thread_url = find_prev_next_thread_urls(selected_thread)
 
             all_posts = get_thread_posts_cached(db, selected_thread)
 
@@ -1101,6 +983,11 @@ def thread_search_posts(
             error_message = f"スレッド内検索中にエラーが発生しました: {e}"
             entries = []
 
+    # ★ ③：店舗検索（DTO/Cityheaven）
+    store_base_title = build_store_search_title(thread_title_display or title_keyword)
+    store_cityheaven_url = build_google_site_search_url("cityheaven.net", store_base_title)
+    store_dto_url = build_google_site_search_url("dto.jp", store_base_title)
+
     return templates.TemplateResponse(
         "thread_search_posts.html",
         {
@@ -1122,5 +1009,7 @@ def thread_search_posts(
             "board_category_label": board_category_label,
             "board_label": board_label,
             "store_base_title": store_base_title,
+            "store_cityheaven_url": store_cityheaven_url,
+            "store_dto_url": store_dto_url,
         },
     )
