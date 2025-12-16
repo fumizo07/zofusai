@@ -23,6 +23,32 @@
       {% if posts %}
         <div>取得レス数：{{ posts|length }}件</div>
       {% endif %}
+
+      {% if store_title %}
+      <div class="store-search" style="margin-top:8px;">
+        <span class="store-search-label">店舗ページ検索：</span>
+        <a
+          href="{{ store_cityheaven_url if store_cityheaven_url else ('https://www.google.com/search?q=' ~ ('site:cityheaven.net ' ~ store_title)|urlencode) }}"
+          target="_blank"
+          rel="noopener noreferrer"
+          class="btn-mini"
+        >シティヘブン</a>
+
+        <a
+          href="{{ store_dto_url if store_dto_url else ('https://www.google.com/search?q=' ~ ('site:dto.jp ' ~ store_title)|urlencode) }}"
+          target="_blank"
+          rel="noopener noreferrer"
+          class="btn-mini"
+        >デリヘルタウン</a>
+
+        <a
+          href="https://www.google.com/search?q={{ store_title|urlencode }}"
+          target="_blank"
+          rel="noopener noreferrer"
+          class="btn-mini"
+        >Google</a>
+      </div>
+      {% endif %}
     </div>
   </section>
 
@@ -31,7 +57,7 @@
       <h2>全レス（{{ posts|length }}件）</h2>
 
       {% for p in posts %}
-        <div class="result">
+        <div class="result" {% if p.post_no %}data-post-no="{{ p.post_no }}"{% endif %}>
           <div class="result-id">
             {% if p.post_no %}レス #{{ p.post_no }}{% else %}レス番号不明{% endif %}
             {% if p.posted_at %}／ {{ p.posted_at }}{% endif %}
