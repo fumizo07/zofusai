@@ -10,7 +10,13 @@ class ThreadPost(Base):
     thread_url = Column(Text, nullable=False, index=True)
     thread_title = Column(Text, nullable=True)
     post_no = Column(Integer, nullable=True, index=True)
+
+    # 既存互換（そのまま残す）
     posted_at = Column(Text, nullable=True)
+
+    # ★追加：検索・並び替え精度のための DateTime 正規化列
+    posted_at_dt = Column(DateTime, nullable=True, index=True)
+
     body = Column(Text, nullable=False)
     anchors = Column(Text, nullable=True)
     tags = Column(Text, nullable=True)
@@ -35,8 +41,8 @@ class CachedThread(Base):
     __tablename__ = "cached_threads"
 
     thread_url = Column(Text, primary_key=True)
-    fetched_at = Column(DateTime, nullable=False)        # 最後にWebから取得した時刻
-    last_accessed_at = Column(DateTime, nullable=False)  # 最後にこのキャッシュを使った時刻
+    fetched_at = Column(DateTime, nullable=False)
+    last_accessed_at = Column(DateTime, nullable=False)
 
 
 class CachedPost(Base):
