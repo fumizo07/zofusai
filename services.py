@@ -1,9 +1,10 @@
-# services.py
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import List, Optional, Dict, Tuple
-from urllib.parse import quote_plus
+from urllib.parse import quote_plus, urlparse
 from types import SimpleNamespace
+
+from zoneinfo import ZoneInfo
 
 import requests
 from bs4 import BeautifulSoup
@@ -16,9 +17,35 @@ from constants import THREAD_CACHE_TTL, MAX_CACHED_THREADS
 from utils import simplify_thread_title, normalize_for_search, parse_anchors_csv
 
 
-# =========================
-# スレ取り込み（内部DB: thread_posts）
-# =========================
+JST = ZoneInfo("Asia/Tokyo")
+
+
+def is_valid_bakusai_thread_url(u: str) -> bool:
+    """
+    SSRF対策：取得対象URLを爆サイのスレURLに限定する
+    許可:
+      - https://bakusai.com/thr_res/...
+      - https://bakusai.com/thr_res_show/...
+    """
+    try:
+        p = urlparse(u)
+    except Exception:
+        return False
+
+    if p.scheme not in ("http", "https"):
+        return False
+
+    host = (p.netloc or "").lower()
+    if host not in ("bakusai.com", "www.bakusai.com"):
+        return False
+
+    path = p.path or ""
+    if "/thr_res/" not in path and "/thr_res_show/" not in path:
+        return False
+
+    return True
+
+
 def fetch_thread_into_db(db: Session, url: str) -> int:
     """
     爆サイスレURLをスクレイピングして thread_posts に追記する（既存は重複回避）
@@ -26,6 +53,10 @@ def fetch_thread_into_db(db: Session, url: str) -> int:
     url = (url or "").strip()
     if not url:
         return 0
+
+    # SSRF対策（ここで最終防衛線）
+    if not is_valid_bakusai_thread_url(url):
+        raise ValueError("爆サイのスレURLのみ取り込みできます。")
 
     last_no = (
         db.query(func.max(ThreadPost.post_no))
@@ -35,7 +66,6 @@ def fetch_thread_into_db(db: Session, url: str) -> int:
     if last_no is None:
         last_no = 0
 
-    # タイトル取得・簡略化
     thread_title = ""
     try:
         t = get_thread_title(url)
@@ -44,7 +74,6 @@ def fetch_thread_into_db(db: Session, url: str) -> int:
     except Exception:
         thread_title = ""
 
-    # 既存で thread_title が空のものに入れておく
     if thread_title:
         db.query(ThreadPost).filter(
             ThreadPost.thread_url == url,
@@ -72,7 +101,6 @@ def fetch_thread_into_db(db: Session, url: str) -> int:
         else:
             anchors_str = None
 
-        # すでに同じレスが入っていれば更新のみ
         if sp_no is not None:
             existing = (
                 db.query(ThreadPost)
@@ -111,9 +139,6 @@ def fetch_thread_into_db(db: Session, url: str) -> int:
     return count
 
 
-# =========================
-# 外部検索：爆サイのスレッド検索
-# =========================
 def search_threads_external(
     area_code: str,
     keyword: str,
@@ -123,6 +148,8 @@ def search_threads_external(
 ) -> List[dict]:
     """
     爆サイの「スレッド検索」結果から、タイトル一覧を取得する。
+    ① timedelta 未importはこのファイルで解消済み
+    ② 期間フィルタは JST 基準（精度対策）
     """
     keyword = (keyword or "").strip()
     area_code = (area_code or "").strip()
@@ -153,7 +180,8 @@ def search_threads_external(
 
     threshold: Optional[datetime] = None
     if max_days is not None:
-        threshold = datetime.now() - timedelta(days=max_days)  # type: ignore[name-defined]
+        now_jst = datetime.now(JST)
+        threshold = now_jst - timedelta(days=max_days)
 
     keyword_norm = normalize_for_search(keyword)
 
@@ -162,8 +190,10 @@ def search_threads_external(
         m = re.search(r"(\d{4}/\d{2}/\d{2} \d{2}:\d{2})", text)
         if not m:
             continue
+
         try:
-            dt = datetime.strptime(m.group(1), "%Y/%m/%d %H:%M")
+            dt_naive = datetime.strptime(m.group(1), "%Y/%m/%d %H:%M")
+            dt = dt_naive.replace(tzinfo=JST)
         except ValueError:
             continue
 
@@ -201,15 +231,18 @@ def search_threads_external(
         else:
             full_url = href
 
+        # 念のため：返すURLも thread URL のみ
+        if not is_valid_bakusai_thread_url(full_url):
+            continue
+
         threads.append(
             {
                 "title": title,
                 "url": full_url,
-                "last_post_at_str": dt.strftime("%Y-%m-%d %H:%M"),
+                "last_post_at_str": dt_naive.strftime("%Y-%m-%d %H:%M"),
             }
         )
 
-    # URLでユニーク化
     unique_by_url: Dict[str, dict] = {}
     for t in threads:
         if t["url"] not in unique_by_url:
@@ -220,9 +253,6 @@ def search_threads_external(
     return result
 
 
-# =========================
-# 前後スレ探索（爆サイページャー）
-# =========================
 def _normalize_bakusai_href(href: str) -> str:
     if href.startswith("//"):
         return "https:" + href
@@ -231,10 +261,18 @@ def _normalize_bakusai_href(href: str) -> str:
     return href
 
 
-def find_prev_next_thread_urls(thread_url: str, area_code: str) -> Tuple[Optional[str], Optional[str]]:
+def find_prev_next_thread_urls(thread_url: str, area_code: str = "") -> Tuple[Optional[str], Optional[str]]:
     """
-    スレページから prev/next を拾う
+    爆サイスレページから prev/next を拾う
     """
+    thread_url = (thread_url or "").strip()
+    if not thread_url:
+        return (None, None)
+
+    # SSRF対策
+    if not is_valid_bakusai_thread_url(thread_url):
+        return (None, None)
+
     try:
         resp = requests.get(thread_url, timeout=20, headers={"User-Agent": "Mozilla/5.0"})
         resp.raise_for_status()
@@ -258,7 +296,8 @@ def find_prev_next_thread_urls(thread_url: str, area_code: str) -> Tuple[Optiona
         href = (a.get("href", "") or "").strip()
         if not href:
             return None
-        return _normalize_bakusai_href(href)
+        u = _normalize_bakusai_href(href)
+        return u if is_valid_bakusai_thread_url(u) else None
 
     return (pick_url(prev_div), pick_url(next_div))
 
@@ -359,6 +398,10 @@ def get_thread_posts_cached(db: Session, thread_url: str) -> List[object]:
     thread_url = (thread_url or "").strip()
     if not thread_url:
         return []
+
+    # SSRF対策（ここで最終防衛線）
+    if not is_valid_bakusai_thread_url(thread_url):
+        raise ValueError("爆サイのスレURLのみ取得できます。")
 
     now = datetime.utcnow()
     meta = db.query(CachedThread).filter(CachedThread.thread_url == thread_url).first()
