@@ -1,64 +1,53 @@
 # preview_api.py
 from __future__ import annotations
 
-import os
-import sqlite3
-from flask import Blueprint, jsonify, request
+from fastapi import APIRouter, Depends, Query
+from fastapi.responses import JSONResponse
+from sqlalchemy.orm import Session
 
-preview_api = Blueprint("preview_api", __name__)
+from db import get_db
+from models import ThreadPost
 
-def _get_db_path() -> str:
-    # あなたのプロジェクトに合わせて調整してください
-    # 例: DB_PATH 環境変数 or data/app.db
-    return os.environ.get("DB_PATH", "data/app.db")
+preview_api = APIRouter()
 
 @preview_api.get("/api/post_preview")
-def api_post_preview():
-    thread_url = (request.args.get("thread_url") or "").strip()
-    post_no_raw = (request.args.get("post_no") or "").strip()
+def api_post_preview(
+    thread_url: str = Query("", description="対象スレURL"),
+    post_no: int = Query(0, ge=1, description="レス番号"),
+    db: Session = Depends(get_db),
+):
+    thread_url = (thread_url or "").strip()
+    if not thread_url or post_no <= 0:
+        return JSONResponse({"error": "bad_request"}, status_code=400)
 
-    if not thread_url or not post_no_raw.isdigit():
-        return jsonify({"error": "bad_request"}), 400
-
-    post_no = int(post_no_raw)
-
-    db_path = _get_db_path()
-    if not os.path.exists(db_path):
-        return jsonify({"error": "db_not_found"}), 500
-
-    # ★前提：posts テーブルに thread_url / post_no / body / posted_at がある
-    # 違うならここだけ合わせればOK
-    sql = """
-    SELECT body, posted_at
-    FROM posts
-    WHERE thread_url = ? AND post_no = ?
-    LIMIT 1
-    """
-
-    try:
-        con = sqlite3.connect(db_path)
-        con.row_factory = sqlite3.Row
-        row = con.execute(sql, (thread_url, post_no)).fetchone()
-    finally:
-        try:
-            con.close()
-        except Exception:
-            pass
-
+    row = (
+        db.query(ThreadPost)
+        .filter(ThreadPost.thread_url == thread_url, ThreadPost.post_no == post_no)
+        .first()
+    )
     if row is None:
-        return jsonify({"error": "not_found"}), 404
+        return JSONResponse({"error": "not_found"}, status_code=404)
 
-    body = row["body"] if row["body"] is not None else ""
-    posted_at = row["posted_at"] if row["posted_at"] is not None else ""
+    body = row.body or ""
 
-    # ツールチップ用なので長すぎたら軽く切る（必要なら調整）
+    # posted_at は「文字列 posted_at」があれば優先。なければ posted_at_dt をISOで返す。
+    posted_at = ""
+    if getattr(row, "posted_at", None):
+        posted_at = row.posted_at or ""
+    elif getattr(row, "posted_at_dt", None):
+        try:
+            posted_at = row.posted_at_dt.isoformat(sep=" ", timespec="seconds")
+        except Exception:
+            posted_at = str(row.posted_at_dt)
+
+    # ツールチップ用途：長すぎると重いので軽く切る
     if len(body) > 4000:
         body = body[:4000] + "\n…（省略）"
 
-    return jsonify({
+    return {
         "ok": True,
         "thread_url": thread_url,
         "post_no": post_no,
         "posted_at": posted_at,
         "body": body,
-    })
+    }
