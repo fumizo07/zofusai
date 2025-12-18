@@ -1,7 +1,7 @@
-# preview_api.py
 from __future__ import annotations
 
 import re
+
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
@@ -12,12 +12,38 @@ from models import ThreadPost
 preview_api = APIRouter()
 
 
-def _normalize_trailing_slashes(url: str) -> str:
-    # 末尾スラッシュ群を 0 or 1 に寄せる（https:// の // は末尾以外なので影響なし）
-    url = (url or "").strip()
-    if not url:
+def _normalize_thread_url_key(raw: str) -> str:
+    """
+    DBの thread_url と突き合わせるための「キー正規化」。
+    - thr_res_show → thr_res に寄せる（あなたのDBが thr_res で保存されているため）
+    - rrid=xx が混ざっても落とす
+    - http → https に寄せる
+    - クエリ/フラグメント除去
+    - 末尾スラッシュ統一
+    """
+    u = (raw or "").strip()
+    if not u:
         return ""
-    return re.sub(r"/+$", "/", url) if url.endswith("/") else url
+
+    # query / fragment を落とす
+    u = u.split("#", 1)[0]
+    u = u.split("?", 1)[0]
+
+    # rrid= が末尾に付いてるケースがあっても落とす
+    u = re.sub(r"rrid=\d+/?$", "", u)
+
+    # http -> https
+    if u.startswith("http://"):
+        u = "https://" + u[len("http://"):]
+
+    # 表示系パス揺れを吸収（重要）
+    u = u.replace("/thr_res_show/", "/thr_res/")
+
+    # 末尾スラッシュ統一
+    if u and not u.endswith("/"):
+        u += "/"
+
+    return u
 
 
 @preview_api.get("/api/post_preview")
@@ -26,99 +52,52 @@ def api_post_preview(
     post_no: int = Query(0, ge=1, description="レス番号"),
     db: Session = Depends(get_db),
 ):
-    thread_url = (thread_url or "").strip()
-    if not thread_url or post_no <= 0:
+    raw_thread_url = (thread_url or "").strip()
+    if not raw_thread_url or post_no <= 0:
         return JSONResponse({"error": "bad_request"}, status_code=400)
 
-    # 末尾スラッシュの揺れを吸収して DB を探す
-    u0 = thread_url.strip()
-    u1 = u0.rstrip("/")
-    u2 = u1 + "/"
-    u_http = re.sub(r"^https://", "http://", u0)
-    u_https = re.sub(r"^http://", "https://", u0)
+    norm_thread_url = _normalize_thread_url_key(raw_thread_url)
+    if not norm_thread_url:
+        return JSONResponse({"error": "bad_request"}, status_code=400)
 
-    candidates = list({u0, u1, u2, u_http, u_http.rstrip("/"), u_http.rstrip("/") + "/", u_https, u_https.rstrip("/"), u_https.rstrip("/") + "/"})
-
+    # まず正規化キーで検索
     row = (
         db.query(ThreadPost)
-        .filter(ThreadPost.post_no == post_no)
-        .filter(ThreadPost.thread_url.in_(candidates))
+        .filter(ThreadPost.thread_url == norm_thread_url, ThreadPost.post_no == post_no)
         .first()
     )
 
+    # 念のため：もしDB側が thr_res_show で保存されてるスレが混在してたら救う
+    if row is None:
+        alt = norm_thread_url.replace("/thr_res/", "/thr_res_show/")
+        if alt != norm_thread_url:
+            row = (
+                db.query(ThreadPost)
+                .filter(ThreadPost.thread_url == alt, ThreadPost.post_no == post_no)
+                .first()
+            )
 
-    # --- 1) DBにあればそれを返す ---
-    if row is not None:
-        body = row.body or ""
-
-        posted_at = ""
-        if getattr(row, "posted_at", None):
-            posted_at = row.posted_at or ""
-        elif getattr(row, "posted_at_dt", None):
-            try:
-                posted_at = row.posted_at_dt.isoformat(sep=" ", timespec="seconds")
-            except Exception:
-                posted_at = str(row.posted_at_dt)
-
-        if len(body) > 4000:
-            body = body[:4000] + "\n…（省略）"
-
-        return {
-            "ok": True,
-            "thread_url": row.thread_url,
-            "post_no": post_no,
-            "posted_at": posted_at,
-            "body": body,
-        }
-
-    # --- 2) DBになければ、外部表示用のキャッシュ/取得から探す（保存してなくてもプレビュー可能にする） ---
-    # ここで services を読む（循環import回避のためローカルimport）
-    try:
-        from services import get_thread_posts_cached  # noqa
-    except Exception:
+    if row is None:
         return JSONResponse({"error": "not_found"}, status_code=404)
 
-    # get_thread_posts_cached は thread_url をキーにしているはずなので、末尾/表記ゆれ候補を順に試す
-    found = None
-    found_thread_url = None
-    for tu in candidates:
-        tu_norm = _normalize_trailing_slashes(tu) or tu
-        try:
-            posts = get_thread_posts_cached(db, tu_norm)
-        except Exception:
-            continue
-
-        for p in posts or []:
-            try:
-                if getattr(p, "post_no", None) == post_no:
-                    found = p
-                    found_thread_url = tu_norm
-                    break
-            except Exception:
-                continue
-        if found is not None:
-            break
-
-    if found is None:
-        return JSONResponse({"error": "not_found"}, status_code=404)
-
-    body = getattr(found, "body", "") or ""
+    body = row.body or ""
 
     posted_at = ""
-    if getattr(found, "posted_at", None):
-        posted_at = found.posted_at or ""
-    elif getattr(found, "posted_at_dt", None):
+    if getattr(row, "posted_at", None):
+        posted_at = row.posted_at or ""
+    elif getattr(row, "posted_at_dt", None):
         try:
-            posted_at = found.posted_at_dt.isoformat(sep=" ", timespec="seconds")
+            posted_at = row.posted_at_dt.isoformat(sep=" ", timespec="seconds")
         except Exception:
-            posted_at = str(found.posted_at_dt)
+            posted_at = str(row.posted_at_dt)
 
     if len(body) > 4000:
         body = body[:4000] + "\n…（省略）"
 
     return {
         "ok": True,
-        "thread_url": found_thread_url or thread_url,
+        # 返す thread_url も正規化したものに統一（以後のキーズレ防止）
+        "thread_url": norm_thread_url,
         "post_no": post_no,
         "posted_at": posted_at,
         "body": body,
