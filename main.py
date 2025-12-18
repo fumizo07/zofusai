@@ -90,6 +90,11 @@ app = FastAPI(
 templates = Jinja2Templates(directory="templates")
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
+# ★ツールチップ用
+from preview_api import preview_api
+app.include_router(preview_api)
+
+
 RECENT_SEARCHES = deque(maxlen=5)
 EXTERNAL_SEARCHES = deque(maxlen=15)
 
