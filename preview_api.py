@@ -31,11 +31,13 @@ def api_post_preview(
         return JSONResponse({"error": "bad_request"}, status_code=400)
 
     # 末尾スラッシュの揺れを吸収して DB を探す
-    u0 = thread_url
+    u0 = thread_url.strip()
     u1 = u0.rstrip("/")
     u2 = u1 + "/"
-    u3 = _normalize_trailing_slashes(u0)
-    candidates = list({u0, u1, u2, u3})
+    u_http = re.sub(r"^https://", "http://", u0)
+    u_https = re.sub(r"^http://", "https://", u0)
+
+    candidates = list({u0, u1, u2, u_http, u_http.rstrip("/"), u_http.rstrip("/") + "/", u_https, u_https.rstrip("/"), u_https.rstrip("/") + "/"})
 
     row = (
         db.query(ThreadPost)
@@ -43,6 +45,7 @@ def api_post_preview(
         .filter(ThreadPost.thread_url.in_(candidates))
         .first()
     )
+
 
     # --- 1) DBにあればそれを返す ---
     if row is not None:
