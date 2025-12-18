@@ -1,6 +1,7 @@
 # preview_api.py
 from __future__ import annotations
 
+import re
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
@@ -9,6 +10,16 @@ from db import get_db
 from models import ThreadPost
 
 preview_api = APIRouter()
+
+
+def _normalize_trailing_slashes(url: str) -> str:
+    """
+    末尾のスラッシュだけを正規化する。
+    - "....//" -> ".../"
+    - "...."   -> "...."（末尾スラッシュ無しはそのまま）
+    """
+    return re.sub(r"/+$", "/", url) if url.endswith("/") else url
+
 
 @preview_api.get("/api/post_preview")
 def api_post_preview(
@@ -20,9 +31,22 @@ def api_post_preview(
     if not thread_url or post_no <= 0:
         return JSONResponse({"error": "bad_request"}, status_code=400)
 
+    # ★ここが今回の修正ポイント：末尾スラッシュの揺れを吸収して検索する
+    # 例:
+    #   DB: ".../tid=123/"  ←保存
+    #   JS: ".../tid=123//" ←誤って二重になる
+    # などで not_found になるのを防ぐ
+    u0 = thread_url
+    u1 = u0.rstrip("/")
+    u2 = u1 + "/"
+    u3 = _normalize_trailing_slashes(u0)
+
+    candidates = list({u0, u1, u2, u3})
+
     row = (
         db.query(ThreadPost)
-        .filter(ThreadPost.thread_url == thread_url, ThreadPost.post_no == post_no)
+        .filter(ThreadPost.post_no == post_no)
+        .filter(ThreadPost.thread_url.in_(candidates))
         .first()
     )
     if row is None:
@@ -46,7 +70,7 @@ def api_post_preview(
 
     return {
         "ok": True,
-        "thread_url": thread_url,
+        "thread_url": row.thread_url,  # 実際にヒットした保存値を返す（デバッグにも有利）
         "post_no": post_no,
         "posted_at": posted_at,
         "body": body,
