@@ -222,22 +222,64 @@
   }
 
   // ============================================================
-  // アンカー先ツールチッププレビュー（あなたの既存実装を統合）
+  // アンカー先ツールチッププレビュー
   // ============================================================
   const API_ENDPOINT = "/api/post_preview";
   const CLOSE_DELAY_MS = 180;
   const HOVER_OPEN_DELAY_MS = 80;
   const MAX_RANGE_EXPAND = 30;
 
+  // ★追加：thread_url の末尾スラッシュを正規化（…// → …/）
+  function normalizeThreadUrl(u) {
+    let s = (u || "").trim();
+    if (!s) return "";
+    // 末尾のスラッシュ群だけ1本にする（https:// の // は触らない）
+    s = s.replace(/\/+$/g, "/");
+    // 末尾スラッシュが無ければ付ける（rrid 連結が安定）
+    if (!s.endsWith("/")) s += "/";
+    return s;
+  }
+
+  // ★追加：要素の近く or main から thread_url を拾う（相対 rrid 用）
+  function getThreadUrlFromContext(el) {
+    const near = el && el.closest ? el.closest("[data-thread-url]") : null;
+    const v1 = near ? (near.getAttribute("data-thread-url") || "").trim() : "";
+    if (v1) return normalizeThreadUrl(v1);
+
+    const main = document.querySelector("main[data-thread-url]");
+    const v2 = main ? (main.getAttribute("data-thread-url") || "").trim() : "";
+    if (v2) return normalizeThreadUrl(v2);
+
+    return "";
+  }
+
   // href から (thread_url, post_no, open_url) を推定
   // 例: https://bakusai.com/.../tid=12984894/rrid=15/
   function parseBakusaiRridHref(href) {
     if (!href) return null;
+
+    // フルURL想定
     const m = href.match(/^(.*?\/)rrid=(\d+)\/?$/);
     if (!m) return null;
 
-    const threadUrl = m[1];
+    const threadUrl = normalizeThreadUrl(m[1]);
     const postNo = parseInt(m[2], 10);
+    if (!Number.isFinite(postNo) || postNo <= 0) return null;
+
+    const openUrl = `${threadUrl}rrid=${postNo}/`;
+    return { threadUrl, postNo, openUrl };
+  }
+
+  // ★追加：相対 "rrid=15/" だけのケースを拾う
+  function parseRelativeRridHref(href, threadUrlFromContext) {
+    if (!href) return null;
+    const m = href.match(/^rrid=(\d+)\/?$/);
+    if (!m) return null;
+
+    const threadUrl = normalizeThreadUrl(threadUrlFromContext || "");
+    if (!threadUrl) return null;
+
+    const postNo = parseInt(m[1], 10);
     if (!Number.isFinite(postNo) || postNo <= 0) return null;
 
     const openUrl = `${threadUrl}rrid=${postNo}/`;
@@ -411,7 +453,7 @@
     abortCtl = new AbortController();
 
     const qs = new URLSearchParams({ thread_url: threadUrl, post_no: String(postNo) });
-    fetch(`${API_ENDPOINT}?${qs.toString()}`, { signal: abortCtl.signal })
+    fetch(`${API_ENDPOINT}?${qs.toString()}`, { signal: abortCtl.signal, headers: { "Accept": "application/json" } })
       .then(async (res) => {
         if (!res.ok) {
           let msg = `HTTP ${res.status}`;
@@ -488,15 +530,21 @@
     const pn = el.getAttribute("data-post-no");
     if (dt && pn && /^\d+$/.test(pn)) {
       const postNo = parseInt(pn, 10);
-      const threadUrl = dt;
+      const threadUrl = normalizeThreadUrl(dt);
       const openUrl = `${threadUrl}rrid=${postNo}/`;
       return { threadUrl, postNo, openUrl };
     }
 
-    // 既存 rrid= リンク
-    const href = el.getAttribute("href") || "";
+    const href = (el.getAttribute("href") || "").trim();
+
+    // 既存 rrid= フルURL
     const parsed = parseBakusaiRridHref(href);
     if (parsed) return parsed;
+
+    // ★相対 rrid=15/ を拾う（thread_search_posts でこれが出ている可能性がある）
+    const ctx = getThreadUrlFromContext(el);
+    const parsedRel = parseRelativeRridHref(href, ctx);
+    if (parsedRel) return parsedRel;
 
     return null;
   }
