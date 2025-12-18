@@ -49,11 +49,7 @@
 
                     <div class="form-row">
                         <label>本文キーワード：</label>
-                        <input
-                            type="text"
-                            name="post_keyword"
-                            value="{{ post_keyword|e }}"
-                        >
+                        <input type="text" name="post_keyword" value="{{ post_keyword|e }}">
                     </div>
 
                     <div class="form-row">
@@ -88,8 +84,7 @@
     </div>
 </div>
 
-
-<main>
+<main data-thread-url="{{ thread_url|e }}">
     <section class="card">
         <div class="section-title">スレッド情報</div>
 
@@ -115,38 +110,12 @@
                 本文キーワード：<strong>{{ post_keyword or '（未指定）' }}</strong>
             </div>
 
-            {# スレタイ近くに店舗ページ検索 #}
             {% if store_title %}
-            <div class="store-search">
+            <div class="store-search" data-store-title="{{ store_title }}">
                 <span class="store-search-label">店舗ページ検索：</span>
-
-                {% set city_url = store_cityheaven_url if store_cityheaven_url is defined and store_cityheaven_url else ("https://www.google.com/search?q=" ~ ("site:cityheaven.net " ~ store_title)|urlencode) %}
-                {% set dto_url  = store_dto_url if store_dto_url is defined and store_dto_url else ("https://www.google.com/search?q=" ~ ("site:dto.jp " ~ store_title)|urlencode) %}
-
-                <a
-                    href="{{ city_url }}"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    class="btn-mini"
-                >
-                    シティヘブン
-                </a>
-                <a
-                    href="{{ dto_url }}"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    class="btn-mini"
-                >
-                    デリヘルタウン
-                </a>
-                <a
-                    href="https://www.google.com/search?q={{ store_title|urlencode }}"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    class="btn-mini"
-                >
-                    Google
-                </a>
+                <a href="#" class="btn-mini store-search-link" data-site="city">シティヘブン</a>
+                <a href="#" class="btn-mini store-search-link" data-site="dto">デリヘルタウン</a>
+                <a href="#" class="btn-mini store-search-link" data-site="google">Google</a>
             </div>
             {% endif %}
         </div>
@@ -162,27 +131,15 @@
             <input type="hidden" name="board_category" value="{{ board_category }}">
             <input type="hidden" name="board_id" value="{{ board_id }}">
 
-            <div class="form-row" style="margin-bottom:4px; align-items:center;">
-                <label for="post_keyword_bottom" style="min-width: 140px;">本文キーワード：</label>
-                <input
-                    type="text"
-                    id="post_keyword_bottom"
-                    name="post_keyword"
-                    value="{{ post_keyword|e }}"
-                    style="flex:1 1 auto;"
-                >
+            <div class="form-row">
+                <label for="post_keyword_bottom">本文キーワード：</label>
+                <input type="text" id="post_keyword_bottom" name="post_keyword" value="{{ post_keyword|e }}">
                 <button type="submit" class="btn-primary">このスレで再検索</button>
             </div>
 
-            <div class="form-row" style="align-items:center;">
-                <label for="title_keyword_bottom" style="min-width: 140px;">（メモ用）タイトル検索ワード：</label>
-                <input
-                    type="text"
-                    id="title_keyword_bottom"
-                    name="title_keyword"
-                    value="{{ title_keyword|e }}"
-                    style="flex:1 1 auto;"
-                >
+            <div class="form-row">
+                <label for="title_keyword_bottom">（メモ用）タイトル検索ワード：</label>
+                <input type="text" id="title_keyword_bottom" name="title_keyword" value="{{ title_keyword|e }}">
             </div>
         </form>
 
@@ -198,19 +155,11 @@
                 <input type="hidden" name="board_category" value="{{ board_category }}">
                 <input type="hidden" name="board_id" value="{{ board_id }}">
 
-                <button
-                    type="submit"
-                    class="btn-secondary"
-                    {% if not prev_thread_url %}disabled style="opacity:0.5; cursor:default;"{% endif %}
-                >
+                <button type="submit" class="btn-secondary" {% if not prev_thread_url %}disabled{% endif %}>
                     前スレで再検索
                 </button>
                 <span class="thread-url">
-                    {% if prev_thread_url %}
-                        {{ prev_thread_url }}
-                    {% else %}
-                        前スレが見つかりません。
-                    {% endif %}
+                    {% if prev_thread_url %}{{ prev_thread_url }}{% else %}前スレが見つかりません。{% endif %}
                 </span>
             </form>
 
@@ -223,19 +172,11 @@
                 <input type="hidden" name="board_category" value="{{ board_category }}">
                 <input type="hidden" name="board_id" value="{{ board_id }}">
 
-                <button
-                    type="submit"
-                    class="btn-secondary"
-                    {% if not next_thread_url %}disabled style="opacity:0.5; cursor:default;"{% endif %}
-                >
+                <button type="submit" class="btn-secondary" {% if not next_thread_url %}disabled{% endif %}>
                     次スレで再検索
                 </button>
                 <span class="thread-url">
-                    {% if next_thread_url %}
-                        {{ next_thread_url }}
-                    {% else %}
-                        次スレが見つかりません。
-                    {% endif %}
+                    {% if next_thread_url %}{{ next_thread_url }}{% else %}次スレが見つかりません。{% endif %}
                 </span>
             </form>
         </div>
@@ -256,38 +197,22 @@
 
             {% for item in entries %}
                 {% set post = item.root %}
-                <div class="result" {% if post.post_no %}data-post-no="{{ post.post_no }}"{% endif %}>
-
+                <div class="result">
                     {% if store_title %}
                     <div class="name-store-search" data-store-title="{{ store_title }}">
                         <span class="name-store-search-label">名前で店舗ページ検索：</span>
-                        <input
-                            type="text"
-                            name="name_keyword"
-                            placeholder="例：みかん"
-                        >
-                        <button type="button" class="btn-mini" data-site="city">
-                            シティヘブン
-                        </button>
-                        <button type="button" class="btn-mini" data-site="deli">
-                            デリヘルタウン
-                        </button>
-                        <button type="button" class="btn-mini" data-site="google">
-                            Google
-                        </button>
+                        <input type="text" name="name_keyword" placeholder="例：みかん">
+                        <button type="button" class="btn-mini name-search-btn" data-site="city">シティヘブン</button>
+                        <button type="button" class="btn-mini name-search-btn" data-site="dto">デリヘルタウン</button>
+                        <button type="button" class="btn-mini name-search-btn" data-site="google">Google</button>
                     </div>
                     {% endif %}
 
                     <div class="result-id">
-                        {% if post.post_no %}
-                            レス #{{ post.post_no }}
-                        {% else %}
-                            レス番号不明
-                        {% endif %}
-                        {% if post.posted_at %}
-                            ／ {{ post.posted_at }}
-                        {% endif %}
+                        {% if post.post_no %}レス #{{ post.post_no }}{% else %}レス番号不明{% endif %}
+                        {% if post.posted_at %}／ {{ post.posted_at }}{% endif %}
                     </div>
+
                     <div class="result-url">
                         URL：{{ thread_url }}{% if post.post_no %}（レス #{{ post.post_no }}）{% endif %}
                     </div>
@@ -297,16 +222,10 @@
                     {% if item.anchor_targets %}
                         <div class="section-title-small">このレスが参照しているレス</div>
                         {% for a in item.anchor_targets %}
-                            <div class="anchor-item" {% if a.post_no %}data-post-no="{{ a.post_no }}"{% endif %}>
+                            <div class="anchor-item">
                                 <div class="anchor-meta">
-                                    {% if a.post_no %}
-                                        #{{ a.post_no }}
-                                    {% else %}
-                                        レス番号不明
-                                    {% endif %}
-                                    {% if a.posted_at %}
-                                        ／ {{ a.posted_at }}
-                                    {% endif %}
+                                    {% if a.post_no %}#{{ a.post_no }}{% else %}レス番号不明{% endif %}
+                                    {% if a.posted_at %}／ {{ a.posted_at }}{% endif %}
                                 </div>
                                 <div class="anchor-body">{{ highlight_with_links(a.body, post_keyword, thread_url) }}</div>
                             </div>
@@ -316,16 +235,10 @@
                     <div class="section-title-small">このレスへの返信ツリー</div>
                     {% if item.tree %}
                         {% for node in item.tree %}
-                            <div class="tree-item" style="margin-left: {{ node.depth * 20 }}px;" {% if node.post.post_no %}data-post-no="{{ node.post.post_no }}"{% endif %}>
+                            <div class="tree-item" style="margin-left: {{ node.depth * 20 }}px;">
                                 <div class="tree-meta">
-                                    {% if node.post.post_no %}
-                                        #{{ node.post.post_no }}
-                                    {% else %}
-                                        レス番号不明
-                                    {% endif %}
-                                    {% if node.post.posted_at %}
-                                        ／ {{ node.post.posted_at }}
-                                    {% endif %}
+                                    {% if node.post.post_no %}#{{ node.post.post_no }}{% else %}レス番号不明{% endif %}
+                                    {% if node.post.posted_at %}／ {{ node.post.posted_at }}{% endif %}
                                 </div>
                                 <div class="tree-body">{{ highlight(node.post.body, post_keyword) }}</div>
                             </div>
@@ -337,15 +250,9 @@
                     {% if item.context %}
                         <div class="section-title-small">このレスの前後（コンテキスト）</div>
                         {% for c in item.context %}
-                            <div class="context-line {% if c.post_no and post.post_no and c.post_no == post.post_no %}context-line-root{% endif %}" {% if c.post_no %}data-post-no="{{ c.post_no }}"{% endif %}>
-                                {% if c.post_no %}
-                                    #{{ c.post_no }}
-                                {% else %}
-                                    レス番号不明
-                                {% endif %}
-                                {% if c.posted_at %}
-                                    ／ {{ c.posted_at }}
-                                {% endif %}
+                            <div class="context-line {% if c.post_no and post.post_no and c.post_no == post.post_no %}context-line-root{% endif %}">
+                                {% if c.post_no %}#{{ c.post_no }}{% else %}レス番号不明{% endif %}
+                                {% if c.posted_at %}／ {{ c.posted_at }}{% endif %}
                                 ：{{ highlight_with_links(c.body|replace('\n', ' '), post_keyword, thread_url) }}
                             </div>
                         {% endfor %}
@@ -358,19 +265,48 @@
     </section>
 </main>
 
-<script>
-/**
- * 「名前で店舗ページ検索」用
- */
-document.addEventListener("DOMContentLoaded", function() {
-    document.querySelectorAll(".name-store-search").forEach(function(box) {
-        const storeTitle = (box.dataset.storeTitle || "").trim();
-        const input = box.querySelector('input[name="name_keyword"]');
-        if (!input || !storeTitle) {
-            return;
-        }
+<div id="anchorPreviewTooltip" class="anchor-preview-tooltip" aria-hidden="true"></div>
 
-        box.querySelectorAll("button[data-site]").forEach(function(btn) {
+<script>
+function normalizeStoreTitle(raw) {
+    let s = (raw || "").trim();
+    if (!s) return s;
+
+    s = s.replace(/\s*\d+\s*$/g, "");
+    s = s.replace(/[\s\u2460-\u2473\u24EA\u3251-\u325F\u32B1-\u32BF]+$/gu, "");
+
+    try {
+        s = s.replace(/[\s\p{Extended_Pictographic}\uFE0F\u200D]+$/gu, "");
+    } catch (e) {}
+
+    return s.trim();
+}
+
+document.addEventListener("DOMContentLoaded", function() {
+    document.querySelectorAll(".store-search").forEach(function(box) {
+        const store = normalizeStoreTitle((box.dataset.storeTitle || "").trim());
+        if (!store) return;
+
+        box.querySelectorAll(".store-search-link[data-site]").forEach(function(a) {
+            a.addEventListener("click", function(e) {
+                e.preventDefault();
+                const site = a.getAttribute("data-site");
+                let query = "";
+                if (site === "city") query = "site:cityheaven.net " + store;
+                else if (site === "dto") query = "site:dto.jp " + store;
+                else query = store;
+
+                window.open("https://www.google.com/search?q=" + encodeURIComponent(query), "_blank", "noopener");
+            });
+        });
+    });
+
+    document.querySelectorAll(".name-store-search").forEach(function(box) {
+        const store = normalizeStoreTitle((box.dataset.storeTitle || "").trim());
+        const input = box.querySelector('input[name="name_keyword"]');
+        if (!input || !store) return;
+
+        box.querySelectorAll(".name-search-btn[data-site]").forEach(function(btn) {
             btn.addEventListener("click", function() {
                 const name = (input.value || "").trim();
                 if (!name) {
@@ -380,64 +316,202 @@ document.addEventListener("DOMContentLoaded", function() {
 
                 const site = btn.getAttribute("data-site");
                 let query = "";
-                if (site === "city") {
-                    query = "site:cityheaven.net " + storeTitle + " " + name;
-                } else if (site === "deli") {
-                    // ★ dto.jp を site: 検索
-                    query = "site:dto.jp " + storeTitle + " " + name;
-                } else {
-                    query = storeTitle + " " + name;
-                }
+                if (site === "city") query = "site:cityheaven.net " + store + " " + name;
+                else if (site === "dto") query = "site:dto.jp " + store + " " + name;
+                else query = store + " " + name;
 
-                const url = "https://www.google.com/search?q=" + encodeURIComponent(query);
-                window.open(url, "_blank", "noopener");
+                window.open("https://www.google.com/search?q=" + encodeURIComponent(query), "_blank", "noopener");
             });
         });
     });
 });
 
-/**
- * ★アンカープレビュー（title）
- */
 document.addEventListener("DOMContentLoaded", function() {
-    const map = new Map();
+    const tooltip = document.getElementById("anchorPreviewTooltip");
+    const cache = new Map();
+    let activeKey = null;
+    let aborter = null;
+    let lastTouchKey = null;
 
-    document.querySelectorAll("[data-post-no]").forEach(function(el) {
-        const no = el.getAttribute("data-post-no");
-        if (!no || map.has(no)) return;
+    function escapeHtml(s) {
+        return (s || "")
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;")
+            .replace(/'/g, "&#39;");
+    }
 
-        const bodyEl = el.querySelector(".result-text, .tree-body, .anchor-body, .post-body");
-        if (!bodyEl) return;
+    function setTooltipHtml(html) {
+        tooltip.innerHTML = html;
+    }
 
-        const txt = (bodyEl.textContent || "").trim().replace(/\s+/g, " ");
-        if (!txt) return;
+    function showTooltipAt(x, y) {
+        const pad = 12;
+        const w = tooltip.offsetWidth || 320;
+        const h = tooltip.offsetHeight || 120;
+        const vw = window.innerWidth;
+        const vh = window.innerHeight;
 
-        map.set(no, txt.slice(0, 220));
-    });
+        let left = x + pad;
+        let top = y + pad;
 
-    document.querySelectorAll("a.anchor-link[data-anchor-no]").forEach(function(a) {
-        const no = a.getAttribute("data-anchor-no");
+        if (left + w + pad > vw) left = Math.max(pad, x - w - pad);
+        if (top + h + pad > vh) top = Math.max(pad, y - h - pad);
+
+        tooltip.style.left = left + "px";
+        tooltip.style.top = top + "px";
+        tooltip.setAttribute("aria-hidden", "false");
+    }
+
+    function hideTooltip() {
+        tooltip.setAttribute("aria-hidden", "true");
+        activeKey = null;
+        if (aborter) {
+            aborter.abort();
+            aborter = null;
+        }
+    }
+
+    function parseAnchorNo(a) {
+        const dataNo = a.getAttribute("data-anchor-no");
+        if (dataNo && /^\d+$/.test(dataNo)) return dataNo;
+
+        const t = (a.textContent || "").trim();
+        const m = t.match(/^>>\s*(\d+)$/);
+        if (m) return m[1];
+
+        return null;
+    }
+
+    async function fetchPreview(threadUrl, no) {
+        const key = threadUrl + "#" + no;
+        if (cache.has(key)) return cache.get(key);
+
+        if (aborter) aborter.abort();
+        aborter = new AbortController();
+
+        const url = "/api/post_preview?thread_url=" + encodeURIComponent(threadUrl) + "&post_no=" + encodeURIComponent(no);
+        const res = await fetch(url, { signal: aborter.signal, headers: { "Accept": "application/json" }});
+        if (!res.ok) throw new Error("HTTP " + res.status);
+
+        const data = await res.json();
+        cache.set(key, data);
+        return data;
+    }
+
+    function renderLoading(no) {
+        setTooltipHtml(
+            '<div class="tooltip-meta">>>' + escapeHtml(no) + '</div>' +
+            '<div class="tooltip-loading">読み込み中…</div>'
+        );
+    }
+
+    function renderError(no) {
+        setTooltipHtml(
+            '<div class="tooltip-meta">>>' + escapeHtml(no) + '</div>' +
+            '<div class="tooltip-error">取得できませんでした（保存されていない/DBに存在しない可能性）</div>'
+        );
+    }
+
+    function renderData(no, data) {
+        const posted = data && data.posted_at ? (" ／ " + escapeHtml(data.posted_at)) : "";
+        const body = data && data.body ? escapeHtml(data.body) : "";
+        setTooltipHtml(
+            '<div class="tooltip-meta">>>' + escapeHtml(no) + posted + '</div>' +
+            '<div class="tooltip-body">' + body + '</div>'
+        );
+    }
+
+    function attachToAnchor(a) {
+        const no = parseAnchorNo(a);
         if (!no) return;
 
-        const snippet = map.get(no);
-        if (snippet) {
-            a.setAttribute("title", ">>" + no + " " + snippet);
-        } else {
-            a.setAttribute("title", ">>" + no + "（このページ内に未表示）");
+        a.classList.add("anchor-link");
+        if (!a.getAttribute("data-anchor-no")) a.setAttribute("data-anchor-no", no);
+
+        a.addEventListener("mouseenter", async function(e) {
+            const threadUrl = document.querySelector("main[data-thread-url]")?.getAttribute("data-thread-url") || "";
+            if (!threadUrl) return;
+
+            const key = threadUrl + "#" + no;
+            activeKey = key;
+
+            renderLoading(no);
+            showTooltipAt(e.clientX, e.clientY);
+
+            try {
+                const data = await fetchPreview(threadUrl, no);
+                if (activeKey !== key) return;
+                renderData(no, data);
+                showTooltipAt(e.clientX, e.clientY);
+            } catch (err) {
+                if (activeKey !== key) return;
+                renderError(no);
+                showTooltipAt(e.clientX, e.clientY);
+            }
+        });
+
+        a.addEventListener("mousemove", function(e) {
+            if (tooltip.getAttribute("aria-hidden") === "false") {
+                showTooltipAt(e.clientX, e.clientY);
+            }
+        });
+
+        a.addEventListener("mouseleave", function() {
+            hideTooltip();
+        });
+
+        a.addEventListener("click", async function(e) {
+            if (!("ontouchstart" in window) && navigator.maxTouchPoints === 0) return;
+
+            const threadUrl = document.querySelector("main[data-thread-url]")?.getAttribute("data-thread-url") || "";
+            if (!threadUrl) return;
+
+            const key = threadUrl + "#" + no;
+            if (lastTouchKey !== key) {
+                e.preventDefault();
+                lastTouchKey = key;
+
+                renderLoading(no);
+                showTooltipAt(window.innerWidth / 2, window.innerHeight / 2);
+
+                try {
+                    const data = await fetchPreview(threadUrl, no);
+                    renderData(no, data);
+                } catch (err) {
+                    renderError(no);
+                }
+
+                setTimeout(function() {
+                    if (lastTouchKey === key) lastTouchKey = null;
+                    hideTooltip();
+                }, 3000);
+            } else {
+                lastTouchKey = null;
+            }
+        });
+    }
+
+    document.querySelectorAll("a").forEach(function(a) {
+        const t = (a.textContent || "").trim();
+        if (a.classList.contains("anchor-link") || /^>>\s*\d+$/.test(t) || a.getAttribute("data-anchor-no")) {
+            attachToAnchor(a);
+        }
+    });
+
+    document.addEventListener("click", function(e) {
+        if (tooltip.getAttribute("aria-hidden") === "false") {
+            if (!tooltip.contains(e.target)) hideTooltip();
         }
     });
 });
 
-/**
- * ハンバーガーメニュー開閉
- */
+/* ハンバーガーメニュー開閉 */
 document.addEventListener("DOMContentLoaded", function() {
     const btn = document.getElementById("hamburgerButton");
     const overlay = document.getElementById("quickMenuOverlay");
-
-    if (!btn || !overlay) {
-        return;
-    }
+    if (!btn || !overlay) return;
 
     function openMenu() {
         overlay.classList.add("open");
@@ -452,30 +526,19 @@ document.addEventListener("DOMContentLoaded", function() {
     }
 
     btn.addEventListener("click", function() {
-        if (overlay.classList.contains("open")) {
-            closeMenu();
-        } else {
-            openMenu();
-        }
+        if (overlay.classList.contains("open")) closeMenu();
+        else openMenu();
     });
 
     overlay.addEventListener("click", function(e) {
-        if (e.target === overlay) {
-            closeMenu();
-        }
+        if (e.target === overlay) closeMenu();
     });
 
     const closeBtn = overlay.querySelector(".quick-menu-close");
-    if (closeBtn) {
-        closeBtn.addEventListener("click", function() {
-            closeMenu();
-        });
-    }
+    if (closeBtn) closeBtn.addEventListener("click", closeMenu);
 
     document.addEventListener("keydown", function(e) {
-        if (e.key === "Escape" && overlay.classList.contains("open")) {
-            closeMenu();
-        }
+        if (e.key === "Escape" && overlay.classList.contains("open")) closeMenu();
     });
 });
 </script>
