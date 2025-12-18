@@ -137,6 +137,7 @@ button {
 
 button:disabled {
     cursor: default;
+    opacity: 0.55; /* ★ inline style禁止のため、disabledの見た目をCSS側へ寄せる */
 }
 
 /* 汎用ボタン種類 */
@@ -377,7 +378,7 @@ mark {
 
 .form-row input[type="text"] {
     min-width: 140px;
-    flex: 1 1 auto;  /* ★ここを修正: 以前は 1 1 160px だった */
+    flex: 1 1 auto;
 }
 
 .form-row select {
@@ -623,6 +624,10 @@ mark {
     font-size: 12px;
 }
 
+.info-message {
+    margin-top: 6px;
+}
+
 /* 店舗検索 UI 共通 */
 .store-search {
     margin-top: 4px;
@@ -690,6 +695,7 @@ mark {
         max-width: 100%;
     }
 }
+
 /* ランキング表示用 */
 .ranking-card {
     margin-top: 8px;
@@ -781,46 +787,47 @@ mark {
     }
 }
 
-
-
 .thread-save {
-    margin-top:8px;
-    display:flex;
-    flex-direction:column;
-    gap:8px;
+    margin-top: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
 }
 
 .thread-pn-box {
-    display:flex;
-    flex-wrap:wrap;
-    gap:8px;
-    align-items:flex-start;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: flex-start;
 }
+
 .thread-pn-box .thread-prev-next {
-    display:flex;
-    gap:8px;
-    align-items:center;
-    flex:1 1 260px;
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    flex: 1 1 260px;
 }
+
 .thread-pn-box .thread-prev-next .thread-url {
-    font-size:12px;
-    color:#6b7280;
+    font-size: 12px;
+    color: #6b7280;
 }
+
 @media (max-width: 768px) {
     .thread-save {
         text-align: center;
     }
     .thread-pn-box {
-        flex-wrap:nowrap;
-        gap:unset;
+        flex-wrap: nowrap;
+        gap: unset;
         align-items: normal;
         justify-content: space-between;
     }
     .thread-pn-box .thread-prev-next {
-        display:block;
+        display: block;
         max-width: 49.7%;
     }
-    .thread-pn-box .thread-prev-next button{
+    .thread-pn-box .thread-prev-next button {
         margin: 0 auto;
         display: block;
     }
@@ -872,15 +879,9 @@ mark {
     transition: transform 0.2s ease, opacity 0.2s ease, background 0.2s ease;
 }
 
-.hamburger-line:nth-child(1) {
-    top: 0;
-}
-.hamburger-line:nth-child(2) {
-    top: 6px;
-}
-.hamburger-line:nth-child(3) {
-    top: 12px;
-}
+.hamburger-line:nth-child(1) { top: 0; }
+.hamburger-line:nth-child(2) { top: 6px; }
+.hamburger-line:nth-child(3) { top: 12px; }
 
 /* ボタンが open のときに「×」に変形 */
 .hamburger-button.open {
@@ -909,10 +910,10 @@ mark {
     position: fixed;
     inset: 0;
     z-index: 999;
-    display: flex;                 /* 常にレイアウト上にはいる */
+    display: flex;
     align-items: stretch;
     justify-content: flex-end;
-    background: rgba(0,0,0,0.0);   /* 最初は透明 */
+    background: rgba(0,0,0,0.0);
     opacity: 0;
     pointer-events: none;
     transition: background 0.2s ease, opacity 0.2s ease;
@@ -1025,4 +1026,55 @@ body.quick-menu-open {
     .quick-menu-panel {
         max-width: 100%;
     }
+}
+
+/* =========================
+   ★アンカープレビュー（常にDBから引く）
+   ========================= */
+.anchor-preview-tooltip {
+    position: fixed;
+    z-index: 2000;
+    max-width: 520px;
+    min-width: 240px;
+    background: rgba(17, 24, 39, 0.95);
+    color: #f9fafb;
+    border: 1px solid rgba(255,255,255,0.15);
+    border-radius: 10px;
+    padding: 10px 12px;
+    box-shadow: 0 8px 20px rgba(0,0,0,0.28);
+    font-size: 12px;
+    line-height: 1.5;
+}
+
+.anchor-preview-tooltip[aria-hidden="true"] {
+    display: none;
+}
+
+.anchor-preview-tooltip .tooltip-meta {
+    font-size: 11px;
+    color: rgba(249,250,251,0.78);
+    margin-bottom: 6px;
+}
+
+.anchor-preview-tooltip .tooltip-body {
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+.anchor-preview-tooltip .tooltip-loading {
+    opacity: 0.9;
+}
+
+.anchor-preview-tooltip .tooltip-error {
+    color: #fecaca;
+}
+
+/* 「リンクだと分かる」程度に */
+a.anchor-link {
+    color: #2563eb;
+    text-decoration: underline;
+    cursor: pointer;
+}
+a.anchor-link:hover {
+    text-decoration-thickness: 2px;
 }
