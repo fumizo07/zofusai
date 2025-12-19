@@ -53,7 +53,7 @@ from services import (
     backfill_posted_at_dt,
 )
 
-from scraper import ScrapingError
+from scraper import ScrapingError, get_thread_title
 from ranking import get_board_ranking, RANKING_URL_TEMPLATE
 
 
@@ -205,20 +205,22 @@ def show_search_page(
     tags_input_raw = (tags or "").strip()
     tag_mode = (tag_mode or "or").lower()
 
-    # ページング安全化
+    # ===== ページング安全化（入口） =====
     try:
         page = int(page)
     except Exception:
         page = 1
-    page = max(page, 1)
+    if page < 1:
+        page = 1
 
     try:
         per_page = int(per_page)
     except Exception:
         per_page = 50
-    per_page = max(10, min(per_page, 200))
 
-    offset = (page - 1) * per_page
+    allowed_per_pages = (10, 20, 50, 100)
+    if per_page not in allowed_per_pages:
+        per_page = 50
 
     # tags（検索用にトークン化。正規化は7で改善）
     tags_list: List[str] = []
@@ -298,6 +300,12 @@ def show_search_page(
             # ヒット総数（ページング用）
             hit_count = hits_q.count()
 
+            # last_page を先に確定 → page をクランプ → offset を確定
+            last_page = max(1, (hit_count + per_page - 1) // per_page)
+            if page > last_page:
+                page = last_page
+            offset = (page - 1) * per_page
+
             # ページ内のヒット（root候補）
             # 並びは「スレ→レス番号→id」で安定させる（DB差吸収のため coalesce）
             hits_page: List[ThreadPost] = (
@@ -333,9 +341,8 @@ def show_search_page(
                     posts_by_thread[p.thread_url].append(p)
 
                 # label をまとめて取得（検索結果に表示できる）
-                meta_map: Dict[str, ThreadMeta] = {}
                 metas = db.query(ThreadMeta).filter(ThreadMeta.thread_url.in_(thread_urls)).all()
-                meta_map = {m.thread_url: m for m in metas}
+                meta_map: Dict[str, ThreadMeta] = {m.thread_url: m for m in metas}
 
                 # 表示組み立て
                 thread_map: Dict[str, dict] = {}
@@ -410,10 +417,10 @@ def show_search_page(
 
     recent_searches_view = list(RECENT_SEARCHES)[::-1]
 
-    # ページ数計算
-    last_page = (hit_count // per_page) + (1 if hit_count % per_page else 0)
-    if last_page <= 0:
-        last_page = 1
+    # ページ数計算（検索していない場合でも崩れないように）
+    last_page = max(1, (hit_count + per_page - 1) // per_page)
+    if page > last_page:
+        page = last_page
 
     return templates.TemplateResponse(
         "index.html",
@@ -537,7 +544,6 @@ def delete_thread_from_search(
     return RedirectResponse(url=back_url, status_code=303)
 
 
-
 # =========================
 # スレッド一覧ダッシュボード (/threads)
 # =========================
@@ -633,7 +639,6 @@ def list_threads(
             "label_filter": label,
         },
     )
-)
 
 
 @app.post("/threads/label")
@@ -907,7 +912,7 @@ def thread_showall_page(
     else:
         try:
             try:
-                t = get_thread_title(url)  # type: ignore[name-defined]
+                t = get_thread_title(url)
                 thread_title_display = simplify_thread_title(t or "")
             except Exception:
                 thread_title_display = ""
@@ -986,7 +991,7 @@ def thread_search_posts(
     else:
         try:
             try:
-                t = get_thread_title(selected_thread)  # type: ignore[name-defined]
+                t = get_thread_title(selected_thread)
                 thread_title_display = simplify_thread_title(t or "")
             except Exception:
                 thread_title_display = ""
