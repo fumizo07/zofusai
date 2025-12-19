@@ -556,7 +556,7 @@
       // ただし、他スクリプトが外側クリック扱いで閉じるのを防ぐため
       // “ツールチップ内クリック”として扱われるよう、ここで止めておく
       // （デフォルト遷移は止めない）
-      e.stopPropagation();
+      // e.stopPropagation();
       return;
     }
 
@@ -575,7 +575,7 @@
 
     // 3) ツールチップ内クリックは閉じない
     if (isClickInsideAnyTooltip(e.target)) {
-      e.stopPropagation();
+      // e.stopPropagation();
       return;
     }
 
