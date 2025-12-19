@@ -173,13 +173,18 @@
                                 {% if item.anchor_targets %}
                                     <div class="section-title">このレスが参照しているレス</div>
                                     {% for a in item.anchor_targets %}
-                                        <div class="context-line">
-                                            {% if a.post_no %}#{{ a.post_no }}{% else %}ID {{ a.id }}{% endif %}
-                                            {% if a.posted_at %}／ {{ a.posted_at }}{% endif %}
-                                            ：{{ highlight_with_links(a.body|replace('\n', ' '), keyword, thread.thread_url) }}
+                                        <div class="anchor-item">
+                                            <div class="anchor-meta">
+                                                {% if a.post_no %}#{{ a.post_no }}{% else %}ID {{ a.id }}{% endif %}
+                                                {% if a.posted_at %}／ {{ a.posted_at }}{% endif %}
+                                            </div>
+                                            <div class="anchor-body">
+                                                {{ highlight_with_links(a.body, keyword, thread.thread_url) }}
+                                            </div>
                                         </div>
                                     {% endfor %}
                                 {% endif %}
+
 
                                 <div class="section-title">このレスへの返信ツリー</div>
                                 {% if item.tree %}
