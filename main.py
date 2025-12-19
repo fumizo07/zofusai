@@ -32,7 +32,7 @@ from constants import (
 )
 
 from db import engine, Base, get_db
-from models import ThreadPost, ThreadMeta
+from models import ThreadPost, ThreadMeta, CachedThread, CachedPost
 from utils import (
     normalize_for_search,
     highlight_text,
@@ -194,26 +194,40 @@ def show_search_page(
     thread_filter: str = "",
     tags: str = "",
     tag_mode: str = "or",
+    page: int = 1,
+    per_page: int = 50,
     db: Session = Depends(get_db),
 ):
+    from sqlalchemy import or_
+
     keyword_raw = (q or "").strip()
     thread_filter_raw = (thread_filter or "").strip()
     tags_input_raw = (tags or "").strip()
     tag_mode = (tag_mode or "or").lower()
 
-    keyword_norm = normalize_for_search(keyword_raw)
-    thread_filter_norm = normalize_for_search(thread_filter_raw)
+    # ページング安全化
+    try:
+        page = int(page)
+    except Exception:
+        page = 1
+    page = max(page, 1)
 
-    tags_norm_list: List[str] = []
+    try:
+        per_page = int(per_page)
+    except Exception:
+        per_page = 50
+    per_page = max(10, min(per_page, 200))
+
+    offset = (page - 1) * per_page
+
+    # tags（検索用にトークン化。正規化は7で改善）
+    tags_list: List[str] = []
     if tags_input_raw:
-        tags_norm_list = [
-            normalize_for_search(t)
-            for t in tags_input_raw.split(",")
-            if t.strip()
-        ]
+        tags_list = [t.strip() for t in tags_input_raw.split(",") if t.strip()]
 
     thread_results: List[dict] = []
     hit_count = 0
+    shown_count = 0
     error_message: str = ""
     popular_tags: List[dict] = []
     recent_searches_view: List[dict] = []
@@ -221,6 +235,7 @@ def show_search_page(
     info_message = _get_next_thread_message(request)
 
     try:
+        # ------- popular_tags（現状維持：重ければ後でキャッシュ化） -------
         tag_rows = db.query(ThreadPost.tags).filter(ThreadPost.tags.isnot(None)).all()
         tag_counts: Dict[str, int] = {}
         for (tags_str,) in tag_rows:
@@ -237,7 +252,9 @@ def show_search_page(
             for name, count in sorted(tag_counts.items(), key=lambda x: x[1], reverse=True)[:50]
         ]
 
+        # ------- 検索パラメータがある時だけ検索 -------
         if keyword_raw or thread_filter_raw or tags_input_raw:
+            # 最近の検索履歴（page/per_page は含めない＝履歴が汚れない）
             params = {
                 "q": keyword_raw,
                 "thread_filter": thread_filter_raw,
@@ -249,44 +266,81 @@ def show_search_page(
             if not any(e["url"] == entry["url"] for e in RECENT_SEARCHES):
                 RECENT_SEARCHES.append(entry)
 
-            all_posts: List[ThreadPost] = (
-                db.query(ThreadPost)
-                .order_by(ThreadPost.thread_url.asc(), ThreadPost.post_no.asc())
+            # =========================
+            # ここが本丸：DB側で絞る
+            # =========================
+            hits_q = db.query(ThreadPost)
+
+            # 本文キーワード（ILIKE）
+            if keyword_raw:
+                like = f"%{keyword_raw}%"
+                hits_q = hits_q.filter(ThreadPost.body.ilike(like))
+
+            # thread_filter（URL or タイトル）
+            if thread_filter_raw:
+                like = f"%{thread_filter_raw}%"
+                hits_q = hits_q.filter(
+                    or_(
+                        ThreadPost.thread_url.ilike(like),
+                        ThreadPost.thread_title.ilike(like),
+                    )
+                )
+
+            # tags（暫定：tags文字列に部分一致）
+            # ※厳密な正規化は7でやる。まずは「DB側で絞る」目的を優先。
+            if tags_list:
+                if tag_mode == "and":
+                    for t in tags_list:
+                        hits_q = hits_q.filter(ThreadPost.tags.ilike(f"%{t}%"))
+                else:
+                    hits_q = hits_q.filter(or_(*[ThreadPost.tags.ilike(f"%{t}%") for t in tags_list]))
+
+            # ヒット総数（ページング用）
+            hit_count = hits_q.count()
+
+            # ページ内のヒット（root候補）
+            # 並びは「スレ→レス番号→id」で安定させる（DB差吸収のため coalesce）
+            hits_page: List[ThreadPost] = (
+                hits_q.order_by(
+                    ThreadPost.thread_url.asc(),
+                    func.coalesce(ThreadPost.post_no, 10**9).asc(),
+                    ThreadPost.id.asc(),
+                )
+                .limit(per_page)
+                .offset(offset)
                 .all()
             )
+            shown_count = len(hits_page)
 
-            posts_by_thread: Dict[str, List[ThreadPost]] = defaultdict(list)
-            for p in all_posts:
-                posts_by_thread[p.thread_url].append(p)
+            if hits_page:
+                # 対象スレURL（このページに出る分だけ）
+                thread_urls = sorted({p.thread_url for p in hits_page if p.thread_url})
 
-            hits: List[ThreadPost] = []
-            for p in all_posts:
-                body_norm = normalize_for_search(p.body or "")
-                if keyword_norm and keyword_norm not in body_norm:
-                    continue
+                # そのスレの全レスをまとめて取る（全件ではなく「該当スレ分だけ」）
+                thread_posts: List[ThreadPost] = (
+                    db.query(ThreadPost)
+                    .filter(ThreadPost.thread_url.in_(thread_urls))
+                    .order_by(
+                        ThreadPost.thread_url.asc(),
+                        func.coalesce(ThreadPost.post_no, 10**9).asc(),
+                        ThreadPost.id.asc(),
+                    )
+                    .all()
+                )
 
-                if thread_filter_norm:
-                    url_norm = normalize_for_search(p.thread_url or "")
-                    title_norm = normalize_for_search(p.thread_title or "")
-                    if thread_filter_norm not in url_norm and thread_filter_norm not in title_norm:
-                        continue
+                posts_by_thread: Dict[str, List[ThreadPost]] = defaultdict(list)
+                for p in thread_posts:
+                    posts_by_thread[p.thread_url].append(p)
 
-                if tags_norm_list:
-                    post_tags_norm = normalize_for_search(p.tags or "")
-                    if tag_mode == "and":
-                        ok = all(t in post_tags_norm for t in tags_norm_list)
-                    else:
-                        ok = any(t in post_tags_norm for t in tags_norm_list)
-                    if not ok:
-                        continue
+                # label をまとめて取得（検索結果に表示できる）
+                meta_map: Dict[str, ThreadMeta] = {}
+                metas = db.query(ThreadMeta).filter(ThreadMeta.thread_url.in_(thread_urls)).all()
+                meta_map = {m.thread_url: m for m in metas}
 
-                hits.append(p)
-
-            hit_count = len(hits)
-
-            if hits:
+                # 表示組み立て
                 thread_map: Dict[str, dict] = {}
-                for root in hits:
+
+                for root in hits_page:
                     thread_url = root.thread_url
                     block = thread_map.get(thread_url)
                     if not block:
@@ -294,13 +348,17 @@ def show_search_page(
                         title = simplify_thread_title(title)
                         store_title = build_store_search_title(title)
 
+                        label = ""
+                        if thread_url in meta_map and meta_map[thread_url].label:
+                            label = meta_map[thread_url].label or ""
+
                         block = {
                             "thread_url": thread_url,
                             "thread_title": title,
                             "store_title": store_title,
-                            # ★ ③：店舗検索リンク（Cityheaven / DTO）
                             "store_cityheaven_url": build_google_site_search_url("cityheaven.net", store_title),
                             "store_dto_url": build_google_site_search_url("dto.jp", store_title),
+                            "label": label,
                             "entries": [],
                         }
                         thread_map[thread_url] = block
@@ -308,6 +366,7 @@ def show_search_page(
 
                     all_posts_thread = posts_by_thread.get(thread_url, [])
 
+                    # コンテキスト（±5）
                     context_posts: List[ThreadPost] = []
                     if root.post_no is not None and all_posts_thread:
                         start_no = max(1, root.post_no - 5)
@@ -318,8 +377,10 @@ def show_search_page(
                             if p.post_no is not None and start_no <= p.post_no <= end_no
                         ]
 
+                    # 返信ツリー
                     tree_items = build_reply_tree(all_posts_thread, root)
 
+                    # アンカー先
                     anchor_targets: List[ThreadPost] = []
                     if root.anchors:
                         nums = parse_anchors_csv(root.anchors)
@@ -345,8 +406,14 @@ def show_search_page(
         error_message = f"検索中にエラーが発生しました: {e}"
         thread_results = []
         hit_count = 0
+        shown_count = 0
 
     recent_searches_view = list(RECENT_SEARCHES)[::-1]
+
+    # ページ数計算
+    last_page = (hit_count // per_page) + (1 if hit_count % per_page else 0)
+    if last_page <= 0:
+        last_page = 1
 
     return templates.TemplateResponse(
         "index.html",
@@ -357,13 +424,16 @@ def show_search_page(
             "tags_input": tags_input_raw,
             "tag_mode": tag_mode,
             "results": thread_results,
-            "hit_count": hit_count,
+            "hit_count": hit_count,          # 総ヒット
+            "shown_count": shown_count,      # このページで表示してる件数
+            "page": page,
+            "per_page": per_page,
+            "last_page": last_page,
             "highlight": highlight_text,
             "error_message": error_message,
             "popular_tags": popular_tags,
             "recent_searches": recent_searches_view,
             "highlight_with_links": highlight_with_links,
-            # ★ ①：次スレ結果メッセージ
             "info_message": info_message,
         },
     )
@@ -456,14 +526,16 @@ def delete_thread_from_search(
         return RedirectResponse(url=back_url, status_code=303)
 
     try:
-        db.query(ThreadPost).filter(ThreadPost.thread_url == url).delete(
-            synchronize_session=False
-        )
+        db.query(ThreadPost).filter(ThreadPost.thread_url == url).delete(synchronize_session=False)
+        db.query(ThreadMeta).filter(ThreadMeta.thread_url == url).delete(synchronize_session=False)
+        db.query(CachedPost).filter(CachedPost.thread_url == url).delete(synchronize_session=False)
+        db.query(CachedThread).filter(CachedThread.thread_url == url).delete(synchronize_session=False)
         db.commit()
     except Exception:
         db.rollback()
 
     return RedirectResponse(url=back_url, status_code=303)
+
 
 
 # =========================
@@ -472,30 +544,52 @@ def delete_thread_from_search(
 @app.get("/threads", response_class=HTMLResponse)
 def list_threads(
     request: Request,
+    label: str = "",
     db: Session = Depends(get_db),
 ):
-    rows = (
+    label = (label or "").strip()
+
+    # 集計はサブクエリにして、後から meta / cache を join する（安全＆拡張しやすい）
+    agg = (
         db.query(
-            ThreadPost.thread_url,
+            ThreadPost.thread_url.label("thread_url"),
             func.max(ThreadPost.post_no).label("max_no"),
             func.max(ThreadPost.posted_at_dt).label("last_posted_at_dt"),
             func.min(ThreadPost.thread_title).label("thread_title"),
             func.count().label("post_count"),
+            func.max(ThreadPost.id).label("max_id"),
         )
         .group_by(ThreadPost.thread_url)
-        .order_by(func.max(ThreadPost.posted_at_dt).desc().nullslast(), func.max(ThreadPost.id).desc())
+        .subquery()
+    )
+
+    q = (
+        db.query(
+            agg.c.thread_url,
+            agg.c.max_no,
+            agg.c.last_posted_at_dt,
+            agg.c.thread_title,
+            agg.c.post_count,
+            ThreadMeta.label.label("label"),
+            CachedThread.fetched_at.label("last_fetched_at"),
+        )
+        .outerjoin(ThreadMeta, ThreadMeta.thread_url == agg.c.thread_url)
+        .outerjoin(CachedThread, CachedThread.thread_url == agg.c.thread_url)
+    )
+
+    if label:
+        q = q.filter(ThreadMeta.label == label)
+
+    rows = (
+        q.order_by(
+            agg.c.last_posted_at_dt.desc().nullslast(),
+            agg.c.max_id.desc(),
+        )
         .all()
     )
 
-    urls = [r.thread_url for r in rows]
-    meta_map: Dict[str, ThreadMeta] = {}
-    if urls:
-        metas = db.query(ThreadMeta).filter(ThreadMeta.thread_url.in_(urls)).all()
-        meta_map = {m.thread_url: m for m in metas}
-
     threads = []
     for r in rows:
-        label = meta_map.get(r.thread_url).label if r.thread_url in meta_map else ""
         threads.append(
             {
                 "thread_url": r.thread_url,
@@ -503,20 +597,22 @@ def list_threads(
                 "max_no": r.max_no,
                 "last_posted_at": r.last_posted_at_dt,
                 "post_count": r.post_count,
-                "label": label or "",
+                "label": r.label or "",
+                "last_fetched_at": r.last_fetched_at,
             }
         )
 
+    # popular_tags（現状維持）
     tag_rows = db.query(ThreadPost.tags).filter(ThreadPost.tags.isnot(None)).all()
     tag_counts: Dict[str, int] = {}
     for (tags_str,) in tag_rows:
         if not tags_str:
             continue
-        for tag in tags_str.split(","):
-            tag = tag.strip()
-            if not tag:
+        for tag_item in tags_str.split(","):
+            tag_item = tag_item.strip()
+            if not tag_item:
                 continue
-            tag_counts[tag] = tag_counts.get(tag, 0) + 1
+            tag_counts[tag_item] = tag_counts.get(tag_item, 0) + 1
 
     popular_tags = [
         {"name": name, "count": count}
@@ -533,10 +629,11 @@ def list_threads(
             "threads": threads,
             "popular_tags": popular_tags,
             "recent_searches": recent_searches_view,
-            # ★ ①：次スレ結果メッセージ
             "info_message": info_message,
+            "label_filter": label,
         },
     )
+)
 
 
 @app.post("/threads/label")
