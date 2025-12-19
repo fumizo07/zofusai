@@ -100,8 +100,8 @@
             </div>
         
             <div class="thread-actions-inline">
-                <form id="save-thread-form" method="post" action="/thread_search/save">
-                    <input type="hidden" name="thread_url" id="save-thread-url" value="">
+                <form id="save-thread-form-top" method="post" action="/thread_search/save">
+                    <input type="hidden" name="thread_url" id="save-thread-url-top" value="">
                     <button type="submit" class="btn-secondary">
                         このスレを保存
                     </button>
@@ -162,8 +162,8 @@
 
             <!-- 選択中スレを保存するフォーム（別フォームでネストを避ける） -->
             <div class="thread-actions-inline">
-                <form id="save-thread-form" method="post" action="/thread_search/save">
-                    <input type="hidden" name="thread_url" id="save-thread-url" value="">
+                <form id="save-thread-form-bottom" method="post" action="/thread_search/save">
+                    <input type="hidden" name="thread_url" id="save-thread-url-bottom" value="">
                     <button type="submit" class="btn-secondary">
                         このスレを保存
                     </button>
@@ -296,8 +296,8 @@
 // 「このスレを保存」用：選択中ラジオのURLを hidden に入れる
 document.addEventListener("DOMContentLoaded", function() {
     const radios = document.querySelectorAll('input[name="selected_thread"]');
-    const hidden = document.getElementById('save-thread-url');
-    const saveForm = document.getElementById('save-thread-form');
+    const hidden = document.querySelectorAll('input[id^="save-thread-url-"]')
+    const saveForm = document.querySelectorAll('form[id^="save-thread-form-"]')
 
     function updateHidden() {
         if (!hidden) return;
