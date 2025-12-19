@@ -21,6 +21,8 @@
             <div class="quick-menu-section-title">再検索</div>
             <div class="quick-menu-section">
                 <form method="get" action="/" class="quick-menu-form">
+                    <input type="hidden" name="page" value="1">
+                    <input type="hidden" name="per_page" value="{{ per_page or 20 }}">
                     <div class="form-row">
                         <label>キーワード：</label>
                         <input type="text" name="q" value="{{ keyword or '' }}" placeholder="例：テスト, キーワード など">
@@ -83,6 +85,15 @@
         <label for="thread_filter">スレURL / タイトル（任意）：</label><br>
         <input type="text" id="thread_filter" name="thread_filter" value="{{ thread_filter or '' }}" placeholder="空欄なら全スレ対象">
 
+        <label for="per_page_top">1ページ表示件数：</label><br>
+        <select id="per_page_top" name="per_page">
+          {% set pp = per_page or 20 %}
+          <option value="10" {% if pp == 10 %}selected{% endif %}>10</option>
+          <option value="20" {% if pp == 20 %}selected{% endif %}>20</option>
+          <option value="50" {% if pp == 50 %}selected{% endif %}>50</option>
+          <option value="100" {% if pp == 100 %}selected{% endif %}>100</option>
+        </select>
+
         <label for="tags">タグフィルタ（カンマ区切り）：</label><br>
         <input type="text" id="tags" name="tags" value="{{ tags_input or '' }}" placeholder="例：重要, 要確認 など">
 
@@ -97,15 +108,6 @@
             AND（すべて含む）
         </label>
 
-        <label for="per_page_top">1ページ表示件数：</label><br>
-        <select id="per_page_top" name="per_page">
-          {% set pp = per_page or 20 %}
-          <option value="10" {% if pp == 10 %}selected{% endif %}>10</option>
-          <option value="20" {% if pp == 20 %}selected{% endif %}>20</option>
-          <option value="50" {% if pp == 50 %}selected{% endif %}>50</option>
-          <option value="100" {% if pp == 100 %}selected{% endif %}>100</option>
-        </select>
-
         <div>
             <button type="submit">検索</button>
         </div>
@@ -113,13 +115,15 @@
 
     {% if keyword or tags_input or thread_filter %}
         <h2>検索結果（{{ hit_count }}件）<small class="muted">／ {{ shown_count }}件表示 ／ page {{ page }} / {{ last_page }} ／ per_page {{ per_page }}</small></h2>
-        {% set qs_base =
-          "q=" ~ (keyword|urlencode)
-          ~ "&thread_filter=" ~ (thread_filter|urlencode)
-          ~ "&tags=" ~ (tags_input|urlencode)
-          ~ "&tag_mode=" ~ (tag_mode|urlencode)
-          ~ "&per_page=" ~ (per_page|string)
-        %}
+        {% set params = {
+          "q": keyword,
+          "thread_filter": thread_filter,
+          "tags": tags_input,
+          "tag_mode": tag_mode,
+          "per_page": per_page
+        } %}
+        {% set qs_base = params|urlencode %}
+
     
         {% if hit_count > 0 and last_page > 1 %}
           <div class="pagination">
@@ -258,6 +262,7 @@
         <h2>再検索</h2>
         <form method="get" action="/">
             <input type="hidden" name="page" value="1">
+            <input type="hidden" name="per_page" value="{{ per_page or 20 }}">
             <label for="q_bottom">キーワード：</label><br>
             <input type="text" id="q_bottom" name="q" value="{{ keyword or '' }}" placeholder="例：テスト, キーワード など">
 
