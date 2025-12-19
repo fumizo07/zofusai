@@ -171,16 +171,14 @@
                                 <div class="result-text">{{- highlight(post.body, keyword) -}}</div>
 
                                 {% if item.anchor_targets %}
-                                    <div class="section-title">このレスが参照しているレス</div>
+                                    <div class="section-title-small">このレスが参照しているレス</div>
                                     {% for a in item.anchor_targets %}
                                         <div class="anchor-item">
                                             <div class="anchor-meta">
-                                                {% if a.post_no %}#{{ a.post_no }}{% else %}ID {{ a.id }}{% endif %}
+                                                {% if a.post_no %}#{{ a.post_no }}{% else %}レス番号不明{% endif %}
                                                 {% if a.posted_at %}／ {{ a.posted_at }}{% endif %}
                                             </div>
-                                            <div class="anchor-body">
-                                                {{ highlight_with_links(a.body, keyword, thread.thread_url) }}
-                                            </div>
+                                            <div class="anchor-body">{{ highlight_with_links(a.body, post_keyword, thread_url) }}</div>
                                         </div>
                                     {% endfor %}
                                 {% endif %}
