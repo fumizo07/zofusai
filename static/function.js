@@ -222,47 +222,34 @@
   }
 
   // ============================================================
-  // アンカー先ツールチッププレビュー
+  // アンカー先ツールチッププレビュー（手動クローズ + スタック）
+  // ① × or 外側クリック/タップまで消えない
+  //    ツールチップ内アンカー → 新しいツールチップが前面に積み上がる
+  // ② 「開く」ボタンを押しても消えない（クリックを奪わない）
+  // さらに:
+  // - >> と # を混同しない：表示文字は勝手に変えない（>>は>>のまま）
+  // - preview_tooltip.js 等がいても暴れないよう、captureでイベントを先に握る
   // ============================================================
   const API_ENDPOINT = "/api/post_preview";
-  const CLOSE_DELAY_MS = 180;
-  const HOVER_OPEN_DELAY_MS = 80;
   const MAX_RANGE_EXPAND = 30;
 
-  // ★追加：thread_url の末尾スラッシュを正規化（…// → …/）
-  function normalizeThreadUrl(u) {
-    let s = (u || "").trim();
-    if (!s) return "";
-    // 末尾のスラッシュ群だけ1本にする（https:// の // は触らない）
-    s = s.replace(/\/+$/g, "/");
-    // 末尾スラッシュが無ければ付ける（rrid 連結が安定）
-    if (!s.endsWith("/")) s += "/";
-    return s;
-  }
+  const cache = new Map(); // key -> { ok, posted_at, body } or { ok:false, message }
 
-  // ★追加：要素の近く or main から thread_url を拾う（相対 rrid 用）
-  function getThreadUrlFromContext(el) {
-    const near = el && el.closest ? el.closest("[data-thread-url]") : null;
-    const v1 = near ? (near.getAttribute("data-thread-url") || "").trim() : "";
-    if (v1) return normalizeThreadUrl(v1);
+  const tooltipStack = [];
+  const BASE_Z_INDEX = 2000;
 
-    const main = document.querySelector("main[data-thread-url]");
-    const v2 = main ? (main.getAttribute("data-thread-url") || "").trim() : "";
-    if (v2) return normalizeThreadUrl(v2);
-
-    return "";
+  function buildKey(threadUrl, postNo) {
+    return `${threadUrl}||${postNo}`;
   }
 
   // href から (thread_url, post_no, open_url) を推定
   // 例: https://bakusai.com/.../tid=12984894/rrid=15/
   function parseBakusaiRridHref(href) {
     if (!href) return null;
-
-    // フルURL想定
     const m = href.match(/^(.*?\/)rrid=(\d+)\/?$/);
     if (!m) return null;
 
-    const threadUrl = normalizeThreadUrl(m[1]);
+    const threadUrl = m[1];
     const postNo = parseInt(m[2], 10);
     if (!Number.isFinite(postNo) || postNo <= 0) return null;
 
@@ -270,23 +257,73 @@
     return { threadUrl, postNo, openUrl };
   }
 
-  // ★追加：相対 "rrid=15/" だけのケースを拾う
-  function parseRelativeRridHref(href, threadUrlFromContext) {
-    if (!href) return null;
-    const m = href.match(/^rrid=(\d+)\/?$/);
-    if (!m) return null;
-
-    const threadUrl = normalizeThreadUrl(threadUrlFromContext || "");
-    if (!threadUrl) return null;
-
-    const postNo = parseInt(m[1], 10);
-    if (!Number.isFinite(postNo) || postNo <= 0) return null;
-
-    const openUrl = `${threadUrl}rrid=${postNo}/`;
-    return { threadUrl, postNo, openUrl };
+  // 「開く」リンクはプレビュー対象にしない
+  function isOpenLink(el) {
+    if (!el) return false;
+    if (el.classList && el.classList.contains("post-preview-tooltip-open")) return true;
+    const role = el.getAttribute ? el.getAttribute("data-role") : "";
+    if (role === "open") return true;
+    return false;
   }
 
-  // テキスト中のアンカー（>>15, ＞＞15, >>15-17, ＞＞15-17）をリンク化（#15 表示）
+  function findPreviewTargetFromElement(el) {
+    if (!el) return null;
+
+    if (isOpenLink(el)) return null;
+
+    // ツールチップ内で生成したリンク
+    const dt = el.getAttribute("data-thread-url");
+    const pn = el.getAttribute("data-post-no");
+    if (dt && pn && /^\d+$/.test(pn)) {
+      const postNo = parseInt(pn, 10);
+      const threadUrl = dt;
+      const openUrl = `${threadUrl}rrid=${postNo}/`;
+      return { threadUrl, postNo, openUrl };
+    }
+
+    // 既存 rrid= リンク
+    const href = el.getAttribute("href") || "";
+    const parsed = parseBakusaiRridHref(href);
+    if (parsed) return parsed;
+
+    return null;
+  }
+
+  function renumberZIndex() {
+    tooltipStack.forEach((t, i) => {
+      t.el.style.zIndex = String(BASE_Z_INDEX + i);
+    });
+  }
+
+  function bringTooltipToFront(t) {
+    const idx = tooltipStack.indexOf(t);
+    if (idx < 0) return;
+    tooltipStack.splice(idx, 1);
+    tooltipStack.push(t);
+    renumberZIndex();
+  }
+
+  function closeSpecificTooltip(t) {
+    if (t.abortCtl) {
+      try { t.abortCtl.abort(); } catch (_) {}
+      t.abortCtl = null;
+    }
+
+    const idx = tooltipStack.indexOf(t);
+    if (idx >= 0) tooltipStack.splice(idx, 1);
+
+    try { t.el.remove(); } catch (_) {}
+
+    renumberZIndex();
+  }
+
+  function closeTopTooltip() {
+    const top = tooltipStack.length ? tooltipStack[tooltipStack.length - 1] : null;
+    if (top) closeSpecificTooltip(top);
+  }
+
+  // テキスト中のアンカー（>>15, ＞＞15, >>15-17, ＞＞15-17）をリンク化
+  // 表示は「>>15」形式（#にしない）
   function linkifyAnchorsToPreviewLinks(text, threadUrl) {
     const safe = escapeHtml(text ?? "");
 
@@ -295,112 +332,43 @@
 
     let out = safe;
 
-    out = out.replace(rangeRe, (_, aRaw, bRaw) => {
+    out = out.replace(rangeRe, (whole, aRaw, bRaw) => {
       const a = parseInt(aRaw, 10);
       const b = parseInt(bRaw, 10);
-      if (!Number.isFinite(a) || !Number.isFinite(b) || a <= 0 || b <= 0) return _;
+      if (!Number.isFinite(a) || !Number.isFinite(b) || a <= 0 || b <= 0) return whole;
 
       const start = Math.min(a, b);
       const end = Math.max(a, b);
       const count = end - start + 1;
-      if (count > MAX_RANGE_EXPAND) return _;
+      if (count > MAX_RANGE_EXPAND) return whole;
 
       const links = [];
       for (let n = start; n <= end; n++) {
         const openUrl = `${threadUrl}rrid=${n}/`;
         links.push(
-          `<a href="${escapeHtml(openUrl)}" class="post-preview-link" data-thread-url="${escapeHtml(threadUrl)}" data-post-no="${n}">#${n}</a>`
+          `<a href="${escapeHtml(openUrl)}" class="post-preview-link" data-thread-url="${escapeHtml(threadUrl)}" data-post-no="${n}">&gt;&gt;${n}</a>`
         );
       }
       return links.join(" ");
     });
 
-    out = out.replace(singleRe, (_, nRaw) => {
+    out = out.replace(singleRe, (whole, nRaw) => {
       const n = parseInt(nRaw, 10);
-      if (!Number.isFinite(n) || n <= 0) return _;
+      if (!Number.isFinite(n) || n <= 0) return whole;
       const openUrl = `${threadUrl}rrid=${n}/`;
-      return `<a href="${escapeHtml(openUrl)}" class="post-preview-link" data-thread-url="${escapeHtml(threadUrl)}" data-post-no="${n}">#${n}</a>`;
+      return `<a href="${escapeHtml(openUrl)}" class="post-preview-link" data-thread-url="${escapeHtml(threadUrl)}" data-post-no="${n}">&gt;&gt;${n}</a>`;
     });
 
     return out.replace(/\r?\n/g, "<br>");
   }
 
-  // Tooltip DOM（1回だけ作る）
-  const tooltip = document.createElement("div");
-  tooltip.className = "post-preview-tooltip";
-  tooltip.setAttribute("aria-hidden", "true");
-  tooltip.innerHTML = `
-    <div class="post-preview-tooltip-inner" role="dialog" aria-live="polite">
-      <div class="post-preview-tooltip-header">
-        <div class="post-preview-tooltip-title" data-role="title"></div>
-        <div class="post-preview-tooltip-actions">
-          <a class="post-preview-tooltip-open" data-role="open" href="#" target="_blank" rel="noopener noreferrer">開く</a>
-          <button type="button" class="post-preview-tooltip-close" data-role="close" aria-label="閉じる">×</button>
-        </div>
-      </div>
-      <div class="post-preview-tooltip-body" data-role="body"></div>
-      <div class="post-preview-tooltip-foot" data-role="foot"></div>
-    </div>
-  `;
-  document.body.appendChild(tooltip);
-
-  const elTitle = tooltip.querySelector('[data-role="title"]');
-  const elOpen = tooltip.querySelector('[data-role="open"]');
-  const elBody = tooltip.querySelector('[data-role="body"]');
-  const elFoot = tooltip.querySelector('[data-role="foot"]');
-  const elClose = tooltip.querySelector('[data-role="close"]');
-
-  let currentAnchorEl = null;
-  let currentKey = "";
-  let openTimer = null;
-  let closeTimer = null;
-  let abortCtl = null;
-
-  const cache = new Map(); // key -> { ok, posted_at, body } or { ok:false, message }
-
-  function buildKey(threadUrl, postNo) {
-    return `${threadUrl}||${postNo}`;
-  }
-
-  function isTooltipOpen() {
-    return tooltip.classList.contains("open");
-  }
-
-  function setTooltipContentLoading(threadUrl, postNo, openUrl) {
-    elTitle.textContent = `#${postNo} ／ 読み込み中…`;
-    elOpen.href = openUrl || "#";
-    elBody.innerHTML = `<div class="post-preview-tooltip-loading">読み込み中…</div>`;
-    elFoot.textContent = "";
-    tooltip.dataset.threadUrl = threadUrl;
-  }
-
-  function setTooltipContentError(threadUrl, postNo, openUrl, message) {
-    elTitle.textContent = `#${postNo} ／ 取得できませんでした`;
-    elOpen.href = openUrl || "#";
-    elBody.innerHTML = `<div class="post-preview-tooltip-error">${escapeHtml(message)}</div>`;
-    elFoot.textContent = "";
-    tooltip.dataset.threadUrl = threadUrl;
-  }
-
-  function setTooltipContentOk(threadUrl, postNo, openUrl, postedAt, bodyText) {
-    const posted = postedAt ? `／ ${postedAt}` : "";
-    elTitle.textContent = `#${postNo} ${posted}`;
-    elOpen.href = openUrl || "#";
-
-    // 本文のアンカーもリンク化（ツールチップ内も再ツールチップ可能）
-    elBody.innerHTML = linkifyAnchorsToPreviewLinks(bodyText ?? "", threadUrl);
-
-    elFoot.textContent = "※ツールチップ内の #アンカーもそのままプレビューできます。";
-    tooltip.dataset.threadUrl = threadUrl;
-  }
-
-  function positionTooltipNear(anchorEl) {
+  function positionTooltipNear(tipEl, anchorEl) {
     const rect = anchorEl.getBoundingClientRect();
 
-    tooltip.style.left = "0px";
-    tooltip.style.top = "0px";
+    tipEl.style.left = "0px";
+    tipEl.style.top = "0px";
 
-    const tipRect = tooltip.getBoundingClientRect();
+    const tipRect = tipEl.getBoundingClientRect();
     const margin = 10;
     const vw = window.innerWidth;
     const vh = window.innerHeight;
@@ -411,49 +379,126 @@
     const belowTop = rect.bottom + 8;
     const aboveTop = rect.top - tipRect.height - 8;
     let top = belowTop;
+
     if (belowTop + tipRect.height + margin > vh && aboveTop > margin) {
       top = aboveTop;
     } else {
       top = clamp(top, margin, vh - tipRect.height - margin);
     }
 
-    tooltip.style.left = `${left}px`;
-    tooltip.style.top = `${top}px`;
+    tipEl.style.left = `${left}px`;
+    tipEl.style.top = `${top}px`;
   }
 
-  function openTooltip(anchorEl, threadUrl, postNo, openUrl) {
-    if (closeTimer) {
-      clearTimeout(closeTimer);
-      closeTimer = null;
-    }
+  function createTooltip() {
+    const el = document.createElement("div");
+    el.className = "post-preview-tooltip";
+    el.setAttribute("aria-hidden", "true");
+    el.innerHTML = `
+      <div class="post-preview-tooltip-inner" role="dialog" aria-live="polite">
+        <div class="post-preview-tooltip-header">
+          <div class="post-preview-tooltip-title" data-role="title"></div>
+          <div class="post-preview-tooltip-actions">
+            <a class="post-preview-tooltip-open" data-role="open" href="#" target="_blank" rel="noopener noreferrer">開く</a>
+            <button type="button" class="post-preview-tooltip-close" data-role="close" aria-label="閉じる">×</button>
+          </div>
+        </div>
+        <div class="post-preview-tooltip-body" data-role="body"></div>
+        <div class="post-preview-tooltip-foot" data-role="foot"></div>
+      </div>
+    `;
+    document.body.appendChild(el);
 
-    currentAnchorEl = anchorEl;
-    const key = buildKey(threadUrl, postNo);
-    currentKey = key;
+    const t = {
+      el,
+      elTitle: el.querySelector('[data-role="title"]'),
+      elOpen: el.querySelector('[data-role="open"]'),
+      elBody: el.querySelector('[data-role="body"]'),
+      elFoot: el.querySelector('[data-role="foot"]'),
+      elClose: el.querySelector('[data-role="close"]'),
+      currentKey: "",
+      currentAnchorEl: null,
+      abortCtl: null,
+    };
 
-    tooltip.classList.add("open");
-    tooltip.setAttribute("aria-hidden", "false");
+    // 前面化（触ったら一番上）
+    el.addEventListener("mousedown", () => bringTooltipToFront(t));
 
-    positionTooltipNear(anchorEl);
-    setTooltipContentLoading(threadUrl, postNo, openUrl);
+    // ×で閉じる（このツールチップだけ）
+    t.elClose.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      closeSpecificTooltip(t);
+    });
 
-    if (cache.has(key)) {
-      const cached = cache.get(key);
+    tooltipStack.push(t);
+    renumberZIndex();
+    bringTooltipToFront(t);
+
+    return t;
+  }
+
+  function setTooltipContentLoading(t, threadUrl, postNo, openUrl) {
+    t.elTitle.textContent = `>>${postNo} ／ 読み込み中…`;
+    t.elOpen.href = openUrl || "#";
+    t.elBody.innerHTML = `<div class="post-preview-tooltip-loading">読み込み中…</div>`;
+    t.elFoot.textContent = "";
+    t.el.dataset.threadUrl = threadUrl;
+  }
+
+  function setTooltipContentError(t, threadUrl, postNo, openUrl, message) {
+    t.elTitle.textContent = `>>${postNo} ／ 取得できませんでした`;
+    t.elOpen.href = openUrl || "#";
+    t.elBody.innerHTML = `<div class="post-preview-tooltip-error">${escapeHtml(message)}</div>`;
+    t.elFoot.textContent = "";
+    t.el.dataset.threadUrl = threadUrl;
+  }
+
+  function setTooltipContentOk(t, threadUrl, postNo, openUrl, postedAt, bodyText) {
+    const posted = postedAt ? `／ ${postedAt}` : "";
+    t.elTitle.textContent = `>>${postNo} ${posted}`;
+    t.elOpen.href = openUrl || "#";
+    t.elBody.innerHTML = linkifyAnchorsToPreviewLinks(bodyText ?? "", threadUrl);
+    t.elFoot.textContent = "※ツールチップ内のアンカーもそのままプレビューできます。";
+    t.el.dataset.threadUrl = threadUrl;
+  }
+
+  function openTooltip(anchorEl, target) {
+    const t = createTooltip();
+    bringTooltipToFront(t);
+
+    t.currentAnchorEl = anchorEl;
+    t.currentKey = buildKey(target.threadUrl, target.postNo);
+
+    t.el.classList.add("open");
+    t.el.setAttribute("aria-hidden", "false");
+
+    positionTooltipNear(t.el, anchorEl);
+    setTooltipContentLoading(t, target.threadUrl, target.postNo, target.openUrl);
+
+    // キャッシュがあれば即表示
+    if (cache.has(t.currentKey)) {
+      const cached = cache.get(t.currentKey);
       if (cached && cached.ok) {
-        setTooltipContentOk(threadUrl, postNo, openUrl, cached.posted_at, cached.body);
+        setTooltipContentOk(t, target.threadUrl, target.postNo, target.openUrl, cached.posted_at, cached.body);
       } else {
-        setTooltipContentError(threadUrl, postNo, openUrl, cached?.message || "not_found");
+        setTooltipContentError(t, target.threadUrl, target.postNo, target.openUrl, cached?.message || "not_found");
       }
       return;
     }
 
-    if (abortCtl) {
-      try { abortCtl.abort(); } catch (_) {}
+    // fetch開始（このツールチップ専用）
+    if (t.abortCtl) {
+      try { t.abortCtl.abort(); } catch (_) {}
     }
-    abortCtl = new AbortController();
+    t.abortCtl = new AbortController();
 
-    const qs = new URLSearchParams({ thread_url: threadUrl, post_no: String(postNo) });
-    fetch(`${API_ENDPOINT}?${qs.toString()}`, { signal: abortCtl.signal, headers: { "Accept": "application/json" } })
+    const qs = new URLSearchParams({
+      thread_url: target.threadUrl,
+      post_no: String(target.postNo),
+    });
+
+    fetch(`${API_ENDPOINT}?${qs.toString()}`, { signal: t.abortCtl.signal })
       .then(async (res) => {
         if (!res.ok) {
           let msg = `HTTP ${res.status}`;
@@ -466,191 +511,110 @@
         return res.json();
       })
       .then((data) => {
-        if (currentKey !== key) return;
+        if (!tooltipStack.includes(t)) return;
 
         if (data && data.ok) {
-          cache.set(key, { ok: true, posted_at: data.posted_at || "", body: data.body || "" });
-          setTooltipContentOk(threadUrl, postNo, openUrl, data.posted_at || "", data.body || "");
+          cache.set(t.currentKey, { ok: true, posted_at: data.posted_at || "", body: data.body || "" });
+          setTooltipContentOk(t, target.threadUrl, target.postNo, target.openUrl, data.posted_at || "", data.body || "");
         } else {
           const msg = (data && data.error) ? data.error : "unknown_error";
-          cache.set(key, { ok: false, message: msg });
-          setTooltipContentError(threadUrl, postNo, openUrl, msg);
+          cache.set(t.currentKey, { ok: false, message: msg });
+          setTooltipContentError(t, target.threadUrl, target.postNo, target.openUrl, msg);
         }
       })
       .catch((err) => {
-        if (currentKey !== key) return;
+        if (!tooltipStack.includes(t)) return;
         if (err && err.name === "AbortError") return;
-        cache.set(key, { ok: false, message: err?.message || "fetch_error" });
-        setTooltipContentError(threadUrl, postNo, openUrl, err?.message || "fetch_error");
+
+        const msg = err?.message || "fetch_error";
+        cache.set(t.currentKey, { ok: false, message: msg });
+        setTooltipContentError(t, target.threadUrl, target.postNo, target.openUrl, msg);
       });
   }
 
-  function scheduleCloseTooltip() {
-    if (closeTimer) clearTimeout(closeTimer);
-    closeTimer = setTimeout(() => {
-      const hoveringTooltip = tooltip.matches(":hover");
-      const hoveringAnchor = currentAnchorEl && currentAnchorEl.matches(":hover");
-      if (hoveringTooltip || hoveringAnchor) {
-        scheduleCloseTooltip();
-        return;
-      }
-      closeTooltip();
-    }, CLOSE_DELAY_MS);
+  // ============================================================
+  // イベント（ここが肝）
+  // - captureでプレビュー対象のイベントを先に握って、他スクリプトを黙らせる
+  // - クリックで開く／外側クリックで閉じる／×で閉じる
+  // - 「開く」は奪わない＆閉じない
+  // ============================================================
+
+  function isClickInsideAnyTooltip(node) {
+    if (!node || !node.closest) return false;
+    return !!node.closest(".post-preview-tooltip");
   }
 
-  function closeTooltip() {
-    if (openTimer) {
-      clearTimeout(openTimer);
-      openTimer = null;
-    }
-    if (closeTimer) {
-      clearTimeout(closeTimer);
-      closeTimer = null;
-    }
-    currentAnchorEl = null;
-    currentKey = "";
-    tooltip.classList.remove("open");
-    tooltip.setAttribute("aria-hidden", "true");
-  }
-
-  // 表示が >>15 なら #15 に統一
-  function normalizeAnchorDisplayText(el) {
-    const t = (el.textContent || "").trim();
-    const m = t.match(/^(?:>>|＞＞)\s*(\d+)$/);
-    if (m) {
-      el.textContent = `#${m[1]}`;
-    }
-  }
-
-  function findPreviewTargetFromElement(el) {
-    if (!el) return null;
-
-    // ツールチップ内で生成したリンク
-    const dt = el.getAttribute("data-thread-url");
-    const pn = el.getAttribute("data-post-no");
-    if (dt && pn && /^\d+$/.test(pn)) {
-      const postNo = parseInt(pn, 10);
-      const threadUrl = normalizeThreadUrl(dt);
-      const openUrl = `${threadUrl}rrid=${postNo}/`;
-      return { threadUrl, postNo, openUrl };
-    }
-
-    const href = (el.getAttribute("href") || "").trim();
-
-    // 既存 rrid= フルURL
-    const parsed = parseBakusaiRridHref(href);
-    if (parsed) return parsed;
-
-    // ★相対 rrid=15/ を拾う（thread_search_posts でこれが出ている可能性がある）
-    const ctx = getThreadUrlFromContext(el);
-    const parsedRel = parseRelativeRridHref(href, ctx);
-    if (parsedRel) return parsedRel;
-
-    return null;
-  }
-
-  function onAnchorEnter(el, target) {
-    if (openTimer) clearTimeout(openTimer);
-    openTimer = setTimeout(() => {
-      openTooltip(el, target.threadUrl, target.postNo, target.openUrl);
-    }, HOVER_OPEN_DELAY_MS);
-  }
-
-  function onAnchorLeave() {
-    if (openTimer) {
-      clearTimeout(openTimer);
-      openTimer = null;
-    }
-    scheduleCloseTooltip();
-  }
-
-  document.addEventListener("mouseover", (e) => {
-    const a = e.target && e.target.closest ? e.target.closest("a") : null;
-    if (!a) return;
-
-    normalizeAnchorDisplayText(a);
-
-    const target = findPreviewTargetFromElement(a);
-    if (!target) return;
-
-    onAnchorEnter(a, target);
-  });
-
-  document.addEventListener("mouseout", (e) => {
-    const a = e.target && e.target.closest ? e.target.closest("a") : null;
-    if (!a) return;
-
-    const target = findPreviewTargetFromElement(a);
-    if (!target) return;
-
-    onAnchorLeave();
-  });
-
-  // モバイル：タップでトグル
+  // クリック（capture）
   document.addEventListener("click", (e) => {
     const a = e.target && e.target.closest ? e.target.closest("a") : null;
 
-    if (!a) {
-      if (isTooltipOpen() && !tooltip.contains(e.target)) {
-        closeTooltip();
+    // 1) ツールチップ内の「開く」は通常動作（ここでは触らない）
+    if (a && isOpenLink(a)) {
+      // ただし、他スクリプトが外側クリック扱いで閉じるのを防ぐため
+      // “ツールチップ内クリック”として扱われるよう、ここで止めておく
+      // （デフォルト遷移は止めない）
+      e.stopPropagation();
+      return;
+    }
+
+    // 2) プレビュー対象リンクなら新しいツールチップを積む
+    if (a) {
+      const target = findPreviewTargetFromElement(a);
+      if (target) {
+        e.preventDefault();
+        e.stopPropagation();
+        // 他スクリプトにも渡さない（重要）
+        if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+        openTooltip(a, target);
+        return;
       }
+    }
+
+    // 3) ツールチップ内クリックは閉じない
+    if (isClickInsideAnyTooltip(e.target)) {
+      e.stopPropagation();
       return;
     }
 
+    // 4) 外側クリックでトップだけ閉じる
+    if (tooltipStack.length) {
+      closeTopTooltip();
+    }
+  }, true);
+
+  // hover系（capture）
+  // 旧preview_tooltip.jsが mouseover/mouseout で勝手に閉じるのを止めるため
+  function stopHoverIfPreviewTarget(e) {
+    const a = e.target && e.target.closest ? e.target.closest("a") : null;
+    if (!a) return;
     const target = findPreviewTargetFromElement(a);
-    if (!target) return; // プレビュー対象でなければ通常挙動に任せる
-
-    e.preventDefault();
+    if (!target) return;
     e.stopPropagation();
+    if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+  }
+  document.addEventListener("mouseover", stopHoverIfPreviewTarget, true);
+  document.addEventListener("mouseout", stopHoverIfPreviewTarget, true);
 
-    normalizeAnchorDisplayText(a);
-
-    const key = buildKey(target.threadUrl, target.postNo);
-    if (isTooltipOpen() && currentKey === key) {
-      closeTooltip();
-      return;
-    }
-
-    openTooltip(a, target.threadUrl, target.postNo, target.openUrl);
-  }, { passive: false });
-
-  // ツールチップ内にいる間は閉じない
-  tooltip.addEventListener("mouseenter", () => {
-    if (closeTimer) {
-      clearTimeout(closeTimer);
-      closeTimer = null;
-    }
-  });
-  tooltip.addEventListener("mouseleave", () => {
-    scheduleCloseTooltip();
-  });
-
-  elClose.addEventListener("click", (e) => {
-    e.preventDefault();
-    closeTooltip();
-  });
-
+  // Escでトップだけ閉じる
   document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape" && isTooltipOpen()) {
-      closeTooltip();
-    }
+    if (e.key === "Escape") closeTopTooltip();
   });
 
+  // スクロール/リサイズ時はトップだけ追随
   window.addEventListener("scroll", () => {
-    if (isTooltipOpen() && currentAnchorEl) positionTooltipNear(currentAnchorEl);
+    const top = tooltipStack.length ? tooltipStack[tooltipStack.length - 1] : null;
+    if (top && top.currentAnchorEl) positionTooltipNear(top.el, top.currentAnchorEl);
   }, { passive: true });
 
   window.addEventListener("resize", () => {
-    if (isTooltipOpen() && currentAnchorEl) positionTooltipNear(currentAnchorEl);
+    const top = tooltipStack.length ? tooltipStack[tooltipStack.length - 1] : null;
+    if (top && top.currentAnchorEl) positionTooltipNear(top.el, top.currentAnchorEl);
   });
 
   // ============================================================
   // 起動（ページごとに要素があるものだけ動く）
   // ============================================================
   document.addEventListener("DOMContentLoaded", () => {
-    // 既存リンクの >>n 表示を #n に揃える
-    document.querySelectorAll("a").forEach(normalizeAnchorDisplayText);
-
     initHamburger();
     initReadMore();
     initStoreSearchHandlers();
