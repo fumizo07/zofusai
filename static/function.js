@@ -438,25 +438,28 @@
     return t;
   }
 
+  // ★修正：ツールチップ“ヘッダーのレス番”は #n にする（参照の >>n とは別）
   function setTooltipContentLoading(t, threadUrl, postNo, openUrl) {
-    t.elTitle.textContent = `>>${postNo} ／ 読み込み中…`;
+    t.elTitle.textContent = `#${postNo} ／ 読み込み中…`;
     t.elOpen.href = openUrl || "#";
     t.elBody.innerHTML = `<div class="post-preview-tooltip-loading">読み込み中…</div>`;
     t.elFoot.textContent = "";
     t.el.dataset.threadUrl = threadUrl;
   }
 
+  // ★修正
   function setTooltipContentError(t, threadUrl, postNo, openUrl, message) {
-    t.elTitle.textContent = `>>${postNo} ／ 取得できませんでした`;
+    t.elTitle.textContent = `#${postNo} ／ 取得できませんでした`;
     t.elOpen.href = openUrl || "#";
     t.elBody.innerHTML = `<div class="post-preview-tooltip-error">${escapeHtml(message)}</div>`;
     t.elFoot.textContent = "";
     t.el.dataset.threadUrl = threadUrl;
   }
 
+  // ★修正
   function setTooltipContentOk(t, threadUrl, postNo, openUrl, postedAt, bodyText) {
     const posted = postedAt ? `／ ${postedAt}` : "";
-    t.elTitle.textContent = `>>${postNo} ${posted}`;
+    t.elTitle.textContent = `#${postNo} ${posted}`;
     t.elOpen.href = openUrl || "#";
     t.elBody.innerHTML = linkifyAnchorsToPreviewLinks(bodyText ?? "", threadUrl);
     t.elFoot.textContent = "※ツールチップ内のアンカーもそのままプレビューできます。";
