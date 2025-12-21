@@ -894,6 +894,7 @@ def thread_showall_page(
     area: str = "7",
     period: str = "3m",
     title_keyword: str = "",
+    view: str = "tree",  # ★デフォルトをツリーにする
     db: Session = Depends(get_db),
 ):
     url = (url or "").strip()
@@ -901,9 +902,17 @@ def thread_showall_page(
     period = (period or "").strip() or "3m"
     title_keyword = (title_keyword or "").strip()
 
+    view = (view or "").strip().lower()
+    if view not in ("tree", "flat"):
+        view = "tree"
+
     error_message = ""
     thread_title_display = ""
     posts_sorted: List[object] = []
+
+    # ★ツリー表示用
+    tree_roots: List[dict] = []
+    posts_unknown: List[object] = []
 
     if not url:
         error_message = "URLが指定されていません。"
@@ -923,9 +932,76 @@ def thread_showall_page(
                 return p.post_no if getattr(p, "post_no", None) is not None else 10**9
 
             posts_sorted = sorted(list(all_posts), key=_post_key)
+
+            # ----------------------------
+            # ★ツリー構築（親=最初に参照したレス。複数参照は先頭のみ採用）
+            #   - 親候補は「存在するレス番号」かつ「自分より小さい番号」のみ
+            #   - これで循環参照や未来参照で崩れるのを抑える
+            # ----------------------------
+            def _extract_anchors(p) -> List[int]:
+                a = getattr(p, "anchors", None)
+                if not a:
+                    return []
+                # anchors が CSV 文字列のケース
+                if isinstance(a, str):
+                    try:
+                        return parse_anchors_csv(a)
+                    except Exception:
+                        return []
+                # anchors が list/tuple/set のケース
+                if isinstance(a, (list, tuple, set)):
+                    out: List[int] = []
+                    for x in a:
+                        try:
+                            n = int(x)
+                            if n > 0:
+                                out.append(n)
+                        except Exception:
+                            continue
+                    return out
+                return []
+
+            nodes_by_no: Dict[int, dict] = {}
+            for p in posts_sorted:
+                pn = getattr(p, "post_no", None)
+                if pn is None:
+                    posts_unknown.append(p)
+                    continue
+                # 同一番号が混ざるケースは最初を優先
+                if pn not in nodes_by_no:
+                    nodes_by_no[pn] = {"post": p, "children": []}
+
+            # parent_no -> [child_node]
+            for pn, node in nodes_by_no.items():
+                p = node["post"]
+                anchors = _extract_anchors(p)
+                parent_no: Optional[int] = None
+                for a in anchors:
+                    # 親は「存在する番号」かつ「自分より前」
+                    if a in nodes_by_no and a != pn and a < pn:
+                        parent_no = a
+                        break
+
+                if parent_no is None:
+                    tree_roots.append(node)
+                else:
+                    nodes_by_no[parent_no]["children"].append(node)
+
+            # 子を post_no 順にソート（見た目が安定する）
+            def _sort_subtree(n: dict) -> None:
+                n["children"].sort(key=lambda c: getattr(c["post"], "post_no", None) or 10**9)
+                for ch in n["children"]:
+                    _sort_subtree(ch)
+
+            tree_roots.sort(key=lambda n: getattr(n["post"], "post_no", None) or 10**9)
+            for r in tree_roots:
+                _sort_subtree(r)
+
         except Exception as e:
             error_message = f"全レス取得中にエラーが発生しました: {e}"
             posts_sorted = []
+            tree_roots = []
+            posts_unknown = []
 
     # ★ ③：店舗検索（DTO/Cityheaven）
     store_title = build_store_search_title(thread_title_display or title_keyword)
@@ -941,7 +1017,10 @@ def thread_showall_page(
             "area": area,
             "period": period,
             "title_keyword": title_keyword,
+            "view": view,  # ★追加
             "posts": posts_sorted,
+            "tree_roots": tree_roots,  # ★追加
+            "posts_unknown": posts_unknown,  # ★追加
             "error_message": error_message,
             "store_title": store_title,
             "store_cityheaven_url": store_cityheaven_url,
