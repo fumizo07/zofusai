@@ -228,6 +228,8 @@ def show_search_page(
     thread_filter_raw = (thread_filter or "").strip()
     tags_input_raw = (tags or "").strip()
     tag_mode = (tag_mode or "or").lower()
+    if tag_mode not in ("or", "and"):
+        tag_mode = "or"
 
     # ===== ページング安全化（入口） =====
     try:
@@ -246,12 +248,10 @@ def show_search_page(
     if per_page not in allowed_per_pages:
         per_page = 50
 
-    # tags（トークン化）
+    # tags（トークン化）※二重処理はしない
     tags_list: List[str] = parse_tags_input(tags_input_raw)
-    if tags_input_raw:
-        tags_list = [t.strip() for t in tags_input_raw.split(",") if t.strip()]
 
-    # ★⑨：検索用に正規化（どっきり/ドッキリ、全角半角、大文字小文字など）
+    # ★検索用に正規化（どっきり/ドッキリ、全角半角、大文字小文字など）
     keyword_norm = normalize_for_search(keyword_raw) if keyword_raw else ""
     thread_filter_norm = normalize_for_search(thread_filter_raw) if thread_filter_raw else ""
     tags_norm_list = [normalize_for_search(t) for t in tags_list] if tags_list else []
@@ -266,17 +266,17 @@ def show_search_page(
     info_message = _get_next_thread_message(request)
 
     try:
-        # ------- popular_tags（現状維持） -------
+        # ------- popular_tags（現状維持：tags列を集計して表示） -------
         tag_rows = db.query(ThreadPost.tags).filter(ThreadPost.tags.isnot(None)).all()
         tag_counts: Dict[str, int] = {}
         for (tags_str,) in tag_rows:
             if not tags_str:
                 continue
-            for tag in tags_str.split(","):
-                tag = tag.strip()
-                if not tag:
+            for tag_item in tags_str.split(","):
+                tag_item = (tag_item or "").strip()
+                if not tag_item:
                     continue
-                tag_counts[tag] = tag_counts.get(tag, 0) + 1
+                tag_counts[tag_item] = tag_counts.get(tag_item, 0) + 1
 
         popular_tags = [
             {"name": name, "count": count}
@@ -299,13 +299,13 @@ def show_search_page(
             hits_q = db.query(ThreadPost)
 
             # =========================
-            # ★⑨：本文キーワード（正規化列 body_norm を検索）
+            # 本文キーワード（正規化列 body_norm を検索）
             # =========================
             if keyword_norm:
                 hits_q = hits_q.filter(ThreadPost.body_norm.like(f"%{keyword_norm}%"))
 
             # thread_filter（URL or タイトル）
-            # - URLは素の部分一致（ユーザーがURL断片を入れるケースがある）
+            # - URLは素の部分一致（ユーザーがURL断片を入れるケース）
             # - タイトルは thread_title_norm で揺らぎ対応
             if thread_filter_raw:
                 url_like = f"%{thread_filter_raw}%"
@@ -320,13 +320,21 @@ def show_search_page(
                 else:
                     hits_q = hits_q.filter(ThreadPost.thread_url.ilike(url_like))
 
-            # tags（tags_norm を検索）
+            # =========================
+            # tags（tags_norm を「境界一致」で検索：,tag, を狙う）
+            # 例：tags_norm = ",a,b," なので "%,a,%" で安全に一致
+            # =========================
             if tags_norm_list:
+                tag_expr = func.coalesce(ThreadPost.tags_norm, "")
                 if tag_mode == "and":
                     for t in tags_norm_list:
-                        hits_q = hits_q.filter(ThreadPost.tags_norm.like(f"%{t}%"))
+                        if not t:
+                            continue
+                        hits_q = hits_q.filter(tag_expr.like(f"%,{t},%"))
                 else:
-                    hits_q = hits_q.filter(or_(*[ThreadPost.tags_norm.like(f"%{t}%") for t in tags_norm_list]))
+                    conds = [tag_expr.like(f"%,{t},%") for t in tags_norm_list if t]
+                    if conds:
+                        hits_q = hits_q.filter(or_(*conds))
 
             hit_count = hits_q.count()
 
