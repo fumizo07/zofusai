@@ -10,7 +10,7 @@ from types import SimpleNamespace
 import requests
 from bs4 import BeautifulSoup
 from sqlalchemy.orm import Session
-from sqlalchemy import func, text
+from sqlalchemy import func, text, or_
 
 from constants import THREAD_CACHE_TTL, MAX_CACHED_THREADS
 from models import ThreadPost, CachedThread, CachedPost, ThreadMeta
@@ -241,6 +241,57 @@ def backfill_posted_at_dt(db: Session, limit: int = 5000) -> None:
             db.commit()
     except Exception:
         db.rollback()
+
+
+def backfill_norm_columns(db: Session, max_total: int = 300000, batch_size: int = 5000) -> int:
+    """
+    揺らぎ検索用の正規化列（*_norm）をバックフィルする。
+    - body_norm, thread_title_norm, tags_norm のいずれかが NULL の行を対象
+    - utils.normalize_for_search() で正規化して埋める
+    - 大量データでも耐えるようにバッチ更新する
+
+    戻り値: 実際に処理した行数（バッチで拾った件数ベース）
+    """
+    processed = 0
+
+    # 0以下は事故なので無視
+    if max_total <= 0 or batch_size <= 0:
+        return 0
+
+    try:
+        while processed < max_total:
+            rows = (
+                db.query(ThreadPost)
+                .filter(
+                    or_(
+                        ThreadPost.body_norm.is_(None),
+                        ThreadPost.thread_title_norm.is_(None),
+                        ThreadPost.tags_norm.is_(None),
+                    )
+                )
+                .order_by(ThreadPost.id.asc())
+                .limit(min(batch_size, max_total - processed))
+                .all()
+            )
+
+            if not rows:
+                break
+
+            for p in rows:
+                if p.body_norm is None:
+                    p.body_norm = normalize_for_search(p.body or "")
+                if p.thread_title_norm is None:
+                    p.thread_title_norm = normalize_for_search(p.thread_title or "")
+                if p.tags_norm is None:
+                    p.tags_norm = normalize_for_search(p.tags or "")
+
+            db.commit()
+            processed += len(rows)
+
+    except Exception:
+        db.rollback()
+
+    return processed
 
 
 # =========================
