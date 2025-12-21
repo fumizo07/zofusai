@@ -13,14 +13,9 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func, text
 
 from constants import THREAD_CACHE_TTL, MAX_CACHED_THREADS
-from models import ThreadPost, CachedThread, CachedPost
+from models import ThreadPost, CachedThread, CachedPost, ThreadMeta
 from scraper import fetch_posts_from_thread, get_thread_title, ScrapingError
-from utils import (
-    simplify_thread_title,
-    normalize_for_search,
-    parse_anchors_csv,
-    parse_posted_at_value,
-)
+from utils import simplify_thread_title, normalize_for_search, parse_anchors_csv, parse_posted_at_value
 
 try:
     from zoneinfo import ZoneInfo
@@ -65,11 +60,11 @@ def _require_valid_bakusai_url(u: str) -> str:
 
 
 # =========================
-# ★追加：thread_url の canonical 化（キャッシュキー統一用）
+# thread_url の canonical 化（キー統一用）
 # =========================
 def _canonicalize_thread_url_key(raw: str) -> str:
     """
-    同一スレッドが常に同じキーになるように正規化（キャッシュ/保存用）。
+    同一スレッドが常に同じキーになるように正規化（DBキー用）。
     - query / fragment を落とす
     - rrid=xx が末尾に混ざっても落とす
     - http -> https
@@ -80,15 +75,21 @@ def _canonicalize_thread_url_key(raw: str) -> str:
     if not u:
         return ""
 
+    # query / fragment を落とす
     u = u.split("#", 1)[0]
     u = u.split("?", 1)[0]
+
+    # rrid=xx を落とす（末尾に混ざるケース）
     u = re.sub(r"rrid=\d+/?$", "", u)
 
+    # http -> https
     if u.startswith("http://"):
         u = "https://" + u[len("http://"):]
 
+    # 表示系の揺れ吸収：show -> res
     u = u.replace("/thr_res_show/", "/thr_res/")
 
+    # 末尾スラッシュ統一
     if u and not u.endswith("/"):
         u += "/"
 
@@ -96,9 +97,67 @@ def _canonicalize_thread_url_key(raw: str) -> str:
 
 
 def _alt_show_thread_url(canonical_thr_res_url: str) -> str:
+    """
+    canonical(thr_res) から show(thr_res_show) 版のキーも作る（既存救済用）
+    """
     if not canonical_thr_res_url:
         return ""
     return canonical_thr_res_url.replace("/thr_res/", "/thr_res_show/")
+
+
+# =========================
+# ThreadPost / ThreadMeta のキー移行（show->res 等）
+# =========================
+def _migrate_thread_posts_key_if_needed(db: Session, old_url: str, new_url: str) -> None:
+    """
+    ThreadPost.thread_url を old_url -> new_url に移行する（可能なら）。
+    - 既に new_url 側が存在していて衝突しそうなら、ここでは更新を控える
+      （重複掃除は cleanup_thread_posts_duplicates が握る想定）
+    """
+    if not old_url or not new_url or old_url == new_url:
+        return
+    try:
+        exists_old = db.query(ThreadPost.id).filter(ThreadPost.thread_url == old_url).first()
+        if not exists_old:
+            return
+
+        # new_url 側が既にあっても、単純 UPDATE は衝突の恐れがあるので
+        # ここでは「可能ならまとめて更新」し、例外なら rollback して諦める
+        db.query(ThreadPost).filter(ThreadPost.thread_url == old_url).update(
+            {ThreadPost.thread_url: new_url},
+            synchronize_session=False,
+        )
+        db.commit()
+    except Exception:
+        db.rollback()
+
+
+def _migrate_thread_meta_key_if_needed(db: Session, old_url: str, new_url: str) -> None:
+    """
+    ThreadMeta.thread_url を old_url -> new_url に移行する。
+    - old があって new が無ければ update
+    - 両方あれば、new を残し old を削除（label は new 優先）
+    """
+    if not old_url or not new_url or old_url == new_url:
+        return
+    try:
+        old = db.query(ThreadMeta).filter(ThreadMeta.thread_url == old_url).first()
+        if not old:
+            return
+        new = db.query(ThreadMeta).filter(ThreadMeta.thread_url == new_url).first()
+
+        if not new:
+            old.thread_url = new_url
+            db.commit()
+            return
+
+        # 両方ある：new 優先、old を削除（ただし new.label が空で old.label があるなら補完）
+        if (not (new.label or "").strip()) and (old.label or "").strip():
+            new.label = old.label
+        db.delete(old)
+        db.commit()
+    except Exception:
+        db.rollback()
 
 
 def _migrate_cache_key_if_needed(db: Session, old_url: str, new_url: str) -> None:
@@ -131,37 +190,6 @@ def _migrate_cache_key_if_needed(db: Session, old_url: str, new_url: str) -> Non
     except Exception:
         db.rollback()
         return
-
-
-def _migrate_thread_posts_key_if_needed(db: Session, old_url: str, new_url: str) -> None:
-    """
-    thread_posts 側も URL 揺れをできるだけ統一する（show/res 混在で検索・プレビューがズレるのを防ぐ）。
-    - new_url 側が既に存在するなら衝突回避で何もしない
-    """
-    if not old_url or not new_url or old_url == new_url:
-        return
-    try:
-        exists_new = db.query(ThreadPost.id).filter(ThreadPost.thread_url == new_url).first()
-        if exists_new:
-            return
-        exists_old = db.query(ThreadPost.id).filter(ThreadPost.thread_url == old_url).first()
-        if not exists_old:
-            return
-
-        db.query(ThreadPost).filter(ThreadPost.thread_url == old_url).update(
-            {ThreadPost.thread_url: new_url},
-            synchronize_session=False,
-        )
-        db.commit()
-    except Exception:
-        db.rollback()
-
-
-def _norm_tags(tags: Optional[str]) -> str:
-    if not tags:
-        return ""
-    # カンマ区切りを空白に寄せて、normalize_for_search へ
-    return normalize_for_search(tags.replace(",", " ")).strip()
 
 
 # =========================
@@ -215,51 +243,6 @@ def backfill_posted_at_dt(db: Session, limit: int = 5000) -> None:
         db.rollback()
 
 
-def backfill_norm_columns(db: Session, max_total: int = 300000, batch_size: int = 5000) -> None:
-    """
-    ★追加：内部検索の揺らぎ対応用に body_norm / thread_title_norm / tags_norm を埋める。
-    可能な範囲で起動時にまとめて埋めて「どっきり→ドッキリ」等を復活させる。
-    """
-    done = 0
-    while done < max_total:
-        try:
-            rows = (
-                db.query(ThreadPost)
-                .filter(
-                    (ThreadPost.body_norm.is_(None)) |
-                    (ThreadPost.thread_title_norm.is_(None)) |
-                    (ThreadPost.tags_norm.is_(None))
-                )
-                .order_by(ThreadPost.id.asc())
-                .limit(batch_size)
-                .all()
-            )
-            if not rows:
-                break
-
-            changed = 0
-            for p in rows:
-                if p.body_norm is None:
-                    p.body_norm = normalize_for_search(p.body or "")
-                    changed += 1
-                if p.thread_title_norm is None:
-                    p.thread_title_norm = normalize_for_search(p.thread_title or "")
-                    changed += 1
-                if p.tags_norm is None:
-                    p.tags_norm = _norm_tags(p.tags)
-                    changed += 1
-
-            if changed:
-                db.commit()
-            else:
-                break
-
-            done += len(rows)
-        except Exception:
-            db.rollback()
-            break
-
-
 # =========================
 # スレ取り込み（内部DB: thread_posts）
 # =========================
@@ -267,18 +250,31 @@ def fetch_thread_into_db(db: Session, url: str) -> int:
     """
     爆サイスレURLをスクレイピングして thread_posts に追記する（既存は重複回避）
     """
-    url = _require_valid_bakusai_url(url)
+    raw_url = _require_valid_bakusai_url(url)
 
-    # ★保存側も canonical に寄せる（show/res 揺れを減らす）
-    canonical_url = _canonicalize_thread_url_key(url)
-    if canonical_url:
-        alt_show = _alt_show_thread_url(canonical_url)
-        _migrate_thread_posts_key_if_needed(db, alt_show, canonical_url)
-        url = canonical_url
+    # ★ ThreadPost 側も canonical キーで統一
+    canonical_url = _canonicalize_thread_url_key(raw_url)
+    if not canonical_url:
+        raise ValueError("URLの正規化に失敗しました。")
+
+    alt_show_url = _alt_show_thread_url(canonical_url)
+
+    # 既存データ（show版/生URL）を canonical に寄せる
+    _migrate_thread_posts_key_if_needed(db, raw_url, canonical_url)
+    if alt_show_url and alt_show_url != canonical_url:
+        _migrate_thread_posts_key_if_needed(db, alt_show_url, canonical_url)
+
+    _migrate_thread_meta_key_if_needed(db, raw_url, canonical_url)
+    if alt_show_url and alt_show_url != canonical_url:
+        _migrate_thread_meta_key_if_needed(db, alt_show_url, canonical_url)
+
+    # キャッシュも寄せる（既存機構）
+    if alt_show_url and alt_show_url != canonical_url:
+        _migrate_cache_key_if_needed(db, alt_show_url, canonical_url)
 
     last_no = (
         db.query(func.max(ThreadPost.post_no))
-        .filter(ThreadPost.thread_url == url)
+        .filter(ThreadPost.thread_url == canonical_url)
         .scalar()
     )
     if last_no is None:
@@ -287,28 +283,23 @@ def fetch_thread_into_db(db: Session, url: str) -> int:
     # タイトル取得・簡略化
     thread_title = ""
     try:
-        t = get_thread_title(url)
+        t = get_thread_title(raw_url)  # 取得自体は raw でもOK
         if t:
             thread_title = simplify_thread_title(t)
     except Exception:
         thread_title = ""
 
-    thread_title_norm = normalize_for_search(thread_title) if thread_title else ""
-
-    # 既存で thread_title が空のものに入れておく（norm も一緒に）
+    # 既存で thread_title が空のものに入れておく
     if thread_title:
         db.query(ThreadPost).filter(
-            ThreadPost.thread_url == url,
+            ThreadPost.thread_url == canonical_url,
             ThreadPost.thread_title.is_(None),
         ).update(
-            {
-                ThreadPost.thread_title: thread_title,
-                ThreadPost.thread_title_norm: thread_title_norm or None,
-            },
+            {ThreadPost.thread_title: thread_title},
             synchronize_session=False,
         )
 
-    scraped_posts = fetch_posts_from_thread(url)
+    scraped_posts = fetch_posts_from_thread(canonical_url)
     count = 0
 
     for sp in scraped_posts:
@@ -329,19 +320,17 @@ def fetch_thread_into_db(db: Session, url: str) -> int:
         posted_at_raw = getattr(sp, "posted_at", None)
         posted_at_dt = parse_posted_at_value(posted_at_raw or "") if posted_at_raw else None
 
-        body_norm = normalize_for_search(body)
-
         # すでに同じレスが入っていれば更新のみ
         if sp_no is not None:
             existing = (
                 db.query(ThreadPost)
-                .filter(ThreadPost.thread_url == url, ThreadPost.post_no == sp_no)
+                .filter(ThreadPost.thread_url == canonical_url, ThreadPost.post_no == sp_no)
                 .first()
             )
         else:
             existing = (
                 db.query(ThreadPost)
-                .filter(ThreadPost.thread_url == url, ThreadPost.body == body)
+                .filter(ThreadPost.thread_url == canonical_url, ThreadPost.body == body)
                 .first()
             )
 
@@ -354,24 +343,17 @@ def fetch_thread_into_db(db: Session, url: str) -> int:
                 existing.anchors = anchors_str
             if thread_title and not existing.thread_title:
                 existing.thread_title = thread_title
-            if existing.thread_title_norm is None and thread_title_norm:
-                existing.thread_title_norm = thread_title_norm
-            if existing.body_norm is None and body_norm:
-                existing.body_norm = body_norm
             continue
 
         db.add(
             ThreadPost(
-                thread_url=url,
+                thread_url=canonical_url,
                 thread_title=thread_title or None,
-                thread_title_norm=thread_title_norm or None,
                 post_no=sp_no,
                 posted_at=posted_at_raw,
                 posted_at_dt=posted_at_dt,
                 body=body,
-                body_norm=body_norm or None,
                 anchors=anchors_str,
-                tags_norm=None,
             )
         )
         count += 1
@@ -634,11 +616,14 @@ def get_thread_posts_cached(db: Session, thread_url: str) -> List[object]:
         return []
 
     alt_show_url = _alt_show_thread_url(canonical_url)
+
+    # show 側で保存されていれば canonical に移し替える
     _migrate_cache_key_if_needed(db, alt_show_url, canonical_url)
 
     now = datetime.utcnow()
     meta = db.query(CachedThread).filter(CachedThread.thread_url == canonical_url).first()
 
+    # 移し替え失敗で show 側だけ残ってるケース救済
     if meta is None:
         meta = db.query(CachedThread).filter(CachedThread.thread_url == alt_show_url).first()
         if meta is not None:
@@ -672,4 +657,3 @@ def get_thread_posts_cached(db: Session, thread_url: str) -> List[object]:
             )
         )
     return result
-
