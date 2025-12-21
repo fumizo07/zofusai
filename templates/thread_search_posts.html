@@ -121,6 +121,7 @@
         </div>
     </section>
 
+    <!-- 上部：再検索カード（現状維持） -->
     <section class="card">
         <h2>別キーワードで再検索</h2>
 
@@ -191,6 +192,7 @@
         {% endif %}
     </section>
 
+    <!-- 結果 -->
     <section class="card">
         {% if entries and not error_message %}
             <h2>ヒットしたレス（{{ entries|length }}件）</h2>
@@ -262,6 +264,63 @@
         {% elif not error_message %}
             <p class="no-result">指定したキーワードを含むレスは見つかりませんでした。</p>
         {% endif %}
+    </section>
+
+    <!-- ★⑧：下部にも「別キーワードで再検索」カードを復活 -->
+    <section class="card">
+        <h2>別キーワードで再検索（下部）</h2>
+        <form method="post" action="/thread_search/posts">
+            <input type="hidden" name="selected_thread" value="{{ thread_url|e }}">
+            <input type="hidden" name="area" value="{{ area }}">
+            <input type="hidden" name="period" value="{{ period }}">
+            <input type="hidden" name="board_category" value="{{ board_category }}">
+            <input type="hidden" name="board_id" value="{{ board_id }}">
+            <input type="hidden" name="title_keyword" value="{{ title_keyword|e }}">
+
+            <div class="form-row">
+                <label for="post_keyword_bottom2">本文キーワード：</label>
+                <input type="text" id="post_keyword_bottom2" name="post_keyword" value="{{ post_keyword|e }}">
+                <button type="submit" class="btn-primary">このスレで再検索</button>
+            </div>
+        </form>
+
+        <h2 style="margin-top:12px;">前後スレで再検索</h2>
+
+        <div class="thread-pn-box">
+            <form method="post" action="/thread_search/posts" class="thread-prev-next">
+                <input type="hidden" name="area" value="{{ area }}">
+                <input type="hidden" name="period" value="{{ period }}">
+                <input type="hidden" name="post_keyword" value="{{ post_keyword|e }}">
+                <input type="hidden" name="title_keyword" value="{{ title_keyword|e }}">
+                <input type="hidden" name="selected_thread" value="{{ prev_thread_url or '' }}">
+                <input type="hidden" name="board_category" value="{{ board_category }}">
+                <input type="hidden" name="board_id" value="{{ board_id }}">
+
+                <button type="submit" class="btn-secondary" {% if not prev_thread_url %}disabled{% endif %}>
+                    前スレで再検索
+                </button>
+                <span class="thread-url">
+                    {% if prev_thread_url %}{{ prev_thread_url }}{% else %}前スレが見つかりません。{% endif %}
+                </span>
+            </form>
+
+            <form method="post" action="/thread_search/posts" class="thread-prev-next">
+                <input type="hidden" name="area" value="{{ area }}">
+                <input type="hidden" name="period" value="{{ period }}">
+                <input type="hidden" name="post_keyword" value="{{ post_keyword|e }}">
+                <input type="hidden" name="title_keyword" value="{{ title_keyword|e }}">
+                <input type="hidden" name="selected_thread" value="{{ next_thread_url or '' }}">
+                <input type="hidden" name="board_category" value="{{ board_category }}">
+                <input type="hidden" name="board_id" value="{{ board_id }}">
+
+                <button type="submit" class="btn-secondary" {% if not next_thread_url %}disabled{% endif %}>
+                    次スレで再検索
+                </button>
+                <span class="thread-url">
+                    {% if next_thread_url %}{{ next_thread_url }}{% else %}次スレが見つかりません。{% endif %}
+                </span>
+            </form>
+        </div>
     </section>
 </main>
 
