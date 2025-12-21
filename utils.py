@@ -76,6 +76,65 @@ def normalize_for_search(s: Optional[str]) -> str:
     return s
 
 
+# =========================
+# タグ用ユーティリティ（★追加）
+# =========================
+def normalize_tag_token(s: str) -> str:
+    """
+    タグ1個の正規化：
+    - NFKC
+    - 両端空白除去（半角/全角）
+    - 連続空白を1つに圧縮
+    - 小文字化（英数字だけ効く想定）
+    """
+    s = unicodedata.normalize("NFKC", s or "")
+    s = s.strip().strip("　")
+    s = re.sub(r"[\s\u3000]+", " ", s)
+    s = s.lower()
+    return s.strip()
+
+
+def parse_tags_input(tags_input: str) -> List[str]:
+    """
+    入力欄（カンマ区切り）を正規化してトークン配列へ。
+    """
+    raw = (tags_input or "").strip()
+    if not raw:
+        return []
+    parts = [p for p in raw.split(",")]
+    out: List[str] = []
+    seen = set()
+    for p in parts:
+        t = normalize_tag_token(p)
+        if not t:
+            continue
+        if t in seen:
+            continue
+        seen.add(t)
+        out.append(t)
+    return out
+
+
+def tags_list_to_csv(tags: List[str]) -> str:
+    """
+    DB保存用：カンマ区切り（余計なスペース無し）
+    """
+    cleaned = [normalize_tag_token(t) for t in (tags or [])]
+    cleaned = [t for t in cleaned if t]
+    # 重複排除しつつ順序維持
+    out: List[str] = []
+    seen = set()
+    for t in cleaned:
+        if t in seen:
+            continue
+        seen.add(t)
+        out.append(t)
+    return ",".join(out)
+
+
+# =========================
+# 強調表示
+# =========================
 def _build_highlight_variants(keyword: str) -> List[str]:
     """
     強調表示用のバリアント生成：
@@ -156,16 +215,11 @@ _EMOJI_PATTERN = re.compile(
     "]"
 )
 
-# 丸数字 / 括弧付き数字など、末尾に来がちな “数字っぽい記号” を広めにカバー
-# ①〜⑳: U+2460..U+2473, ⓪: U+24EA, ❶..❿: U+2776..U+277F
 _TRAILING_NUMBERLIKE_PATTERN = re.compile(
     r"[\s　]*"
     r"[★☆◇◆◎○●⚫⚪※✕✖️✖︎\-]*"
     r"\s*"
-    r"(?:"
-    r"\d{1,4}"
-    r"|[\u2460-\u2473\u24EA\u2776-\u277F]+"  # ①②… / ⓪ / ❶❷…
-    r")"
+    r"(?:(?:\d{1,4})|(?:[\u2460-\u2473\u24EA\u2776-\u277F]+))"
     r"\s*$"
 )
 
@@ -179,15 +233,13 @@ def build_store_search_title(title: str) -> str:
     店舗ページ検索用：
     - 絵文字を削除
     - 末尾の「★12」「 12」などのスレ番を削除
-    - 末尾の「①②③…」などの丸数字も削除（要望対応）
+    - 末尾の「①②③…」などの丸数字も削除
     """
     if not title:
         return ""
     t = simplify_thread_title(title)
     t = remove_emoji(t)
 
-    # 末尾の “数字っぽいもの” を繰り返し落とす（例: "店名 ①" や "店名 12" や "店名 ★12"）
-    # 連続して付いてるケースにも効くように while で剥がす
     while True:
         new_t = _TRAILING_NUMBERLIKE_PATTERN.sub("", t)
         if new_t == t:
@@ -204,7 +256,6 @@ def build_google_site_search_url(site: str, query: str) -> str:
     site = (site or "").strip()
     query = (query or "").strip()
     q = f"site:{site} {query}".strip()
-    # ここでは最小実装（テンプレ側で target=_blank など付ける想定）
     from urllib.parse import quote_plus
     return "https://www.google.com/search?q=" + quote_plus(q)
 
@@ -241,8 +292,7 @@ def linkify_anchors_in_html(thread_url: str, html: str) -> Markup:
     """
     すでに escape / highlight 済みの HTML 文字列内の「&gt;&gt;数字」を
     レス個別ページへのリンクに変換する。
-
-    ★ 追加: data-anchor-no を付与（JSでホバー表示したい場合のフック）
+    data-anchor-no を付与
     """
     if not html:
         return Markup("")
