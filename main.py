@@ -17,8 +17,9 @@ from fastapi.templating import Jinja2Templates
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.staticfiles import StaticFiles
 
-from sqlalchemy import func, text
+from sqlalchemy import func, text, literal
 from sqlalchemy.orm import Session
+
 
 from constants import (
     THREAD_CACHE_TTL,
@@ -41,6 +42,7 @@ from utils import (
     parse_anchors_csv,
     highlight_with_links,
     build_google_site_search_url,
+    parse_tags_input,
 )
 
 from services import (
@@ -242,7 +244,7 @@ def show_search_page(
         per_page = 50
 
     # tags（トークン化）
-    tags_list: List[str] = []
+    tags_list: List[str] = parse_tags_input(tags_input_raw)
     if tags_input_raw:
         tags_list = [t.strip() for t in tags_input_raw.split(",") if t.strip()]
 
