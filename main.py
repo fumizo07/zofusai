@@ -51,6 +51,7 @@ from services import (
     is_valid_bakusai_thread_url,
     cleanup_thread_posts_duplicates,
     backfill_posted_at_dt,
+    backfill_norm_columns,
 )
 
 from scraper import ScrapingError, get_thread_title
@@ -108,12 +109,14 @@ def on_startup():
         conn.execute(text("ALTER TABLE thread_posts ADD COLUMN IF NOT EXISTS tags TEXT"))
         conn.execute(text("ALTER TABLE thread_posts ADD COLUMN IF NOT EXISTS memo TEXT"))
         conn.execute(text("ALTER TABLE thread_posts ADD COLUMN IF NOT EXISTS thread_title TEXT"))
-
-        # ★ 追加：posted_at_dt（DateTime）列
         conn.execute(text("ALTER TABLE thread_posts ADD COLUMN IF NOT EXISTS posted_at_dt TIMESTAMP"))
 
-        # ★ 追加：Postgresなら部分ユニークインデックス（post_no NULL は除外）
-        # 失敗しても握りつぶす（SQLite等環境差を吸収）
+        # ★追加：揺らぎ検索用の正規化列
+        conn.execute(text("ALTER TABLE thread_posts ADD COLUMN IF NOT EXISTS body_norm TEXT"))
+        conn.execute(text("ALTER TABLE thread_posts ADD COLUMN IF NOT EXISTS thread_title_norm TEXT"))
+        conn.execute(text("ALTER TABLE thread_posts ADD COLUMN IF NOT EXISTS tags_norm TEXT"))
+
+        # ★部分ユニークインデックス（post_no NULL は除外）
         try:
             conn.execute(
                 text(
@@ -124,11 +127,27 @@ def on_startup():
         except Exception:
             pass
 
-    # ★ ⑤：重複掃除＆ posted_at_dt バックフィル（安全側に try）
+        # body_norm 用に pg_trgm が使えるならインデックス（無理なら握りつぶす）
+        # ※ LIKE '%xxx%' は通常インデックスが効きにくいので、可能なら trigram を狙う
+        try:
+            conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm"))
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS idx_thread_posts_body_norm_trgm "
+                    "ON thread_posts USING gin (body_norm gin_trgm_ops)"
+                )
+            )
+        except Exception:
+            pass
+
+    # ★重複掃除＆バックフィル
     try:
         db = next(get_db())
         cleanup_thread_posts_duplicates(db)
         backfill_posted_at_dt(db, limit=10000)
+
+        # ★⑨：揺らぎ検索を復活させる本命
+        backfill_norm_columns(db, max_total=300000, batch_size=5000)
     except Exception:
         pass
 
@@ -222,10 +241,15 @@ def show_search_page(
     if per_page not in allowed_per_pages:
         per_page = 50
 
-    # tags（検索用にトークン化。正規化は7で改善）
+    # tags（トークン化）
     tags_list: List[str] = []
     if tags_input_raw:
         tags_list = [t.strip() for t in tags_input_raw.split(",") if t.strip()]
+
+    # ★⑨：検索用に正規化（どっきり/ドッキリ、全角半角、大文字小文字など）
+    keyword_norm = normalize_for_search(keyword_raw) if keyword_raw else ""
+    thread_filter_norm = normalize_for_search(thread_filter_raw) if thread_filter_raw else ""
+    tags_norm_list = [normalize_for_search(t) for t in tags_list] if tags_list else []
 
     thread_results: List[dict] = []
     hit_count = 0
@@ -237,7 +261,7 @@ def show_search_page(
     info_message = _get_next_thread_message(request)
 
     try:
-        # ------- popular_tags（現状維持：重ければ後でキャッシュ化） -------
+        # ------- popular_tags（現状維持） -------
         tag_rows = db.query(ThreadPost.tags).filter(ThreadPost.tags.isnot(None)).all()
         tag_counts: Dict[str, int] = {}
         for (tags_str,) in tag_rows:
@@ -256,7 +280,6 @@ def show_search_page(
 
         # ------- 検索パラメータがある時だけ検索 -------
         if keyword_raw or thread_filter_raw or tags_input_raw:
-            # 最近の検索履歴（page/per_page は含めない＝履歴が汚れない）
             params = {
                 "q": keyword_raw,
                 "thread_filter": thread_filter_raw,
@@ -268,46 +291,45 @@ def show_search_page(
             if not any(e["url"] == entry["url"] for e in RECENT_SEARCHES):
                 RECENT_SEARCHES.append(entry)
 
-            # =========================
-            # ここが本丸：DB側で絞る
-            # =========================
             hits_q = db.query(ThreadPost)
 
-            # 本文キーワード（ILIKE）
-            if keyword_raw:
-                like = f"%{keyword_raw}%"
-                hits_q = hits_q.filter(ThreadPost.body.ilike(like))
+            # =========================
+            # ★⑨：本文キーワード（正規化列 body_norm を検索）
+            # =========================
+            if keyword_norm:
+                hits_q = hits_q.filter(ThreadPost.body_norm.like(f"%{keyword_norm}%"))
 
             # thread_filter（URL or タイトル）
+            # - URLは素の部分一致（ユーザーがURL断片を入れるケースがある）
+            # - タイトルは thread_title_norm で揺らぎ対応
             if thread_filter_raw:
-                like = f"%{thread_filter_raw}%"
-                hits_q = hits_q.filter(
-                    or_(
-                        ThreadPost.thread_url.ilike(like),
-                        ThreadPost.thread_title.ilike(like),
+                url_like = f"%{thread_filter_raw}%"
+                if thread_filter_norm:
+                    title_like = f"%{thread_filter_norm}%"
+                    hits_q = hits_q.filter(
+                        or_(
+                            ThreadPost.thread_url.ilike(url_like),
+                            ThreadPost.thread_title_norm.like(title_like),
+                        )
                     )
-                )
-
-            # tags（暫定：tags文字列に部分一致）
-            # ※厳密な正規化は7でやる。まずは「DB側で絞る」目的を優先。
-            if tags_list:
-                if tag_mode == "and":
-                    for t in tags_list:
-                        hits_q = hits_q.filter(ThreadPost.tags.ilike(f"%{t}%"))
                 else:
-                    hits_q = hits_q.filter(or_(*[ThreadPost.tags.ilike(f"%{t}%") for t in tags_list]))
+                    hits_q = hits_q.filter(ThreadPost.thread_url.ilike(url_like))
 
-            # ヒット総数（ページング用）
+            # tags（tags_norm を検索）
+            if tags_norm_list:
+                if tag_mode == "and":
+                    for t in tags_norm_list:
+                        hits_q = hits_q.filter(ThreadPost.tags_norm.like(f"%{t}%"))
+                else:
+                    hits_q = hits_q.filter(or_(*[ThreadPost.tags_norm.like(f"%{t}%") for t in tags_norm_list]))
+
             hit_count = hits_q.count()
 
-            # last_page を先に確定 → page をクランプ → offset を確定
             last_page = max(1, (hit_count + per_page - 1) // per_page)
             if page > last_page:
                 page = last_page
             offset = (page - 1) * per_page
 
-            # ページ内のヒット（root候補）
-            # 並びは「スレ→レス番号→id」で安定させる（DB差吸収のため coalesce）
             hits_page: List[ThreadPost] = (
                 hits_q.order_by(
                     ThreadPost.thread_url.asc(),
@@ -321,10 +343,8 @@ def show_search_page(
             shown_count = len(hits_page)
 
             if hits_page:
-                # 対象スレURL（このページに出る分だけ）
                 thread_urls = sorted({p.thread_url for p in hits_page if p.thread_url})
 
-                # そのスレの全レスをまとめて取る（全件ではなく「該当スレ分だけ」）
                 thread_posts: List[ThreadPost] = (
                     db.query(ThreadPost)
                     .filter(ThreadPost.thread_url.in_(thread_urls))
@@ -340,11 +360,9 @@ def show_search_page(
                 for p in thread_posts:
                     posts_by_thread[p.thread_url].append(p)
 
-                # label をまとめて取得（検索結果に表示できる）
                 metas = db.query(ThreadMeta).filter(ThreadMeta.thread_url.in_(thread_urls)).all()
                 meta_map: Dict[str, ThreadMeta] = {m.thread_url: m for m in metas}
 
-                # 表示組み立て
                 thread_map: Dict[str, dict] = {}
 
                 for root in hits_page:
@@ -373,7 +391,6 @@ def show_search_page(
 
                     all_posts_thread = posts_by_thread.get(thread_url, [])
 
-                    # コンテキスト（±5）
                     context_posts: List[ThreadPost] = []
                     if root.post_no is not None and all_posts_thread:
                         start_no = max(1, root.post_no - 5)
@@ -384,10 +401,8 @@ def show_search_page(
                             if p.post_no is not None and start_no <= p.post_no <= end_no
                         ]
 
-                    # 返信ツリー
                     tree_items = build_reply_tree(all_posts_thread, root)
 
-                    # アンカー先
                     anchor_targets: List[ThreadPost] = []
                     if root.anchors:
                         nums = parse_anchors_csv(root.anchors)
@@ -417,7 +432,6 @@ def show_search_page(
 
     recent_searches_view = list(RECENT_SEARCHES)[::-1]
 
-    # ページ数計算（検索していない場合でも崩れないように）
     last_page = max(1, (hit_count + per_page - 1) // per_page)
     if page > last_page:
         page = last_page
@@ -431,8 +445,8 @@ def show_search_page(
             "tags_input": tags_input_raw,
             "tag_mode": tag_mode,
             "results": thread_results,
-            "hit_count": hit_count,          # 総ヒット
-            "shown_count": shown_count,      # このページで表示してる件数
+            "hit_count": hit_count,
+            "shown_count": shown_count,
             "page": page,
             "per_page": per_page,
             "last_page": last_page,
@@ -473,7 +487,6 @@ def fetch_thread_post(
     url = (url or "").strip()
 
     if url:
-        # ★ ④：SSRFチェック
         if not is_valid_bakusai_thread_url(url):
             error = "爆サイのスレURLのみ取り込みできます。"
         else:
@@ -555,7 +568,6 @@ def list_threads(
 ):
     label = (label or "").strip()
 
-    # 集計はサブクエリにして、後から meta / cache を join する（安全＆拡張しやすい）
     agg = (
         db.query(
             ThreadPost.thread_url.label("thread_url"),
@@ -608,7 +620,6 @@ def list_threads(
             }
         )
 
-    # popular_tags（現状維持）
     tag_rows = db.query(ThreadPost.tags).filter(ThreadPost.tags.isnot(None)).all()
     tag_counts: Dict[str, int] = {}
     for (tags_str,) in tag_rows:
@@ -839,7 +850,6 @@ async def save_external_thread(
     if not url:
         return RedirectResponse(url=back_url, status_code=303)
 
-    # ★ ④：SSRFチェック
     if not is_valid_bakusai_thread_url(url):
         return RedirectResponse(url=back_url, status_code=303)
 
