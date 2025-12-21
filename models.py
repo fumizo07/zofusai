@@ -22,6 +22,11 @@ class ThreadPost(Base):
     tags = Column(Text, nullable=True)
     memo = Column(Text, nullable=True)
 
+    # ★追加：内部検索の「揺らぎ対応」用（NFKC + ひらがな化 + lower 等）
+    body_norm = Column(Text, nullable=True, index=True)
+    thread_title_norm = Column(Text, nullable=True, index=True)
+    tags_norm = Column(Text, nullable=True, index=True)
+
 
 class ThreadMeta(Base):
     """
