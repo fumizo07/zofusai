@@ -96,6 +96,9 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 # ★ツールチップ用
 from preview_api import preview_api
 app.include_router(preview_api)
+from post_edit import post_edit_router
+app.include_router(post_edit_router)
+
 
 
 RECENT_SEARCHES = deque(maxlen=5)
