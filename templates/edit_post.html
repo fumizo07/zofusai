@@ -1,56 +1,52 @@
 {% set page_title_suffix = "タグ・メモ編集" %}
-{% set body_class = "page-edit" %}
-{# 内部検索系のサブページなので active_page は index 扱い #}
-{% set active_page = "index" %}
+{% set body_class = "page-post-edit" %}
+{% set active_page = "" %}
 {% include "_header.html" %}
 
 <main>
-    <a href="/" class="back">← 内部検索に戻る</a>
+  <section class="card">
+    <div class="section-title">投稿の編集</div>
 
-    {% if post %}
-        <h1>タグ・メモ編集</h1>
-
-        <div class="post-preview">
-            <div class="post-meta">
-                スレ：
-                <small>{{ post.thread_url }}</small><br>
-                {% if post.post_no %}
-                    レス #{{ post.post_no }}
-                {% else %}
-                    ID {{ post.id }}
-                {% endif %}
-                {% if post.posted_at %}
-                    ／ {{ post.posted_at }}
-                {% endif %}
-            </div>
-            <div class="post-body">
-                {{ post.body }}
-            </div>
-        </div>
-
-        <form method="post" action="/post/{{ post.id }}/edit">
-            <label for="tags">タグ（カンマ区切りなど自由）：</label>
-            <input
-                type="text"
-                id="tags"
-                name="tags"
-                value="{{ post.tags or '' }}"
-                placeholder="例：重要, 要確認"
-            >
-
-            <label for="memo">メモ：</label>
-            <textarea
-                id="memo"
-                name="memo"
-                rows="5"
-                placeholder="このレス・スレに関する自分用メモを書いてください。"
-            >{{ post.memo or '' }}</textarea>
-
-            <button type="submit">保存する</button>
-        </form>
-    {% else %}
-        <p>指定されたレスが見つかりませんでした。</p>
+    {% if error %}
+      <div class="error">{{ error }}</div>
+    {% elif saved %}
+      <div class="info">保存しました。</div>
     {% endif %}
+
+    <div class="post-edit-meta">
+      <div>スレURL：<span class="thread-url">{{ post.thread_url }}</span></div>
+      <div>
+        レス：
+        {% if post.post_no %}#{{ post.post_no }}{% else %}（不明）{% endif %}
+        {% if post.posted_at %}／ {{ post.posted_at }}{% endif %}
+      </div>
+    </div>
+
+    <div class="post-edit-body">
+      <div class="muted">本文（先頭だけ）</div>
+      <pre class="post-edit-pre">{{ (post.body or "")[:800] }}{% if post.body and post.body|length > 800 %}…{% endif %}</pre>
+    </div>
+
+    <form method="post" action="/post/{{ post.id }}/edit">
+      <div class="form-row">
+        <label>タグ（カンマ区切り）：</label>
+        <input type="text" name="tags" value="{{ (post.tags or '')|e }}" placeholder="例：重要,要確認">
+      </div>
+
+      <div class="form-row">
+        <label>メモ：</label>
+        <textarea name="memo" rows="6" placeholder="自分用メモ">{{ (post.memo or '')|e }}</textarea>
+      </div>
+
+      <div class="form-row">
+        <button type="submit" class="btn-primary">保存</button>
+      </div>
+    </form>
+
+    <form method="post" action="/post/{{ post.id }}/edit/cancel">
+      <button type="submit" class="btn-secondary">戻る</button>
+    </form>
+  </section>
 </main>
-</body>
-</html>
+
+{% include "_footer.html" %}
