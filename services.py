@@ -60,6 +60,90 @@ def _require_valid_bakusai_url(u: str) -> str:
 
 
 # =========================
+# ★追加：thread_url の canonical 化（キャッシュキー統一用）
+# =========================
+def _canonicalize_thread_url_key(raw: str) -> str:
+    """
+    同一スレッドが常に同じキーになるように正規化（キャッシュ用）。
+    - query / fragment を落とす
+    - rrid=xx が末尾に混ざっても落とす
+    - http -> https
+    - thr_res_show -> thr_res に寄せる（canonical）
+    - 末尾スラッシュ統一
+    """
+    u = (raw or "").strip()
+    if not u:
+        return ""
+
+    # query / fragment を落とす
+    u = u.split("#", 1)[0]
+    u = u.split("?", 1)[0]
+
+    # rrid=xx を落とす（末尾に混ざるケース）
+    u = re.sub(r"rrid=\d+/?$", "", u)
+
+    # http -> https
+    if u.startswith("http://"):
+        u = "https://" + u[len("http://"):]
+
+    # 表示系の揺れ吸収：show -> res
+    u = u.replace("/thr_res_show/", "/thr_res/")
+
+    # 末尾スラッシュ統一
+    if u and not u.endswith("/"):
+        u += "/"
+
+    return u
+
+
+def _alt_show_thread_url(canonical_thr_res_url: str) -> str:
+    """
+    canonical(thr_res) から show(thr_res_show) 版のキーも作る（既存キャッシュ救済用）
+    """
+    if not canonical_thr_res_url:
+        return ""
+    return canonical_thr_res_url.replace("/thr_res/", "/thr_res_show/")
+
+
+def _migrate_cache_key_if_needed(db: Session, old_url: str, new_url: str) -> None:
+    """
+    既存の CachedThread/CachedPost が old_url で保存されている場合、
+    それを new_url（canonical）に移し替える。
+    - 二重キャッシュ化を防ぐためのマイグレーション
+    """
+    if not old_url or not new_url or old_url == new_url:
+        return
+
+    try:
+        # すでに new_url 側が存在するなら何もしない（衝突回避）
+        exists_new = db.query(CachedThread).filter(CachedThread.thread_url == new_url).first()
+        if exists_new:
+            return
+
+        meta_old = db.query(CachedThread).filter(CachedThread.thread_url == old_url).first()
+        if not meta_old:
+            return
+
+        # CachedPost の thread_url を移し替え
+        db.query(CachedPost).filter(CachedPost.thread_url == old_url).update(
+            {CachedPost.thread_url: new_url},
+            synchronize_session=False,
+        )
+
+        # CachedThread の thread_url も移し替え（PKであっても UPDATE が通る設計ならOK）
+        db.query(CachedThread).filter(CachedThread.thread_url == old_url).update(
+            {CachedThread.thread_url: new_url},
+            synchronize_session=False,
+        )
+
+        db.commit()
+    except Exception:
+        db.rollback()
+        # 移し替え失敗しても致命ではないので握りつぶす（後段で old 側を見る余地がある）
+        return
+
+
+# =========================
 # 重複掃除 / posted_at_dt バックフィル
 # =========================
 def cleanup_thread_posts_duplicates(db: Session) -> None:
@@ -454,30 +538,53 @@ def get_thread_posts_cached(db: Session, thread_url: str) -> List[object]:
     - キャッシュがTTL内ならDBから返す
     - 期限切れ/未作成ならWebから取得してDB保存して返す
     返り値は「scraperのpostっぽい形（SimpleNamespace）」にして templates を壊さない
+
+    ★修正点：
+    キャッシュキー（thread_url）を canonical に統一して、
+    thr_res_show / thr_res の揺れで not_found や二重キャッシュが起きないようにする。
     """
     try:
-        thread_url = _require_valid_bakusai_url(thread_url)
+        raw_url = _require_valid_bakusai_url(thread_url)
     except Exception:
         return []
 
+    # ★ canonical キー
+    canonical_url = _canonicalize_thread_url_key(raw_url)
+    if not canonical_url:
+        return []
+
+    alt_show_url = _alt_show_thread_url(canonical_url)
+
+    # ★ 既存が show 側で保存されていれば canonical に移し替える
+    _migrate_cache_key_if_needed(db, alt_show_url, canonical_url)
+
     now = datetime.utcnow()
-    meta = db.query(CachedThread).filter(CachedThread.thread_url == thread_url).first()
+    meta = db.query(CachedThread).filter(CachedThread.thread_url == canonical_url).first()
+
+    # 念のため：移し替えに失敗していて show 側だけ残ってるケース救済
+    if meta is None:
+        meta = db.query(CachedThread).filter(CachedThread.thread_url == alt_show_url).first()
+        if meta is not None:
+            # ここで改めて移行を試す（成功すれば canonical を使える）
+            _migrate_cache_key_if_needed(db, alt_show_url, canonical_url)
+            meta = db.query(CachedThread).filter(CachedThread.thread_url == canonical_url).first()
 
     need_refresh = True
     if meta and (now - meta.fetched_at < THREAD_CACHE_TTL):
         need_refresh = False
 
     if need_refresh:
-        posts = fetch_posts_from_thread(thread_url)
-        _save_thread_posts_to_cache(db, thread_url, list(posts))
-        cached_rows = _load_thread_posts_from_cache(db, thread_url)
+        # ★取得は canonical URL で統一（thr_res_show でも thr_res に寄せて取る）
+        posts = fetch_posts_from_thread(canonical_url)
+        _save_thread_posts_to_cache(db, canonical_url, list(posts))
+        cached_rows = _load_thread_posts_from_cache(db, canonical_url)
     else:
         try:
             meta.last_accessed_at = now
             db.commit()
         except Exception:
             db.rollback()
-        cached_rows = _load_thread_posts_from_cache(db, thread_url)
+        cached_rows = _load_thread_posts_from_cache(db, canonical_url)
 
     result: List[object] = []
     for r in cached_rows:
