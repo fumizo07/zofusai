@@ -1,1 +1,53 @@
+{% set page_title_suffix = "タグ・メモ編集" %}
+{% set body_class = "page-post-edit" %}
+{% set active_page = "" %}
+{% include "_header.html" %}
+
+<main>
+  <section class="card">
+    <div class="section-title">投稿の編集</div>
+
+    {% if error %}
+      <div class="error">{{ error }}</div>
+    {% elif saved %}
+      <div class="info">保存しました。</div>
+    {% endif %}
+
+    <div class="post-edit-meta">
+      <div>スレURL：<span class="thread-url">{{ post.thread_url }}</span></div>
+      <div>
+        レス：
+        {% if post.post_no %}#{{ post.post_no }}{% else %}（不明）{% endif %}
+        {% if post.posted_at %}／ {{ post.posted_at }}{% endif %}
+      </div>
+    </div>
+
+    <div class="post-edit-body">
+      <div class="muted">本文（先頭だけ）</div>
+      <pre class="post-edit-pre">{{ (post.body or "")[:800] }}{% if post.body and post.body|length > 800 %}…{% endif %}</pre>
+    </div>
+
+    <form method="post" action="/post/{{ post.id }}/edit">
+      <div class="form-row">
+        <label>タグ（カンマ区切り）：</label>
+        <input type="text" name="tags" value="{{ (post.tags or '')|e }}" placeholder="例：重要,要確認">
+      </div>
+
+      <div class="form-row">
+        <label>メモ：</label>
+        <textarea name="memo" rows="6" placeholder="自分用メモ">{{ (post.memo or '')|e }}</textarea>
+      </div>
+
+      <div class="form-row">
+        <button type="submit" class="btn-primary">保存</button>
+      </div>
+    </form>
+
+    <form method="post" action="/post/{{ post.id }}/edit/cancel">
+      <button type="submit" class="btn-secondary">戻る</button>
+    </form>
+  </section>
+</main>
+
+{% include "_footer.html" %}
 
