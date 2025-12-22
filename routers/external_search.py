@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 from collections import defaultdict
 from typing import List, Optional, Dict
+from urllib.parse import urlencode
 
 from fastapi import APIRouter, Request, Depends, Form
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -41,6 +42,48 @@ from utils import (
 router = APIRouter()
 
 
+def _truthy(v: Optional[str]) -> bool:
+    if v is None:
+        return False
+    s = str(v).strip().lower()
+    return s in ("1", "true", "yes", "on")
+
+
+def _safe_back_url(back_url: str, default: str = "/thread_search") -> str:
+    """
+    open redirect 対策：アプリ内相対パスのみ許可
+    """
+    if not back_url:
+        return default
+    b = (back_url or "").strip()
+    if not b.startswith("/"):
+        return default
+    # 念のため、外部URLっぽいもの排除
+    if b.startswith("//"):
+        return default
+    return b
+
+
+def _build_thread_search_url(
+    area: str,
+    period: str,
+    board_category: str,
+    board_id: str,
+    keyword: str,
+    no_log: bool = True,
+) -> str:
+    params = {
+        "area": area or "",
+        "period": period or "",
+        "board_category": board_category or "",
+        "board_id": board_id or "",
+        "keyword": keyword or "",
+    }
+    if no_log:
+        params["no_log"] = "1"
+    return "/thread_search?" + urlencode(params, doseq=False)
+
+
 def _add_flag_to_url(back_url: str, key: str) -> str:
     if not back_url:
         return f"/?{key}=1"
@@ -59,12 +102,15 @@ def thread_search_page(
     keyword: str = "",
     board_category: str = "103",
     board_id: str = "5922",
+    no_log: str = "",
 ):
     area = (area or "").strip() or "7"
     period = (period or "").strip() or "3m"
     keyword = (keyword or "").strip()
     board_category = (board_category or "").strip()
     board_id = (board_id or "").strip()
+
+    no_log_flag = _truthy(no_log) or _truthy(request.query_params.get("no_log"))
 
     results: List[dict] = []
     error_message = ""
@@ -74,6 +120,16 @@ def thread_search_page(
     ranking_source_url = ""
 
     board_options = get_board_options_for_category(board_category)
+
+    # この画面の「正しい戻り先URL」（常に条件一式＋no_log=1 を付ける）
+    back_url = _build_thread_search_url(
+        area=area,
+        period=period,
+        board_category=board_category,
+        board_id=board_id,
+        keyword=keyword,
+        no_log=True,
+    )
 
     if keyword and area:
         max_days = get_period_days(period)
@@ -105,6 +161,7 @@ def thread_search_page(
                     bid=board_id,
                 )
 
+        # 履歴：no_log=1 のときは積まない（「戻っただけ」で履歴が増えるのを防ぐ）
         if not error_message:
             area_label = next((a["label"] for a in AREA_OPTIONS if a["code"] == area), area)
             period_label = next((p["label"] for p in PERIOD_OPTIONS if p["id"] == period), period)
@@ -123,21 +180,22 @@ def thread_search_page(
                         board_label = b["label"]
                         break
 
-            key = f"{area}|{period}|{board_category}|{board_id}|{keyword}"
-            entry = {
-                "key": key,
-                "area": area,
-                "area_label": area_label,
-                "period": period,
-                "period_label": period_label,
-                "board_category": board_category,
-                "board_category_label": board_category_label,
-                "board_id": board_id,
-                "board_label": board_label,
-                "keyword": keyword,
-            }
-            if not any(e["key"] == key for e in EXTERNAL_SEARCHES):
-                EXTERNAL_SEARCHES.append(entry)
+            if not no_log_flag:
+                key = f"{area}|{period}|{board_category}|{board_id}|{keyword}"
+                entry = {
+                    "key": key,
+                    "area": area,
+                    "area_label": area_label,
+                    "period": period,
+                    "period_label": period_label,
+                    "board_category": board_category,
+                    "board_category_label": board_category_label,
+                    "board_id": board_id,
+                    "board_label": board_label,
+                    "keyword": keyword,
+                }
+                if not any(e["key"] == key for e in EXTERNAL_SEARCHES):
+                    EXTERNAL_SEARCHES.append(entry)
 
     recent_external_searches = list(EXTERNAL_SEARCHES)[::-1]
 
@@ -168,6 +226,8 @@ def thread_search_page(
             "ranking_board": ranking_board,
             "ranking_board_label": ranking_board_label,
             "ranking_source_url": ranking_source_url,
+            # ★追加
+            "back_url": back_url,
         },
     )
 
@@ -177,9 +237,23 @@ async def save_external_thread(
     request: Request,
     db: Session = Depends(get_db),
 ):
-    back_url = request.headers.get("referer") or "/thread_search"
-    if back_url and "/thread_search/posts" in back_url:
-        back_url = "/thread_search"
+    # back_url を優先（なければ referer）
+    back_url = ""
+    try:
+        if request.method == "POST":
+            form = await request.form()
+            back_url = (form.get("back_url") or "").strip()
+        else:
+            back_url = (request.query_params.get("back_url") or "").strip()
+    except Exception:
+        back_url = ""
+
+    if not back_url:
+        back_url = request.headers.get("referer") or "/thread_search"
+        if back_url and "/thread_search/posts" in back_url:
+            back_url = "/thread_search"
+
+    back_url = _safe_back_url(back_url, default="/thread_search")
 
     url = ""
     try:
@@ -220,16 +294,27 @@ def thread_showall_page(
     period: str = "3m",
     title_keyword: str = "",
     view: str = "tree",
+    board_category: str = "",
+    board_id: str = "",
+    back_url: str = "",
     db: Session = Depends(get_db),
 ):
     url = (url or "").strip()
     area = (area or "").strip() or "7"
     period = (period or "").strip() or "3m"
     title_keyword = (title_keyword or "").strip()
+    board_category = (board_category or "").strip()
+    board_id = (board_id or "").strip()
 
     view = (view or "").strip().lower()
     if view not in ("tree", "flat"):
         view = "tree"
+
+    # back_url が無い場合は従来互換で組み立て（ただし no_log=1 付き）
+    back_url = _safe_back_url(
+        back_url,
+        default=_build_thread_search_url(area, period, board_category, board_id, title_keyword, no_log=True),
+    )
 
     error_message = ""
     thread_title_display = ""
@@ -337,6 +422,10 @@ def thread_showall_page(
             "store_title": store_title,
             "store_cityheaven_url": store_cityheaven_url,
             "store_dto_url": store_dto_url,
+            # ★追加
+            "board_category": board_category,
+            "board_id": board_id,
+            "back_url": back_url,
         },
     )
 
@@ -351,6 +440,7 @@ def thread_search_posts(
     period: str = Form("3m"),
     board_category: str = Form(""),
     board_id: str = Form(""),
+    back_url: str = Form(""),
     db: Session = Depends(get_db),
 ):
     selected_thread = (selected_thread or "").strip()
@@ -360,6 +450,12 @@ def thread_search_posts(
     period = (period or "").strip() or "3m"
     board_category = (board_category or "").strip()
     board_id = (board_id or "").strip()
+
+    # back_url が無い場合は従来互換で組み立て（ただし no_log=1 付き）
+    back_url = _safe_back_url(
+        back_url,
+        default=_build_thread_search_url(area, period, board_category, board_id, title_keyword, no_log=True),
+    )
 
     entries: List[dict] = []
     error_message = ""
@@ -505,5 +601,7 @@ def thread_search_posts(
             "store_base_title": store_base_title,
             "store_cityheaven_url": store_cityheaven_url,
             "store_dto_url": store_dto_url,
+            # ★追加
+            "back_url": back_url,
         },
     )
