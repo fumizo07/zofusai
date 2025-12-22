@@ -577,6 +577,8 @@ def thread_showall_page(
             "store_dto_url": store_dto_url,
             "board_category": board_category,
             "board_id": board_id,
+            "board_category_label": board_category_label,
+            "board_label": board_label,
             "back_url": back_url,
         },
     )
