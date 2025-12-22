@@ -1,18 +1,10 @@
-<!-- templates/thread_search.html -->
 {% set page_title_suffix = "外部検索" %}
 {% set body_class = "page-thread-search" %}
 {% set active_page = "thread_search" %}
 {% include "_header.html" %}
 
-{# ★この画面の「正しい戻り先」（条件一式 + no_log=1） #}
-{% set _back_url = back_url
-    or ("/thread_search?area=" ~ (current_area|urlencode)
-        ~ "&period=" ~ (current_period|urlencode)
-        ~ "&board_category=" ~ (current_board_category|urlencode)
-        ~ "&board_id=" ~ (current_board_id|urlencode)
-        ~ "&keyword=" ~ (keyword|urlencode)
-        ~ "&no_log=1")
-%}
+{# ★テンプレ側で no_log を組まない。ルータから渡された back_url のみ使う #}
+{% set _back_url = back_url or "/thread_search" %}
 
 <main>
     <!-- 検索フォーム -->
@@ -120,7 +112,6 @@
                 </form>
             </div>
 
-            <!-- スレッド内検索フォーム（ラジオ選択＋本文キーワード） -->
             <form id="thread-post-search-form" method="post" action="/thread_search/posts">
                 <input type="hidden" name="area" value="{{ current_area|e }}">
                 <input type="hidden" name="period" value="{{ current_period|e }}">
@@ -171,7 +162,6 @@
                 </div>
             </form>
 
-            <!-- 選択中スレを保存するフォーム（別フォームでネストを避ける） -->
             <div class="thread-actions-inline">
                 <form id="save-thread-form-bottom" method="post" action="/thread_search/save">
                     <input type="hidden" name="thread_url" id="save-thread-url-bottom" value="">
@@ -210,15 +200,10 @@
 
     function filterBoardsByArea(categoryId, areaCode) {
         let boards = BOARD_MASTER[categoryId] || [];
-
-        if (categoryId === "122") {
-            return boards;
-        }
+        if (categoryId === "122") return boards;
         if (!areaCode) return [];
-
         const prefixes = AREA_PREFIX_MAP[areaCode] || [];
         if (!prefixes.length) return [];
-
         return boards.filter(b => {
             const label = b.label || "";
             return prefixes.some(prefix => label.startsWith(prefix));
@@ -227,7 +212,6 @@
 
     function populateBoards(categoryId, selectedId) {
         if (!boardSelect) return;
-
         while (boardSelect.firstChild) boardSelect.removeChild(boardSelect.firstChild);
 
         if (!categoryId) {
@@ -264,13 +248,11 @@
         });
 
         boardSelect.disabled = false;
-
         if (selectedId) boardSelect.value = selectedId;
     }
 
     document.addEventListener("DOMContentLoaded", function() {
         if (!boardCategorySelect || !boardSelect) return;
-
         const initialCategory = currentBoardCategory || boardCategorySelect.value || "";
         populateBoards(initialCategory, currentBoardId || "");
 
@@ -287,7 +269,7 @@
     });
 })();
 
-// 「このスレを保存」用：選択中ラジオのURLを hidden に入れる（NodeListバグ修正）
+// 「このスレを保存」用：選択中ラジオのURLを hidden に入れる
 document.addEventListener("DOMContentLoaded", function() {
     const radios = document.querySelectorAll('input[name="selected_thread"]');
     const hiddenTop = document.getElementById("save-thread-url-top");
