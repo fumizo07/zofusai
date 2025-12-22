@@ -1,27 +1,17 @@
-<!-- templates/thread_showall.html -->
 {% set page_title_suffix = "全レス表示" %}
 {% set body_class = "page-thread-posts" %}
 {% set active_page = "thread_search" %}
 {% include "_header.html" %}
 
-{# ★戻り先：back_urlが来ていればそれを使う。なければ従来互換で組む（no_log=1付き） #}
-{% set _back_url = back_url
-    or ("/thread_search?area=" ~ (area|urlencode)
-        ~ "&period=" ~ (period|urlencode)
-        ~ "&board_category=" ~ (board_category|urlencode)
-        ~ "&board_id=" ~ (board_id|urlencode)
-        ~ "&keyword=" ~ (title_keyword|urlencode)
-        ~ "&no_log=1")
-%}
+{# ★no_log 組み立て禁止。back_url が無ければ /thread_search #}
+{% set _back_url = back_url or "/thread_search" %}
 
 <main>
   <section class="card">
     <div class="section-title">スレッド情報（全レス表示）</div>
 
     <p class="back-link">
-      <a href="{{ _back_url|e }}">
-        外部検索に戻る
-      </a>
+      <a href="{{ _back_url|e }}">外部検索に戻る</a>
     </p>
 
     {% if error_message %}
