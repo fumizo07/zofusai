@@ -3,12 +3,22 @@
 {% set active_page = "thread_search" %}
 {% include "_header.html" %}
 
+{# ★戻り先：back_urlが来ていればそれを使う。なければ従来互換で組む（no_log=1付き） #}
+{% set _back_url = back_url
+    or ("/thread_search?area=" ~ (area|urlencode)
+        ~ "&period=" ~ (period|urlencode)
+        ~ "&board_category=" ~ (board_category|urlencode)
+        ~ "&board_id=" ~ (board_id|urlencode)
+        ~ "&keyword=" ~ (title_keyword|urlencode)
+        ~ "&no_log=1")
+%}
+
 <main>
   <section class="card">
     <div class="section-title">スレッド情報（全レス表示）</div>
 
     <p class="back-link">
-      <a href="/thread_search?area={{ area }}&period={{ period }}&keyword={{ title_keyword|urlencode }}">
+      <a href="{{ _back_url|e }}">
         外部検索に戻る
       </a>
     </p>
@@ -58,21 +68,19 @@
         <h2>全レス（{{ posts|length }}件）</h2>
 
         <div class="thread-actions">
-          {# ★表示切替（デフォルトは view=tree） #}
           <a
             class="btn-sm {% if view == 'tree' %}primary{% endif %}"
-            href="/thread_search/showall?url={{ thread_url|urlencode }}&area={{ area|urlencode }}&period={{ period|urlencode }}&title_keyword={{ title_keyword|urlencode }}&view=tree"
+            href="/thread_search/showall?url={{ thread_url|urlencode }}&area={{ area|urlencode }}&period={{ period|urlencode }}&board_category={{ board_category|urlencode }}&board_id={{ board_id|urlencode }}&title_keyword={{ title_keyword|urlencode }}&view=tree&back_url={{ _back_url|urlencode }}"
           >ツリー表示</a>
 
           <a
             class="btn-sm {% if view == 'flat' %}primary{% endif %}"
-            href="/thread_search/showall?url={{ thread_url|urlencode }}&area={{ area|urlencode }}&period={{ period|urlencode }}&title_keyword={{ title_keyword|urlencode }}&view=flat"
+            href="/thread_search/showall?url={{ thread_url|urlencode }}&area={{ area|urlencode }}&period={{ period|urlencode }}&board_category={{ board_category|urlencode }}&board_id={{ board_id|urlencode }}&title_keyword={{ title_keyword|urlencode }}&view=flat&back_url={{ _back_url|urlencode }}"
           >時系列表示</a>
         </div>
       </div>
 
       {% if view == "tree" %}
-        {# ★ツリー表示：blockquote のデフォルトインデントを利用（CSS変更なし） #}
         {% macro render_node(node) -%}
           {% set p = node.post %}
           <div class="result" {% if p.post_no %}data-post-no="{{ p.post_no }}"{% endif %}>
@@ -110,7 +118,6 @@
         {% endif %}
 
       {% else %}
-        {# ★時系列表示（従来） #}
         {% for p in posts %}
           <div class="result" {% if p.post_no %}data-post-no="{{ p.post_no }}"{% endif %}>
             <div class="result-id">
