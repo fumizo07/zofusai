@@ -469,6 +469,22 @@ def thread_showall_page(
         default=_build_thread_search_url(area, period, board_category, board_id, title_keyword),
     )
 
+    # ★ここが今回の肝：showall でもラベルを作る（未定義エラー回避）
+    board_category_label: str = ""
+    board_label: str = ""
+
+    if board_category:
+        board_category_label = next(
+            (c["label"] for c in BOARD_CATEGORY_OPTIONS if c.get("id") == board_category),
+            board_category,
+        )
+
+    if board_category and board_id:
+        for b in get_board_options_for_category(board_category):
+            if b.get("id") == board_id:
+                board_label = b.get("label") or ""
+                break
+
     error_message = ""
     thread_title_display = ""
     posts_sorted: List[object] = []
