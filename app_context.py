@@ -1,4 +1,4 @@
-
+# app_context.py
 from collections import deque
 from fastapi.templating import Jinja2Templates
 
