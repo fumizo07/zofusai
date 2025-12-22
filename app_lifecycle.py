@@ -1,4 +1,4 @@
-
+# app_lifecycle.py
 from fastapi import FastAPI
 from sqlalchemy import text
 
