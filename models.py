@@ -1,4 +1,6 @@
 # models.py
+from datetime import datetime
+
 from sqlalchemy import Column, Integer, Text, DateTime, UniqueConstraint
 from db import Base
 
@@ -65,4 +67,32 @@ class CachedPost(Base):
 
     __table_args__ = (
         UniqueConstraint("thread_url", "post_no", name="uq_cached_posts_thread_postno"),
+    )
+
+
+class ExternalSearchHistory(Base):
+    """
+    外部検索（スレ検索）の履歴：DB永続化
+    - key でユニーク（同じ条件なら1件にまとまる）
+    - last_seen_at で「最近使った順」
+    """
+    __tablename__ = "external_search_history"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    key = Column(Text, nullable=False, unique=True, index=True)
+
+    area = Column(Text, nullable=False, index=True)
+    period = Column(Text, nullable=False, index=True)
+    board_category = Column(Text, nullable=True, index=True)
+    board_id = Column(Text, nullable=True, index=True)
+    keyword = Column(Text, nullable=False)
+
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    last_seen_at = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
+
+    hit_count = Column(Integer, nullable=False, default=1)
+
+    __table_args__ = (
+        UniqueConstraint("key", name="uq_external_search_history_key"),
     )
