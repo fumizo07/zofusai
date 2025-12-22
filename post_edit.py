@@ -8,10 +8,22 @@ from sqlalchemy.orm import Session
 
 from db import get_db
 from models import ThreadPost
-from utils import parse_tags_input, tags_list_to_csv
+from utils import parse_tags_input, tags_list_to_csv, normalize_for_search
 
 post_edit_router = APIRouter()
 templates = Jinja2Templates(directory="templates")
+
+
+def _build_tags_norm_csv(tags_list: list[str]) -> str:
+    """
+    tags_norm は「境界一致」検索のために ",tag1,tag2," 形式にする
+    （main.py の like('%,{t},%') と整合）
+    """
+    norm_list = [normalize_for_search(t) for t in (tags_list or []) if (t or "").strip()]
+    norm_list = [t for t in norm_list if t]  # 空を除去
+    if not norm_list:
+        return ""
+    return "," + ",".join(norm_list) + ","
 
 
 @post_edit_router.get("/post/{post_id}/edit", response_class=HTMLResponse)
@@ -51,9 +63,17 @@ def edit_post_post(
     try:
         tags_list = parse_tags_input(tags)
         tags_csv = tags_list_to_csv(tags_list)
+        tags_norm_csv = _build_tags_norm_csv(tags_list)
+
         memo_val = (memo or "").strip()
 
+        # 表示・集計用（そのまま）
         row.tags = tags_csv or None
+
+        # 検索用（正規化・境界一致用）
+        # ※ models.ThreadPost に tags_norm 列が存在することが前提
+        row.tags_norm = tags_norm_csv or None
+
         row.memo = memo_val or None
 
         db.commit()
