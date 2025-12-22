@@ -1,4 +1,3 @@
-<!-- templates/thread_search_posts.html -->
 {% set page_title_suffix = "スレッド内検索結果" %}
 {% set body_class = "page-thread-posts" %}
 {% set active_page = "thread_search" %}
@@ -6,15 +5,8 @@
 
 {% set store_title = store_base_title or thread_title or title_keyword or '' %}
 
-{# ★戻り先：back_urlが来ていればそれを使う。なければ従来互換で組む（no_log=1付き） #}
-{% set _back_url = back_url
-    or ("/thread_search?area=" ~ (area|urlencode)
-        ~ "&period=" ~ (period|urlencode)
-        ~ "&board_category=" ~ (board_category|urlencode)
-        ~ "&board_id=" ~ (board_id|urlencode)
-        ~ "&keyword=" ~ (title_keyword|urlencode)
-        ~ "&no_log=1")
-%}
+{# ★no_log 組み立ては禁止。back_url が無ければ /thread_search に戻すだけ #}
+{% set _back_url = back_url or "/thread_search" %}
 
 <button class="hamburger-button" id="hamburgerButton" type="button">
     <span class="hamburger-button-inner">
@@ -84,12 +76,8 @@
             <div class="quick-menu-section">
                 <div class="quick-menu-section-title">スレ検索</div>
                 <div class="quick-menu-links">
-                    <a href="{{ _back_url|e }}">
-                        外部検索に戻る
-                    </a>
-                    <a href="/">
-                        内部検索に戻る
-                    </a>
+                    <a href="{{ _back_url|e }}">外部検索に戻る</a>
+                    <a href="/">内部検索に戻る</a>
                 </div>
             </div>
 
@@ -102,9 +90,7 @@
         <div class="section-title">スレッド情報</div>
 
         <p class="back-link">
-            <a href="{{ _back_url|e }}">
-                外部検索に戻る
-            </a>
+            <a href="{{ _back_url|e }}">外部検索に戻る</a>
         </p>
 
         {% if error_message %}
@@ -134,7 +120,6 @@
         </div>
     </section>
 
-    <!-- 上部：再検索カード -->
     <section class="card">
         <h2>別キーワードで再検索</h2>
 
@@ -209,7 +194,6 @@
         {% endif %}
     </section>
 
-    <!-- 結果 -->
     <section class="card">
         {% if entries and not error_message %}
             <h2>ヒットしたレス（{{ entries|length }}件）</h2>
@@ -283,7 +267,6 @@
         {% endif %}
     </section>
 
-    <!-- 下部：再検索 -->
     <section class="card">
         <h2>別キーワードで再検索（下部）</h2>
         <form method="post" action="/thread_search/posts">
