@@ -3,6 +3,16 @@
 {% set active_page = "thread_search" %}
 {% include "_header.html" %}
 
+{# ★この画面の「正しい戻り先」（条件一式 + no_log=1） #}
+{% set _back_url = back_url
+    or ("/thread_search?area=" ~ (current_area|urlencode)
+        ~ "&period=" ~ (current_period|urlencode)
+        ~ "&board_category=" ~ (current_board_category|urlencode)
+        ~ "&board_id=" ~ (current_board_id|urlencode)
+        ~ "&keyword=" ~ (keyword|urlencode)
+        ~ "&no_log=1")
+%}
+
 <main>
     <!-- 検索フォーム -->
     <section class="card">
@@ -71,7 +81,7 @@
         <ul class="history-list">
             {% for e in recent_external_searches %}
                 <li>
-                    <a href="/thread_search?area={{ e.area }}&period={{ e.period }}&board_category={{ e.board_category }}&board_id={{ e.board_id }}&keyword={{ e.keyword }}">
+                    <a href="/thread_search?area={{ e.area|urlencode }}&period={{ e.period|urlencode }}&board_category={{ e.board_category|urlencode }}&board_id={{ e.board_id|urlencode }}&keyword={{ e.keyword|urlencode }}">
                         [{{ e.period_label }}]
                         {% if e.board_category_label %}{{ e.board_category_label }}{% endif %}
                         {% if e.board_label %} / {{ e.board_label }}{% endif %}
@@ -98,24 +108,24 @@
             <div class="results-summary">
                 {{ keyword }} の検索結果（{{ results|length }}件）
             </div>
-        
+
             <div class="thread-actions-inline">
                 <form id="save-thread-form-top" method="post" action="/thread_search/save">
                     <input type="hidden" name="thread_url" id="save-thread-url-top" value="">
+                    <input type="hidden" name="back_url" value="{{ _back_url|e }}">
                     <button type="submit" class="btn-secondary">
                         このスレを保存
                     </button>
                 </form>
             </div>
-        
+
             <!-- スレッド内検索フォーム（ラジオ選択＋本文キーワード） -->
             <form id="thread-post-search-form" method="post" action="/thread_search/posts">
-                <input type="hidden" name="area" value="{{ current_area }}">
-                <input type="hidden" name="period" value="{{ current_period }}">
-                <!-- ★ここを追加 -->
-                <input type="hidden" name="board_category" value="{{ current_board_category }}">
-                <input type="hidden" name="board_id" value="{{ current_board_id }}">
-                <!-- ★ここまで -->
+                <input type="hidden" name="area" value="{{ current_area|e }}">
+                <input type="hidden" name="period" value="{{ current_period|e }}">
+                <input type="hidden" name="board_category" value="{{ current_board_category|e }}">
+                <input type="hidden" name="board_id" value="{{ current_board_id|e }}">
+                <input type="hidden" name="back_url" value="{{ _back_url|e }}">
 
                 {% for t in results %}
                     <div class="thread-item">
@@ -128,10 +138,10 @@
                             <div style="flex:1 1 auto;">
                                 <div class="thread-title">
                                     {{ t.title }}
-                                    　<a 
+                                    　<a
                                         class="btn-sm primary"
-                                        href="/thread_search/showall?url={{ t.url|urlencode }}&area={{ current_area }}&period={{ current_period }}&title_keyword={{ keyword|urlencode }}"
-                                         target="_blank">
+                                        href="/thread_search/showall?url={{ t.url|urlencode }}&area={{ current_area|urlencode }}&period={{ current_period|urlencode }}&board_category={{ current_board_category|urlencode }}&board_id={{ current_board_id|urlencode }}&title_keyword={{ keyword|urlencode }}&back_url={{ _back_url|urlencode }}"
+                                        target="_blank">
                                         全レス表示
                                     </a>
                                 </div>
@@ -164,6 +174,7 @@
             <div class="thread-actions-inline">
                 <form id="save-thread-form-bottom" method="post" action="/thread_search/save">
                     <input type="hidden" name="thread_url" id="save-thread-url-bottom" value="">
+                    <input type="hidden" name="back_url" value="{{ _back_url|e }}">
                     <button type="submit" class="btn-secondary">
                         このスレを保存
                     </button>
@@ -179,7 +190,6 @@
 
 <script>
 (function() {
-    // Python 側から渡された BOARD_MASTER をそのまま使う
     const BOARD_MASTER = {{ board_master_json|safe }};
     const boardCategorySelect = document.getElementById("board_category");
     const boardSelect = document.getElementById("board_id");
@@ -188,9 +198,6 @@
     const currentBoardCategory = "{{ current_board_category|default('', true) }}";
     const currentBoardId = "{{ current_board_id|default('', true) }}";
 
-    // acodeごとの板ラベル接頭辞
-    // main.py のコメントに書いてある acode 対応：
-    // 1: 北海道, 18: 関西(滋賀/京都/兵庫), 7: 大阪, 5: 愛知, 3: 東京, 10: 福岡
     const AREA_PREFIX_MAP = {
         "1":  ["北海道", "札幌", "函館"],
         "18": ["滋賀", "京都", "兵庫"],
@@ -203,19 +210,13 @@
     function filterBoardsByArea(categoryId, areaCode) {
         let boards = BOARD_MASTER[categoryId] || [];
 
-        // R18 は全地域共通で出す
         if (categoryId === "122") {
             return boards;
         }
-
-        if (!areaCode) {
-            return [];
-        }
+        if (!areaCode) return [];
 
         const prefixes = AREA_PREFIX_MAP[areaCode] || [];
-        if (!prefixes.length) {
-            return [];
-        }
+        if (!prefixes.length) return [];
 
         return boards.filter(b => {
             const label = b.label || "";
@@ -226,10 +227,7 @@
     function populateBoards(categoryId, selectedId) {
         if (!boardSelect) return;
 
-        // 一旦全部クリア
-        while (boardSelect.firstChild) {
-            boardSelect.removeChild(boardSelect.firstChild);
-        }
+        while (boardSelect.firstChild) boardSelect.removeChild(boardSelect.firstChild);
 
         if (!categoryId) {
             const opt = document.createElement("option");
@@ -266,24 +264,19 @@
 
         boardSelect.disabled = false;
 
-        if (selectedId) {
-            boardSelect.value = selectedId;
-        }
+        if (selectedId) boardSelect.value = selectedId;
     }
 
     document.addEventListener("DOMContentLoaded", function() {
         if (!boardCategorySelect || !boardSelect) return;
 
-        // 初期表示（検索結果から戻ってきたときなど）
         const initialCategory = currentBoardCategory || boardCategorySelect.value || "";
         populateBoards(initialCategory, currentBoardId || "");
 
-        // カテゴリ変更時
         boardCategorySelect.addEventListener("change", function() {
             populateBoards(this.value, "");
         });
 
-        // 地域変更時：同じカテゴリで再絞り込み（板選択はリセット）
         if (areaSelect) {
             areaSelect.addEventListener("change", function() {
                 const cat = boardCategorySelect.value || "";
@@ -293,38 +286,43 @@
     });
 })();
 
-// 「このスレを保存」用：選択中ラジオのURLを hidden に入れる
+// 「このスレを保存」用：選択中ラジオのURLを hidden に入れる（NodeListバグ修正）
 document.addEventListener("DOMContentLoaded", function() {
     const radios = document.querySelectorAll('input[name="selected_thread"]');
-    const hidden = document.querySelectorAll('input[id^="save-thread-url-"]')
-    const saveForm = document.querySelectorAll('form[id^="save-thread-form-"]')
+    const hiddenTop = document.getElementById("save-thread-url-top");
+    const hiddenBottom = document.getElementById("save-thread-url-bottom");
+    const formTop = document.getElementById("save-thread-form-top");
+    const formBottom = document.getElementById("save-thread-form-bottom");
+
+    function getCheckedValue() {
+        for (const r of radios) {
+            if (r.checked) return r.value || "";
+        }
+        return "";
+    }
 
     function updateHidden() {
-        if (!hidden) return;
-        let value = "";
-        radios.forEach(r => {
-            if (r.checked) {
-                value = r.value;
-            }
-        });
-        hidden.value = value;
+        const v = getCheckedValue();
+        if (hiddenTop) hiddenTop.value = v;
+        if (hiddenBottom) hiddenBottom.value = v;
     }
 
-    if (radios.length && hidden) {
+    if (radios.length) {
         updateHidden();
-        radios.forEach(r => {
-            r.addEventListener('change', updateHidden);
-        });
+        radios.forEach(r => r.addEventListener("change", updateHidden));
     }
 
-    if (saveForm && hidden) {
-        saveForm.addEventListener('submit', function(e) {
-            if (!hidden.value) {
-                e.preventDefault();
-                alert('保存するスレッドを選択してください。');
-            }
-        });
+    function guardSubmit(e) {
+        updateHidden();
+        const v = getCheckedValue();
+        if (!v) {
+            e.preventDefault();
+            alert("保存するスレッドを選択してください。");
+        }
     }
+
+    if (formTop) formTop.addEventListener("submit", guardSubmit);
+    if (formBottom) formBottom.addEventListener("submit", guardSubmit);
 });
 </script>
 
