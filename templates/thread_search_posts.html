@@ -5,6 +5,16 @@
 
 {% set store_title = store_base_title or thread_title or title_keyword or '' %}
 
+{# ★戻り先：back_urlが来ていればそれを使う。なければ従来互換で組む（no_log=1付き） #}
+{% set _back_url = back_url
+    or ("/thread_search?area=" ~ (area|urlencode)
+        ~ "&period=" ~ (period|urlencode)
+        ~ "&board_category=" ~ (board_category|urlencode)
+        ~ "&board_id=" ~ (board_id|urlencode)
+        ~ "&keyword=" ~ (title_keyword|urlencode)
+        ~ "&no_log=1")
+%}
+
 <button class="hamburger-button" id="hamburgerButton" type="button">
     <span class="hamburger-button-inner">
         <span class="hamburger-line"></span>
@@ -46,6 +56,7 @@
                     <input type="hidden" name="board_category" value="{{ board_category|e }}">
                     <input type="hidden" name="board_id" value="{{ board_id|e }}">
                     <input type="hidden" name="title_keyword" value="{{ title_keyword|e }}">
+                    <input type="hidden" name="back_url" value="{{ _back_url|e }}">
 
                     <div class="form-row">
                         <label>本文キーワード：</label>
@@ -63,6 +74,7 @@
                 <div class="quick-menu-section-title">保存</div>
                 <form method="post" action="/thread_search/save">
                     <input type="hidden" name="thread_url" value="{{ thread_url|e }}">
+                    <input type="hidden" name="back_url" value="{{ _back_url|e }}">
                     <button type="submit" class="btn-secondary">このスレを保存</button>
                 </form>
             </div>
@@ -71,7 +83,7 @@
             <div class="quick-menu-section">
                 <div class="quick-menu-section-title">スレ検索</div>
                 <div class="quick-menu-links">
-                    <a href="/thread_search?area={{ area }}&period={{ period }}&keyword={{ title_keyword|urlencode }}">
+                    <a href="{{ _back_url|e }}">
                         外部検索に戻る
                     </a>
                     <a href="/">
@@ -89,7 +101,7 @@
         <div class="section-title">スレッド情報</div>
 
         <p class="back-link">
-            <a href="/thread_search?area={{ area }}&period={{ period }}&keyword={{ title_keyword|urlencode }}">
+            <a href="{{ _back_url|e }}">
                 外部検索に戻る
             </a>
         </p>
@@ -121,7 +133,7 @@
         </div>
     </section>
 
-    <!-- 上部：再検索カード（現状維持） -->
+    <!-- 上部：再検索カード -->
     <section class="card">
         <h2>別キーワードで再検索</h2>
 
@@ -131,6 +143,7 @@
             <input type="hidden" name="period" value="{{ period }}">
             <input type="hidden" name="board_category" value="{{ board_category }}">
             <input type="hidden" name="board_id" value="{{ board_id }}">
+            <input type="hidden" name="back_url" value="{{ _back_url|e }}">
 
             <div class="form-row">
                 <label for="post_keyword_bottom">本文キーワード：</label>
@@ -155,6 +168,7 @@
                 <input type="hidden" name="selected_thread" value="{{ prev_thread_url or '' }}">
                 <input type="hidden" name="board_category" value="{{ board_category }}">
                 <input type="hidden" name="board_id" value="{{ board_id }}">
+                <input type="hidden" name="back_url" value="{{ _back_url|e }}">
 
                 <button type="submit" class="btn-secondary" {% if not prev_thread_url %}disabled{% endif %}>
                     前スレで再検索
@@ -172,6 +186,7 @@
                 <input type="hidden" name="selected_thread" value="{{ next_thread_url or '' }}">
                 <input type="hidden" name="board_category" value="{{ board_category }}">
                 <input type="hidden" name="board_id" value="{{ board_id }}">
+                <input type="hidden" name="back_url" value="{{ _back_url|e }}">
 
                 <button type="submit" class="btn-secondary" {% if not next_thread_url %}disabled{% endif %}>
                     次スレで再検索
@@ -186,6 +201,7 @@
         <div class="thread-save">
             <form method="post" action="/thread_search/save">
               <input type="hidden" name="thread_url" value="{{ thread_url|e }}">
+              <input type="hidden" name="back_url" value="{{ _back_url|e }}">
               <button type="submit" class="btn-secondary">このスレを保存</button>
             </form>
         </div>
@@ -266,7 +282,7 @@
         {% endif %}
     </section>
 
-    <!-- ★⑧：下部にも「別キーワードで再検索」カードを復活 -->
+    <!-- 下部：再検索 -->
     <section class="card">
         <h2>別キーワードで再検索（下部）</h2>
         <form method="post" action="/thread_search/posts">
@@ -276,6 +292,7 @@
             <input type="hidden" name="board_category" value="{{ board_category }}">
             <input type="hidden" name="board_id" value="{{ board_id }}">
             <input type="hidden" name="title_keyword" value="{{ title_keyword|e }}">
+            <input type="hidden" name="back_url" value="{{ _back_url|e }}">
 
             <div class="form-row">
                 <label for="post_keyword_bottom2">本文キーワード：</label>
@@ -295,6 +312,7 @@
                 <input type="hidden" name="selected_thread" value="{{ prev_thread_url or '' }}">
                 <input type="hidden" name="board_category" value="{{ board_category }}">
                 <input type="hidden" name="board_id" value="{{ board_id }}">
+                <input type="hidden" name="back_url" value="{{ _back_url|e }}">
 
                 <button type="submit" class="btn-secondary" {% if not prev_thread_url %}disabled{% endif %}>
                     前スレで再検索
@@ -312,6 +330,7 @@
                 <input type="hidden" name="selected_thread" value="{{ next_thread_url or '' }}">
                 <input type="hidden" name="board_category" value="{{ board_category }}">
                 <input type="hidden" name="board_id" value="{{ board_id }}">
+                <input type="hidden" name="back_url" value="{{ _back_url|e }}">
 
                 <button type="submit" class="btn-secondary" {% if not next_thread_url %}disabled{% endif %}>
                     次スレで再検索
