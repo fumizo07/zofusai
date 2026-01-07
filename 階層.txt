@@ -20,6 +20,7 @@ app_lifecycle.py
 constants.py
 db.py
 main.py
+models.py
 post_edit.py
 preview_api.py
 ranking.py
