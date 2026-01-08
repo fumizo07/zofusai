@@ -106,8 +106,8 @@
 
             {# ===== thread_search_posts / thread_showall 共通 ===== #}
             {% else %}
-                {% set _back_url = back_url|default('/thread_search') %}
-
+            
+                {% set _back_url = back_url or "/thread_search" %}
                 <div class="quick-menu-section">
                     <div class="quick-menu-section-title">スレッド情報</div>
                     <div style="font-size:13px;">
