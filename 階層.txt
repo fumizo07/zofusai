@@ -15,6 +15,9 @@ templates/thread_search.html
 templates/thread_search_posts.html
 templates/thread_showall.html
 templates/threads.html
+templates/kb_index.html
+templates/kb_person.html
+templates/kb_store.html
 app_context.py
 app_lifecycle.py
 constants.py
