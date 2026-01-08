@@ -33,7 +33,7 @@
        ハンバーガーは3ページだけ表示
        index / thread_search_posts / thread_showall
        ========================= #}
-    {% if active_page in ['index', 'thread_search_posts', 'thread_showall'] %}
+    {% if active_page in ['index', 'thread_search'] %}
     <button class="hamburger-button" id="hamburgerButton" type="button">
         <span class="hamburger-button-inner">
             <span class="hamburger-line"></span>
@@ -44,7 +44,7 @@
     {% endif %}
 </header>
 
-{% if active_page in ['index', 'thread_search_posts', 'thread_showall'] %}
+{% if active_page in ['index', 'thread_search'] %}
 <div class="quick-menu-overlay" id="quickMenuOverlay">
     <div class="quick-menu-panel">
         <div class="quick-menu-header">
