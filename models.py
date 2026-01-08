@@ -1,7 +1,7 @@
 # models.py
 from datetime import datetime
 
-from sqlalchemy import Column, Integer, Text, DateTime, UniqueConstraint
+from sqlalchemy import Column, Integer, Text, DateTime, UniqueConstraint, ForeignKey, JSON
 from db import Base
 
 
@@ -96,3 +96,74 @@ class ExternalSearchHistory(Base):
     __table_args__ = (
         UniqueConstraint("key", name="uq_external_search_history_key"),
     )
+
+
+# ============================================================
+# ここから「知った情報を整理する（KB）」系
+# ============================================================
+
+class KBRegion(Base):
+    __tablename__ = "kb_regions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(Text, nullable=False, unique=True, index=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+
+class KBStore(Base):
+    __tablename__ = "kb_stores"
+
+    id = Column(Integer, primary_key=True, index=True)
+    region_id = Column(Integer, ForeignKey("kb_regions.id", ondelete="CASCADE"), nullable=False, index=True)
+    name = Column(Text, nullable=False, index=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("region_id", "name", name="uq_kb_stores_region_name"),
+    )
+
+
+class KBPerson(Base):
+    __tablename__ = "kb_persons"
+
+    id = Column(Integer, primary_key=True, index=True)
+    store_id = Column(Integer, ForeignKey("kb_stores.id", ondelete="CASCADE"), nullable=False, index=True)
+
+    name = Column(Text, nullable=False, index=True)
+
+    height_cm = Column(Integer, nullable=True)
+    bust_cm = Column(Integer, nullable=True)
+    waist_cm = Column(Integer, nullable=True)
+    hip_cm = Column(Integer, nullable=True)
+
+    tags = Column(Text, nullable=True)       # カンマ区切り（まずはシンプル）
+    memo = Column(Text, nullable=True)       # 人の固定メモ（プロフィール的なやつ）
+
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("store_id", "name", name="uq_kb_persons_store_name"),
+    )
+
+
+class KBVisit(Base):
+    """
+    利用ログ（自分用口コミ）
+    - 星評価(1-5)
+    - 料金項目（JSON配列）と合計
+    """
+    __tablename__ = "kb_visits"
+
+    id = Column(Integer, primary_key=True, index=True)
+    person_id = Column(Integer, ForeignKey("kb_persons.id", ondelete="CASCADE"), nullable=False, index=True)
+
+    visited_at = Column(DateTime, nullable=True, index=True)
+
+    rating = Column(Integer, nullable=True, index=True)  # 1〜5
+    memo = Column(Text, nullable=True)                   # 口コミ本文
+
+    # 例: [{"label":"基本料金","amount":12000},{"label":"オプション","amount":3000}]
+    price_items = Column(JSON, nullable=True)
+    total_yen = Column(Integer, nullable=False, default=0)
+
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
