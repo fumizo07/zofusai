@@ -9,6 +9,7 @@
 <body class="{{ body_class|default('') }}">
 <header>
     <h1>{{ page_heading or page_title_suffix or "Personal Search" }}</h1>
+
     <div class="nav-links">
         {% if active_page != 'index' %}
             <a href="/">内部検索</a>
@@ -23,4 +24,148 @@
             <a href="/threads">保存スレッド一覧</a>
         {% endif %}
     </div>
+
+    {# =========================
+       ハンバーガーは3ページだけ表示
+       index / thread_search_posts / thread_showall
+       ========================= #}
+    {% if active_page in ['index', 'thread_search_posts', 'thread_showall'] %}
+    <button class="hamburger-button" id="hamburgerButton" type="button">
+        <span class="hamburger-button-inner">
+            <span class="hamburger-line"></span>
+            <span class="hamburger-line"></span>
+            <span class="hamburger-line"></span>
+        </span>
+    </button>
+    {% endif %}
 </header>
+
+{% if active_page in ['index', 'thread_search_posts', 'thread_showall'] %}
+<div class="quick-menu-overlay" id="quickMenuOverlay">
+    <div class="quick-menu-panel">
+        <div class="quick-menu-header">
+            <div class="quick-menu-title">メニュー</div>
+            <button type="button" class="quick-menu-close" aria-label="閉じる"></button>
+        </div>
+
+        <div class="quick-menu-content">
+
+            {# ===== index（内部検索） ===== #}
+            {% if active_page == 'index' %}
+                <div class="quick-menu-section-title">再検索</div>
+                <div class="quick-menu-section">
+                    <form method="get" action="/" class="quick-menu-form">
+                        <input type="hidden" name="page" value="1">
+                        <input type="hidden" name="per_page" value="{{ per_page|default(20) }}">
+
+                        <div class="form-row">
+                            <label>キーワード：</label>
+                            <input type="text" name="q" value="{{ keyword|default('') }}" placeholder="例：テスト, キーワード など">
+                        </div>
+
+                        <div class="form-row">
+                            <label>スレURL / タイトル（任意）：</label>
+                            <input type="text" name="thread_filter" value="{{ thread_filter|default('') }}" placeholder="空欄なら全スレ対象">
+                        </div>
+
+                        <div class="form-row">
+                            <label>タグフィルタ（カンマ区切り）：</label>
+                            <input type="text" name="tags" value="{{ tags_input|default('') }}" placeholder="例：重要, 要確認 など">
+                        </div>
+
+                        <div class="form-row">
+                            <label>タグ条件：</label>
+                            <div>
+                                <label>
+                                    <input type="radio" name="tag_mode" value="or" {% if (tag_mode|default('or')) != 'and' %}checked{% endif %}>
+                                    OR（いずれか含む）
+                                </label>
+                                &nbsp;
+                                <label>
+                                    <input type="radio" name="tag_mode" value="and" {% if (tag_mode|default('or')) == 'and' %}checked{% endif %}>
+                                    AND（すべて含む）
+                                </label>
+                            </div>
+                        </div>
+
+                        <div class="form-row">
+                            <button type="submit" class="btn-primary">この条件で検索</button>
+                        </div>
+                    </form>
+                </div>
+
+                <div class="quick-menu-section-title">その他</div>
+                <div class="quick-menu-links">
+                    <a href="/thread_search">外部検索</a>
+                </div>
+
+            {# ===== thread_search_posts / thread_showall 共通 ===== #}
+            {% else %}
+                {% set _back_url = back_url|default('/thread_search') %}
+
+                <div class="quick-menu-section">
+                    <div class="quick-menu-section-title">スレッド情報</div>
+                    <div style="font-size:13px;">
+                        <div>タイトル：{{ thread_title|default("（取得できませんでした）") }}</div>
+                        <div class="thread-url">URL：{{ thread_url|default('') }}</div>
+
+                        {# postsページだけ本文キーワードがある #}
+                        {% if active_page == 'thread_search_posts' %}
+                        <div>
+                            タイトルキーワード：<strong>{{ title_keyword|default('（未指定）') }}</strong><br>
+                            本文キーワード：<strong>{{ post_keyword|default('（未指定）') }}</strong>
+                        </div>
+                        {% else %}
+                        <div>
+                            タイトルキーワード：<strong>{{ title_keyword|default('（未指定）') }}</strong>
+                        </div>
+                        {% endif %}
+                    </div>
+                </div>
+
+                <div class="quick-menu-section">
+                    <div class="quick-menu-section-title">別キーワードで再検索</div>
+                    <form method="post" action="/thread_search/posts" class="quick-menu-form">
+                        <input type="hidden" name="selected_thread" value="{{ (thread_url|default(''))|e }}">
+                        <input type="hidden" name="area" value="{{ area|default('7') }}">
+                        <input type="hidden" name="period" value="{{ period|default('3m') }}">
+                        <input type="hidden" name="board_category" value="{{ (board_category|default(''))|e }}">
+                        <input type="hidden" name="board_id" value="{{ (board_id|default(''))|e }}">
+                        <input type="hidden" name="title_keyword" value="{{ (title_keyword|default(''))|e }}">
+                        <input type="hidden" name="back_url" value="{{ _back_url|e }}">
+
+                        <div class="form-row">
+                            <label>本文キーワード：</label>
+                            <input type="text" name="post_keyword" value="{{ (post_keyword|default(''))|e }}">
+                        </div>
+
+                        <div class="form-row">
+                            <button type="submit" class="btn-primary">このスレで再検索</button>
+                        </div>
+                    </form>
+                </div>
+
+                {% if not (error_message|default('')) %}
+                <div class="quick-menu-section">
+                    <div class="quick-menu-section-title">保存</div>
+                    <form method="post" action="/thread_search/save">
+                        <input type="hidden" name="thread_url" value="{{ (thread_url|default(''))|e }}">
+                        <input type="hidden" name="back_url" value="{{ _back_url|e }}">
+                        <button type="submit" class="btn-secondary">このスレを保存</button>
+                    </form>
+                </div>
+                {% endif %}
+
+                <div class="quick-menu-section">
+                    <div class="quick-menu-section-title">スレ検索</div>
+                    <div class="quick-menu-links">
+                        <a href="{{ _back_url|e }}">外部検索に戻る</a>
+                        <a href="/">内部検索に戻る</a>
+                    </div>
+                </div>
+            {% endif %}
+
+        </div>
+    </div>
+</div>
+{% endif %}
