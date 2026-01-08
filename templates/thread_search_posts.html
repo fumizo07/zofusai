@@ -5,8 +5,7 @@
 
 {% set store_title = store_base_title or thread_title or title_keyword or '' %}
 
-{# ★no_log 組み立ては禁止。back_url が無ければ /thread_search に戻すだけ #}
-{% set _back_url = back_url or "/thread_search" %}
+
 
 
 <main data-thread-url="{{ thread_url|e }}">
