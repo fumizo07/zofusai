@@ -1,0 +1,63 @@
+{% set page_title_suffix = "メモ（KB）" %}
+{% set body_class = "page-kb" %}
+{% set active_page = "kb" %}
+{% include "_header.html" %}
+
+<main>
+  <h1>メモ（KB）</h1>
+
+  <section>
+    <h2>地域を追加</h2>
+    <form method="post" action="/kb/region">
+      <label>地域名：</label><br>
+      <input type="text" name="name" placeholder="例：大阪">
+      <button type="submit">追加</button>
+    </form>
+  </section>
+
+  <hr>
+
+  <section>
+    <h2>地域一覧</h2>
+
+    {% if regions %}
+      {% for r in regions %}
+        <div class="thread-block">
+          <div class="thread-header">
+            <div>
+              <div class="thread-title">{{ r.name }}</div>
+            </div>
+          </div>
+
+          <div class="thread-results">
+            <h3>店を追加</h3>
+            <form method="post" action="/kb/store">
+              <input type="hidden" name="region_id" value="{{ r.id }}">
+              <input type="text" name="name" placeholder="例：店名A">
+              <button type="submit">追加</button>
+            </form>
+
+            <h3>店</h3>
+            {% set stores = stores_by_region.get(r.id, []) %}
+            {% if stores %}
+              <ul>
+                {% for s in stores %}
+                  <li>
+                    <a href="/kb/store/{{ s.id }}">{{ s.name }}</a>
+                    <small class="muted">（人数 {{ person_counts.get(s.id, 0) }}）</small>
+                  </li>
+                {% endfor %}
+              </ul>
+            {% else %}
+              <p class="muted">まだ店がありません。</p>
+            {% endif %}
+          </div>
+        </div>
+      {% endfor %}
+    {% else %}
+      <p class="muted">まず地域を追加してください。</p>
+    {% endif %}
+  </section>
+</main>
+
+{% include "_footer.html" %}
