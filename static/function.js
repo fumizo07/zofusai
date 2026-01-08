@@ -57,7 +57,6 @@
       // ----------------------------
       const storeBox = target.closest ? target.closest(".store-search") : null;
       if (storeBox) {
-        // クリック対象がリンク/ボタンで、それっぽいものだけ拾う
         const clickable =
           target.closest(".store-search-link") ||
           target.closest("a") ||
@@ -65,15 +64,12 @@
 
         if (!clickable) return;
 
-        // store_title は data-store-title が理想。無い場合は諦める（誤爆防止）
         const storeRaw = (storeBox.dataset.storeTitle || "").trim();
         const store = normalizeStoreTitle(storeRaw);
         if (!store) return;
 
-        // data-site があればそれを優先
         let site = clickable.getAttribute("data-site");
 
-        // data-site が無いテンプレにも耐える（リンク文言で推定）
         if (!site) {
           const label = (clickable.textContent || "").trim();
           if (label.includes("シティヘブン")) site = "city";
@@ -83,7 +79,6 @@
 
         if (!site) return;
 
-        // a の場合は href 遷移を止める（JSで統一クエリを作る）
         if (clickable.tagName === "A") {
           e.preventDefault();
         }
@@ -146,7 +141,6 @@
     if (!contextLines || !contextLines.length) return;
 
     contextLines.forEach(function (line) {
-      // 二重付与防止（既にボタンが付いてる場合）
       if (line.dataset.readMoreApplied === "1") return;
       line.dataset.readMoreApplied = "1";
 
@@ -160,7 +154,6 @@
 
       const maxHeight = lineHeight * maxLines;
 
-      // 3行より長い場合だけ対象
       if (line.scrollHeight > maxHeight + 2) {
         line.classList.add("context-collapsed");
 
@@ -222,13 +215,140 @@
   }
 
   // ============================================================
+  // KB：星評価（☆☆☆☆☆ → クリックで ★★★☆☆）
+  // ============================================================
+  function initKbStarRating() {
+    const boxes = document.querySelectorAll("[data-star-rating]");
+    if (!boxes || !boxes.length) return;
+
+    boxes.forEach((box) => {
+      if (box.dataset.kbStarApplied === "1") return;
+      box.dataset.kbStarApplied = "1";
+
+      const stars = box.querySelectorAll(".kb-star");
+      const input = box.querySelector('input[type="hidden"][name="rating"]');
+      const label = box.querySelector("[data-star-label]");
+
+      function render(val) {
+        stars.forEach((btn) => {
+          const n = parseInt(btn.getAttribute("data-value") || "0", 10);
+          btn.textContent = (val && n <= val) ? "★" : "☆";
+        });
+        if (label) {
+          label.textContent = val ? `（${val}/5）` : "";
+        }
+      }
+
+      stars.forEach((btn) => {
+        btn.addEventListener("click", () => {
+          const v = parseInt(btn.getAttribute("data-value") || "0", 10);
+          const val = (1 <= v && v <= 5) ? v : "";
+          if (input) input.value = String(val || "");
+          render(val);
+        });
+      });
+
+      // 初期値があれば反映
+      const initVal = input ? parseInt(input.value || "0", 10) : 0;
+      render((1 <= initVal && initVal <= 5) ? initVal : 0);
+    });
+  }
+
+  // ============================================================
+  // KB：料金項目（行追加＆合計＆hidden JSON）
+  // ============================================================
+  function initKbPriceItems() {
+    const roots = document.querySelectorAll("[data-price-items]");
+    if (!roots || !roots.length) return;
+
+    roots.forEach((root) => {
+      if (root.dataset.kbPriceApplied === "1") return;
+      root.dataset.kbPriceApplied = "1";
+
+      const body = root.querySelector("[data-price-items-body]");
+      const btnAdd = root.querySelector("[data-price-add]");
+      const elTotal = root.querySelector("[data-price-total]");
+      const hidden = root.querySelector('input[type="hidden"][name="price_items_json"]');
+
+      function parseAmount(s) {
+        const t = String(s ?? "").replace(/[^\d\-]/g, "").trim();
+        if (!t) return 0;
+        const n = parseInt(t, 10);
+        return Number.isFinite(n) ? n : 0;
+      }
+
+      function collect() {
+        const rows = body ? Array.from(body.querySelectorAll("tr")) : [];
+        const items = [];
+        let total = 0;
+
+        rows.forEach((tr) => {
+          const label = (tr.querySelector("[data-price-label]")?.value || "").trim();
+          const amt = parseAmount(tr.querySelector("[data-price-amount]")?.value || "");
+          if (!label && amt === 0) return;
+          items.push({ label, amount: amt });
+          total += amt;
+        });
+
+        if (elTotal) elTotal.textContent = String(total);
+        if (hidden) hidden.value = JSON.stringify(items);
+      }
+
+      function addRow() {
+        if (!body) return;
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+          <td><input type="text" data-price-label placeholder="例：オプション"></td>
+          <td><input type="text" data-price-amount placeholder="例：3000"></td>
+          <td><button type="button" data-price-remove>削除</button></td>
+        `;
+        body.appendChild(tr);
+        collect();
+      }
+
+      root.addEventListener("input", (e) => {
+        const t = e.target;
+        if (!t) return;
+        if (t.matches("[data-price-label]") || t.matches("[data-price-amount]")) {
+          collect();
+        }
+      });
+
+      root.addEventListener("click", (e) => {
+        const t = e.target;
+        if (!t) return;
+
+        if (t.matches("[data-price-remove]")) {
+          e.preventDefault();
+          const tr = t.closest("tr");
+          if (tr && body) tr.remove();
+          collect();
+          return;
+        }
+
+        if (t.matches("[data-price-add]")) {
+          e.preventDefault();
+          addRow();
+          return;
+        }
+      });
+
+      // 送信直前に確実にJSON化
+      const form = root.closest("form");
+      if (form) {
+        form.addEventListener("submit", () => {
+          collect();
+        });
+      }
+
+      // 初回
+      collect();
+    });
+  }
+
+  // ============================================================
   // アンカー先ツールチッププレビュー（手動クローズ + スタック）
-  // ① × or 外側クリック/タップまで消えない
-  //    ツールチップ内アンカー → 新しいツールチップが前面に積み上がる
-  // ② 「開く」ボタンを押しても消えない（クリックを奪わない）
-  // さらに:
-  // - >> と # を混同しない：表示文字は勝手に変えない（>>は>>のまま）
-  // - preview_tooltip.js 等がいても暴れないよう、captureでイベントを先に握る
+  // （あなたの既存実装：そのまま）
   // ============================================================
   const API_ENDPOINT = "/api/post_preview";
   const MAX_RANGE_EXPAND = 30;
@@ -242,8 +362,6 @@
     return `${threadUrl}||${postNo}`;
   }
 
-  // href から (thread_url, post_no, open_url) を推定
-  // 例: https://bakusai.com/.../tid=12984894/rrid=15/
   function parseBakusaiRridHref(href) {
     if (!href) return null;
     const m = href.match(/^(.*?\/)rrid=(\d+)\/?$/);
@@ -257,7 +375,6 @@
     return { threadUrl, postNo, openUrl };
   }
 
-  // 「開く」リンクはプレビュー対象にしない
   function isOpenLink(el) {
     if (!el) return false;
     if (el.classList && el.classList.contains("post-preview-tooltip-open")) return true;
@@ -271,7 +388,6 @@
 
     if (isOpenLink(el)) return null;
 
-    // ツールチップ内で生成したリンク
     const dt = el.getAttribute("data-thread-url");
     const pn = el.getAttribute("data-post-no");
     if (dt && pn && /^\d+$/.test(pn)) {
@@ -281,7 +397,6 @@
       return { threadUrl, postNo, openUrl };
     }
 
-    // 既存 rrid= リンク
     const href = el.getAttribute("href") || "";
     const parsed = parseBakusaiRridHref(href);
     if (parsed) return parsed;
@@ -322,8 +437,6 @@
     if (top) closeSpecificTooltip(top);
   }
 
-  // テキスト中のアンカー（>>15, ＞＞15, >>15-17, ＞＞15-17）をリンク化
-  // 表示は「>>15」形式（#にしない）
   function linkifyAnchorsToPreviewLinks(text, threadUrl) {
     const safe = escapeHtml(text ?? "");
 
@@ -421,10 +534,8 @@
       abortCtl: null,
     };
 
-    // 前面化（触ったら一番上）
     el.addEventListener("mousedown", () => bringTooltipToFront(t));
 
-    // ×で閉じる（このツールチップだけ）
     t.elClose.addEventListener("click", (e) => {
       e.preventDefault();
       e.stopPropagation();
@@ -438,7 +549,6 @@
     return t;
   }
 
-  // ★修正：ツールチップ“ヘッダーのレス番”は #n にする（参照の >>n とは別）
   function setTooltipContentLoading(t, threadUrl, postNo, openUrl) {
     t.elTitle.textContent = `#${postNo} ／ 読み込み中…`;
     t.elOpen.href = openUrl || "#";
@@ -447,7 +557,6 @@
     t.el.dataset.threadUrl = threadUrl;
   }
 
-  // ★修正
   function setTooltipContentError(t, threadUrl, postNo, openUrl, message) {
     t.elTitle.textContent = `#${postNo} ／ 取得できませんでした`;
     t.elOpen.href = openUrl || "#";
@@ -456,7 +565,6 @@
     t.el.dataset.threadUrl = threadUrl;
   }
 
-  // ★修正
   function setTooltipContentOk(t, threadUrl, postNo, openUrl, postedAt, bodyText) {
     const posted = postedAt ? `／ ${postedAt}` : "";
     t.elTitle.textContent = `#${postNo} ${posted}`;
@@ -479,7 +587,6 @@
     positionTooltipNear(t.el, anchorEl);
     setTooltipContentLoading(t, target.threadUrl, target.postNo, target.openUrl);
 
-    // キャッシュがあれば即表示
     if (cache.has(t.currentKey)) {
       const cached = cache.get(t.currentKey);
       if (cached && cached.ok) {
@@ -490,7 +597,6 @@
       return;
     }
 
-    // fetch開始（このツールチップ専用）
     if (t.abortCtl) {
       try { t.abortCtl.abort(); } catch (_) {}
     }
@@ -535,58 +641,38 @@
       });
   }
 
-  // ============================================================
-  // イベント（ここが肝）
-  // - captureでプレビュー対象のイベントを先に握って、他スクリプトを黙らせる
-  // - クリックで開く／外側クリックで閉じる／×で閉じる
-  // - 「開く」は奪わない＆閉じない
-  // ============================================================
-
   function isClickInsideAnyTooltip(node) {
     if (!node || !node.closest) return false;
     return !!node.closest(".post-preview-tooltip");
   }
 
-  // クリック（capture）
   document.addEventListener("click", (e) => {
     const a = e.target && e.target.closest ? e.target.closest("a") : null;
 
-    // 1) ツールチップ内の「開く」は通常動作（ここでは触らない）
     if (a && isOpenLink(a)) {
-      // ただし、他スクリプトが外側クリック扱いで閉じるのを防ぐため
-      // “ツールチップ内クリック”として扱われるよう、ここで止めておく
-      // （デフォルト遷移は止めない）
-      // e.stopPropagation();
       return;
     }
 
-    // 2) プレビュー対象リンクなら新しいツールチップを積む
     if (a) {
       const target = findPreviewTargetFromElement(a);
       if (target) {
         e.preventDefault();
         e.stopPropagation();
-        // 他スクリプトにも渡さない（重要）
         if (e.stopImmediatePropagation) e.stopImmediatePropagation();
         openTooltip(a, target);
         return;
       }
     }
 
-    // 3) ツールチップ内クリックは閉じない
     if (isClickInsideAnyTooltip(e.target)) {
-      // e.stopPropagation();
       return;
     }
 
-    // 4) 外側クリックでトップだけ閉じる
     if (tooltipStack.length) {
       closeTopTooltip();
     }
   }, true);
 
-  // hover系（capture）
-  // 旧preview_tooltip.jsが mouseover/mouseout で勝手に閉じるのを止めるため
   function stopHoverIfPreviewTarget(e) {
     const a = e.target && e.target.closest ? e.target.closest("a") : null;
     if (!a) return;
@@ -598,12 +684,10 @@
   document.addEventListener("mouseover", stopHoverIfPreviewTarget, true);
   document.addEventListener("mouseout", stopHoverIfPreviewTarget, true);
 
-  // Escでトップだけ閉じる
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape") closeTopTooltip();
   });
 
-  // スクロール/リサイズ時はトップだけ追随
   window.addEventListener("scroll", () => {
     const top = tooltipStack.length ? tooltipStack[tooltipStack.length - 1] : null;
     if (top && top.currentAnchorEl) positionTooltipNear(top.el, top.currentAnchorEl);
@@ -621,5 +705,9 @@
     initHamburger();
     initReadMore();
     initStoreSearchHandlers();
+
+    // KB
+    initKbStarRating();
+    initKbPriceItems();
   });
 })();
