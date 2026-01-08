@@ -16,10 +16,16 @@ from models import KBRegion, KBStore, KBPerson, KBVisit
 router = APIRouter()
 
 
-@router.get("/kb", response_class=HTMLResponse)
+# =========================
+# KB（知った情報を整理する）
+# =========================
+
+
+@app.get("/kb", response_class=HTMLResponse)
 def kb_index(request: Request, db: Session = Depends(get_db)):
     regions = db.query(KBRegion).order_by(KBRegion.name.asc()).all()
 
+    # region -> stores
     store_rows = (
         db.query(KBStore, KBRegion)
         .join(KBRegion, KBRegion.id == KBStore.region_id)
@@ -31,6 +37,7 @@ def kb_index(request: Request, db: Session = Depends(get_db)):
     for s, r in store_rows:
         stores_by_region[r.id].append(s)
 
+    # store -> persons count
     counts = dict(
         db.query(KBPerson.store_id, func.count(KBPerson.id))
         .group_by(KBPerson.store_id)
@@ -44,14 +51,11 @@ def kb_index(request: Request, db: Session = Depends(get_db)):
             "regions": regions,
             "stores_by_region": stores_by_region,
             "person_counts": counts,
-            "active_page": "kb",
-            "page_title_suffix": "KB",
-            "body_class": "page-kb",
         },
     )
 
 
-@router.post("/kb/region")
+@app.post("/kb/region")
 def kb_add_region(request: Request, name: str = Form(""), db: Session = Depends(get_db)):
     name = (name or "").strip()
     back_url = request.headers.get("referer") or "/kb"
@@ -69,7 +73,7 @@ def kb_add_region(request: Request, name: str = Form(""), db: Session = Depends(
     return RedirectResponse(url="/kb", status_code=303)
 
 
-@router.post("/kb/store")
+@app.post("/kb/store")
 def kb_add_store(
     request: Request,
     region_id: int = Form(...),
@@ -96,7 +100,7 @@ def kb_add_store(
     return RedirectResponse(url="/kb", status_code=303)
 
 
-@router.get("/kb/store/{store_id}", response_class=HTMLResponse)
+@app.get("/kb/store/{store_id}", response_class=HTMLResponse)
 def kb_store_page(request: Request, store_id: int, db: Session = Depends(get_db)):
     store = db.query(KBStore).filter(KBStore.id == int(store_id)).first()
     if not store:
@@ -118,14 +122,11 @@ def kb_store_page(request: Request, store_id: int, db: Session = Depends(get_db)
             "region": region,
             "store": store,
             "persons": persons,
-            "active_page": "kb",
-            "page_title_suffix": "KB - 店舗",
-            "body_class": "page-kb",
         },
     )
 
 
-@router.post("/kb/person")
+@app.post("/kb/person")
 def kb_add_person(
     request: Request,
     store_id: int = Form(...),
@@ -157,7 +158,7 @@ def kb_add_person(
     return RedirectResponse(url=back_url, status_code=303)
 
 
-@router.get("/kb/person/{person_id}", response_class=HTMLResponse)
+@app.get("/kb/person/{person_id}", response_class=HTMLResponse)
 def kb_person_page(request: Request, person_id: int, db: Session = Depends(get_db)):
     person = db.query(KBPerson).filter(KBPerson.id == int(person_id)).first()
     if not person:
@@ -173,6 +174,7 @@ def kb_person_page(request: Request, person_id: int, db: Session = Depends(get_d
         .all()
     )
 
+    # 平均評価（null除外）
     rating_avg = (
         db.query(func.avg(KBVisit.rating))
         .filter(KBVisit.person_id == person.id, KBVisit.rating.isnot(None))
@@ -188,14 +190,11 @@ def kb_person_page(request: Request, person_id: int, db: Session = Depends(get_d
             "person": person,
             "visits": visits,
             "rating_avg": rating_avg,
-            "active_page": "kb",
-            "page_title_suffix": "KB - 人",
-            "body_class": "page-kb",
         },
     )
 
 
-@router.post("/kb/person/{person_id}/update")
+@app.post("/kb/person/{person_id}/update")
 def kb_update_person(
     request: Request,
     person_id: int,
@@ -213,7 +212,7 @@ def kb_update_person(
     if not p:
         return RedirectResponse(url="/kb", status_code=303)
 
-    def _to_int(x: str):
+    def _to_int(x):
         x = (x or "").strip()
         if not x:
             return None
@@ -237,7 +236,7 @@ def kb_update_person(
     return RedirectResponse(url=back_url, status_code=303)
 
 
-@router.post("/kb/person/{person_id}/visit")
+@app.post("/kb/person/{person_id}/visit")
 def kb_add_visit(
     request: Request,
     person_id: int,
@@ -252,6 +251,7 @@ def kb_add_visit(
     if not p:
         return RedirectResponse(url="/kb", status_code=303)
 
+    # visited_at は "YYYY-MM-DD" を想定（無ければnull）
     dt = None
     va = (visited_at or "").strip()
     if va:
@@ -260,6 +260,7 @@ def kb_add_visit(
         except Exception:
             dt = None
 
+    # rating 1-5
     r = None
     try:
         rr = int((rating or "").strip() or "0")
@@ -268,6 +269,7 @@ def kb_add_visit(
     except Exception:
         r = None
 
+    # price items
     items = []
     total = 0
     raw = (price_items_json or "").strip()
@@ -309,7 +311,7 @@ def kb_add_visit(
     return RedirectResponse(url=back_url, status_code=303)
 
 
-@router.post("/kb/visit/{visit_id}/delete")
+@app.post("/kb/visit/{visit_id}/delete")
 def kb_delete_visit(request: Request, visit_id: int, db: Session = Depends(get_db)):
     back_url = request.headers.get("referer") or "/kb"
     try:
