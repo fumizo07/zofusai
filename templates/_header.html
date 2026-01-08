@@ -23,6 +23,10 @@
         {% if active_page != 'threads' %}
             <a href="/threads">保存スレッド一覧</a>
         {% endif %}
+        {% if active_page != 'kb' %}
+            <a href="/kb">KB</a>
+        {% endif %}
+
     </div>
 
     {# =========================
@@ -97,6 +101,7 @@
                 <div class="quick-menu-section-title">その他</div>
                 <div class="quick-menu-links">
                     <a href="/thread_search">外部検索</a>
+                    <a href="/kb">KB</a>
                 </div>
 
             {# ===== thread_search_posts / thread_showall 共通 ===== #}
@@ -161,6 +166,7 @@
                     <div class="quick-menu-links">
                         <a href="{{ _back_url|e }}">外部検索に戻る</a>
                         <a href="/">内部検索に戻る</a>
+                        <a href="/kb">KB</a>
                     </div>
                 </div>
             {% endif %}
