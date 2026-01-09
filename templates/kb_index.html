@@ -1,62 +1,138 @@
-{% set page_title_suffix = "メモ（KB）" %}
+{% set page_title_suffix = "KB" %}
 {% set body_class = "page-kb" %}
 {% set active_page = "kb" %}
 {% include "_header.html" %}
 
 <main>
-  <h1>メモ（KB）</h1>
+  <section class="card">
+    <h2>KB（知った情報の整理）</h2>
 
-  <section>
-    <h2>地域を追加</h2>
-    <form method="post" action="/kb/region">
-      <label>地域名：</label><br>
-      <input type="text" name="name" placeholder="例：大阪">
-      <button type="submit">追加</button>
+    {% if panic == "done" %}
+      <p class="muted info-message">KBの全データを削除しました。</p>
+    {% elif panic == "failed" %}
+      <p class="error-message">パニック削除の確認が不十分か、削除に失敗しました。</p>
+    {% endif %}
+
+    {% if search_error == "empty" %}
+      <p class="error-message">検索ワードが空です。</p>
+    {% endif %}
+
+    <!-- ⑨ フリーワード検索 -->
+    <div class="section-title">フリーワード検索</div>
+    <form method="get" action="/kb/search">
+      <div class="form-row">
+        <label>地域：</label>
+        <select name="region_id">
+          <option value="">（すべて）</option>
+          {% for r in regions %}
+            <option value="{{ r.id }}" {% if search_region_id and search_region_id == r.id %}selected{% endif %}>
+              {{ r.name }}
+            </option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div class="form-row">
+        <label>検索：</label>
+        <input type="text" name="q" value="{{ search_q or '' }}" placeholder="例：テスト、メモの単語、サービス名 など">
+      </div>
+
+      <div class="form-row">
+        <button type="submit" class="btn-primary">検索</button>
+        <a href="/kb" class="btn-secondary">リセット</a>
+      </div>
+    </form>
+
+    {% if search_results %}
+      <div class="section-title" style="margin-top:12px;">検索結果（{{ search_results|length }}件）</div>
+      <div class="thread-results">
+        {% for p in search_results %}
+          {% set st = stores_map.get(p.store_id) %}
+          {% set rg = regions_map.get(st.region_id) if st else None %}
+          <div class="result">
+            <div class="result-id">
+              <a href="/kb/person/{{ p.id }}">{{ p.name }}</a>
+              {% if p.age %}／ {{ p.age }}歳{% endif %}
+              {% if p.height_cm %}／ {{ p.height_cm }}cm{% endif %}
+              {% if p.cup %}／ {{ p.cup }}{% endif %}
+            </div>
+            <div class="muted">
+              {% if rg %}{{ rg.name }}{% endif %}
+              {% if st %}／ {{ st.name }}{% endif %}
+              {% if p.service %}／ サービス: {{ p.service }}{% endif %}
+              {% if p.tags %}／ タグ: {{ p.tags }}{% endif %}
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+    {% endif %}
+  </section>
+
+  <!-- ⑧ パニックボタン -->
+  <section class="card">
+    <div class="section-title">パニックボタン（全削除）</div>
+    <p class="muted">
+      事故・緊急時向けです。KBの<strong>地域・店舗・人物・利用ログ</strong>をすべて削除します。
+    </p>
+    <form method="post" action="/kb/panic_delete_all">
+      <div class="form-row">
+        <label>確認文字：</label>
+        <input type="text" name="confirm_text" placeholder="DELETE と入力">
+      </div>
+      <div class="form-row">
+        <label>
+          <input type="checkbox" name="confirm_check" value="1">
+          すべて削除されることを理解しました
+        </label>
+      </div>
+      <div class="form-row">
+        <button type="submit" class="btn-secondary">全削除を実行</button>
+      </div>
     </form>
   </section>
 
-  <hr>
+  <!-- 通常のツリー -->
+  <section class="card">
+    <div class="section-title">地域 → 店舗 → 人物</div>
 
-  <section>
-    <h2>地域一覧</h2>
+    <h3>地域を追加</h3>
+    <form method="post" action="/kb/region">
+      <div class="form-row">
+        <label>地域名：</label>
+        <input type="text" name="name" placeholder="例：大阪">
+        <button type="submit" class="btn-primary">追加</button>
+      </div>
+    </form>
 
-    {% if regions %}
-      {% for r in regions %}
-        <div class="thread-block">
-          <div class="thread-header">
-            <div>
-              <div class="thread-title">{{ r.name }}</div>
-            </div>
-          </div>
+    {% for r in regions %}
+      <hr>
+      <h3>{{ r.name }}</h3>
 
-          <div class="thread-results">
-            <h3>店を追加</h3>
-            <form method="post" action="/kb/store">
-              <input type="hidden" name="region_id" value="{{ r.id }}">
-              <input type="text" name="name" placeholder="例：店名A">
-              <button type="submit">追加</button>
-            </form>
-
-            <h3>店</h3>
-            {% set stores = stores_by_region.get(r.id, []) %}
-            {% if stores %}
-              <ul>
-                {% for s in stores %}
-                  <li>
-                    <a href="/kb/store/{{ s.id }}">{{ s.name }}</a>
-                    <small class="muted">（人数 {{ person_counts.get(s.id, 0) }}）</small>
-                  </li>
-                {% endfor %}
-              </ul>
-            {% else %}
-              <p class="muted">まだ店がありません。</p>
-            {% endif %}
-          </div>
+      <form method="post" action="/kb/store">
+        <input type="hidden" name="region_id" value="{{ r.id }}">
+        <div class="form-row">
+          <label>店舗名：</label>
+          <input type="text" name="name" placeholder="例：店名A">
+          <button type="submit" class="btn-primary">追加</button>
         </div>
-      {% endfor %}
-    {% else %}
-      <p class="muted">まず地域を追加してください。</p>
-    {% endif %}
+      </form>
+
+      {% set stores = stores_by_region.get(r.id) or [] %}
+      {% if stores %}
+        <div class="thread-results">
+          {% for s in stores %}
+            <div class="result">
+              <div class="result-id">
+                <a href="/kb/store/{{ s.id }}">{{ s.name }}</a>
+                <span class="muted">（{{ person_counts.get(s.id, 0) }}人）</span>
+              </div>
+            </div>
+          {% endfor %}
+        </div>
+      {% else %}
+        <p class="muted">店舗はまだありません。</p>
+      {% endif %}
+    {% endfor %}
   </section>
 </main>
 

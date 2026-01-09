@@ -1,38 +1,56 @@
-{% set page_title_suffix = "店（KB）" %}
+{% set page_title_suffix = "KB - 店舗" %}
 {% set body_class = "page-kb" %}
 {% set active_page = "kb" %}
 {% include "_header.html" %}
 
 <main>
-  <p><a href="/kb">← KBトップへ</a></p>
+  <section class="card">
+    <div class="section-title">店舗</div>
 
-  <h1>{{ region.name if region else "" }} / {{ store.name }}</h1>
+    <p class="back-link">
+      <a href="/kb">KBトップに戻る</a>
+    </p>
 
-  <section>
-    <h2>人を追加</h2>
+    <div class="thread-info">
+      <div>地域：<strong>{{ region.name if region else "（不明）" }}</strong></div>
+      <div>店舗：<strong>{{ store.name }}</strong></div>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>人物を追加</h2>
     <form method="post" action="/kb/person">
       <input type="hidden" name="store_id" value="{{ store.id }}">
-      <label>名前：</label><br>
-      <input type="text" name="name" placeholder="例：名前A">
-      <button type="submit">作成</button>
+      <div class="form-row">
+        <label>名前：</label>
+        <input type="text" name="name" placeholder="例：名前A">
+        <button type="submit" class="btn-primary">追加</button>
+      </div>
     </form>
   </section>
 
-  <hr>
+  <section class="card">
+    <h2>人物一覧（{{ persons|length }}人）</h2>
 
-  <section>
-    <h2>人一覧</h2>
     {% if persons %}
-      <ul>
+      <div class="thread-results">
         {% for p in persons %}
-          <li>
-            <a href="/kb/person/{{ p.id }}">{{ p.name }}</a>
-            {% if p.tags %}<small class="muted">（{{ p.tags }}）</small>{% endif %}
-          </li>
+          <div class="result">
+            <div class="result-id">
+              <a href="/kb/person/{{ p.id }}">{{ p.name }}</a>
+              <span class="muted">
+                {% if p.services %}／ サービス: {{ p.services }}{% endif %}
+                {% if p.height_cm %}／ {{ p.height_cm }}cm{% endif %}
+                {% if p.cup %}／ {{ p.cup }}{% endif %}
+                {% if p.age %}／ {{ p.age }}歳{% endif %}
+                {% if p.tags %}／ タグ: {{ p.tags }}{% endif %}
+              </span>
+            </div>
+          </div>
         {% endfor %}
-      </ul>
+      </div>
     {% else %}
-      <p class="muted">まだ人がいません。</p>
+      <p class="muted">まだ人物が登録されていません。</p>
     {% endif %}
   </section>
 </main>
