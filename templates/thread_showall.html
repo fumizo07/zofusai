@@ -3,84 +3,8 @@
 {% set active_page = "thread_search" %}
 {% include "_header.html" %}
 
-{# ★no_log 組み立て禁止。back_url が無ければ /thread_search #}
-{% set _back_url = back_url or "/thread_search" %}
 
-<button class="hamburger-button" id="hamburgerButton" type="button">
-    <span class="hamburger-button-inner">
-        <span class="hamburger-line"></span>
-        <span class="hamburger-line"></span>
-        <span class="hamburger-line"></span>
-    </span>
-</button>
 
-<div class="quick-menu-overlay" id="quickMenuOverlay">
-    <div class="quick-menu-panel">
-        <div class="quick-menu-header">
-            <div class="quick-menu-title">メニュー</div>
-            <button type="button" class="quick-menu-close" aria-label="閉じる"></button>
-        </div>
-        <div class="quick-menu-content">
-
-            <div class="quick-menu-section">
-                <div class="quick-menu-section-title">スレッド情報</div>
-                <div style="font-size:13px;">
-                    <div>タイトル：{{ thread_title or "（取得できませんでした）" }}</div>
-                    <div class="thread-url">URL：{{ thread_url }}</div>
-                    <div>
-                        カテゴリ：<strong>{{ board_category_label or '（未指定）' }}</strong><br>
-                        板：<strong>{{ board_label or '（未指定）' }}</strong>
-                    </div>
-                    <div>
-                        タイトルキーワード：<strong>{{ title_keyword or '（未指定）' }}</strong>
-                    </div>
-                </div>
-            </div>
-
-            <div class="quick-menu-section">
-                <div class="quick-menu-section-title">別キーワードで再検索</div>
-                <form method="post" action="/thread_search/posts" class="quick-menu-form">
-                    <input type="hidden" name="selected_thread" value="{{ thread_url|e }}">
-                    <input type="hidden" name="area" value="{{ area }}">
-                    <input type="hidden" name="period" value="{{ period }}">
-                    <input type="hidden" name="board_category" value="{{ board_category|e }}">
-                    <input type="hidden" name="board_id" value="{{ board_id|e }}">
-                    <input type="hidden" name="title_keyword" value="{{ title_keyword|e }}">
-                    <input type="hidden" name="back_url" value="{{ _back_url|e }}">
-
-                    <div class="form-row">
-                        <label>本文キーワード：</label>
-                        <input type="text" name="post_keyword" value="{{ post_keyword|e }}">
-                    </div>
-
-                    <div class="form-row">
-                        <button type="submit" class="btn-primary">このスレで再検索</button>
-                    </div>
-                </form>
-            </div>
-
-            {% if not error_message %}
-            <div class="quick-menu-section">
-                <div class="quick-menu-section-title">保存</div>
-                <form method="post" action="/thread_search/save">
-                    <input type="hidden" name="thread_url" value="{{ thread_url|e }}">
-                    <input type="hidden" name="back_url" value="{{ _back_url|e }}">
-                    <button type="submit" class="btn-secondary">このスレを保存</button>
-                </form>
-            </div>
-            {% endif %}
-
-            <div class="quick-menu-section">
-                <div class="quick-menu-section-title">スレ検索</div>
-                <div class="quick-menu-links">
-                    <a href="{{ _back_url|e }}">外部検索に戻る</a>
-                    <a href="/">内部検索に戻る</a>
-                </div>
-            </div>
-
-        </div>
-    </div>
-</div>
 
 <main>
   <section class="card">
@@ -202,6 +126,5 @@
   </section>
 </main>
 
-<div id="anchorPreviewTooltip" class="anchor-preview-tooltip" aria-hidden="true"></div>
 
 {% include "_footer.html" %}

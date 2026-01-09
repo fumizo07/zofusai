@@ -1,0 +1,40 @@
+{% set page_title_suffix = "店（KB）" %}
+{% set body_class = "page-kb" %}
+{% set active_page = "kb" %}
+{% include "_header.html" %}
+
+<main>
+  <p><a href="/kb">← KBトップへ</a></p>
+
+  <h1>{{ region.name if region else "" }} / {{ store.name }}</h1>
+
+  <section>
+    <h2>人を追加</h2>
+    <form method="post" action="/kb/person">
+      <input type="hidden" name="store_id" value="{{ store.id }}">
+      <label>名前：</label><br>
+      <input type="text" name="name" placeholder="例：名前A">
+      <button type="submit">作成</button>
+    </form>
+  </section>
+
+  <hr>
+
+  <section>
+    <h2>人一覧</h2>
+    {% if persons %}
+      <ul>
+        {% for p in persons %}
+          <li>
+            <a href="/kb/person/{{ p.id }}">{{ p.name }}</a>
+            {% if p.tags %}<small class="muted">（{{ p.tags }}）</small>{% endif %}
+          </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <p class="muted">まだ人がいません。</p>
+    {% endif %}
+  </section>
+</main>
+
+{% include "_footer.html" %}

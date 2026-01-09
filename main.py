@@ -19,6 +19,10 @@ from preview_api import preview_api
 # ★投稿編集（既存）
 from post_edit import post_edit_router
 
+# KB追加（routers import群の近く）
+from routers.kb import router as kb_router
+
+
 
 # =========================
 # BASIC 認証
@@ -63,6 +67,9 @@ app.include_router(admin_router)
 app.include_router(threads_router)
 app.include_router(external_router)
 
+# KB追加（include_router群のどこでもOK）
+app.include_router(kb_router)
+
 # startup（DB schema補助・バックフィル）
 register_startup(app)
 
@@ -73,3 +80,6 @@ register_startup(app)
 @app.get("/robots.txt", response_class=PlainTextResponse)
 def robots_txt():
     return "User-agent: *\nDisallow: /\n"
+
+
+
