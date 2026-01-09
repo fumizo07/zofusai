@@ -1,4 +1,4 @@
-# 001
+# 002
 # routers/kb.py
 import json
 import unicodedata
@@ -18,11 +18,9 @@ router = APIRouter()
 
 
 # =========================
-# 正規化（⑨：大文字小文字 + カタ/ひら揺らぎ対応）
+# 正規化（大文字小文字 + カタ/ひら揺らぎ対応）
 # =========================
-
 def _kata_to_hira(s: str) -> str:
-    # Katakana (ァ=0x30A1 .. ヶ=0x30F6) -> Hiragana (ぁ=0x3041 .. ゖ=0x3096)
     out = []
     for ch in s:
         code = ord(ch)
@@ -32,12 +30,14 @@ def _kata_to_hira(s: str) -> str:
             out.append(ch)
     return "".join(out)
 
+
 def norm_text(s: str) -> str:
     s = s or ""
     s = unicodedata.normalize("NFKC", s)
     s = s.lower()
     s = _kata_to_hira(s)
     return s
+
 
 def build_person_search_blob(db: Session, p: KBPerson) -> str:
     store = db.query(KBStore).filter(KBStore.id == p.store_id).first()
@@ -49,25 +49,25 @@ def build_person_search_blob(db: Session, p: KBPerson) -> str:
     if store and store.name:
         parts.append(store.name)
 
-    parts.extend([
-        p.name or "",
-        str(p.age or ""),
-        str(p.height_cm or ""),
-        p.cup or "",
-        str(p.bust_cm or ""),
-        str(p.waist_cm or ""),
-        str(p.hip_cm or ""),
-        p.service or "",
-        p.tags or "",
-        p.memo or "",
-    ])
-
+    parts.extend(
+        [
+            p.name or "",
+            str(p.age or ""),
+            str(p.height_cm or ""),
+            p.cup or "",
+            str(p.bust_cm or ""),
+            str(p.waist_cm or ""),
+            str(p.hip_cm or ""),
+            p.services or "",
+            p.tags or "",
+            p.memo or "",
+        ]
+    )
     return norm_text(" ".join([x for x in parts if x is not None]))
 
+
 def build_visit_search_blob(v: KBVisit) -> str:
-    parts = [
-        v.memo or "",
-    ]
+    parts = [v.memo or ""]
     if isinstance(v.price_items, list):
         for it in v.price_items:
             if isinstance(it, dict):
@@ -85,11 +85,11 @@ def _parse_int(x: str):
     except Exception:
         return None
 
+
 def _parse_time_hhmm_to_min(x: str):
     x = (x or "").strip()
     if not x:
         return None
-    # "HH:MM"
     try:
         hh, mm = x.split(":")
         h = int(hh)
@@ -100,12 +100,12 @@ def _parse_time_hhmm_to_min(x: str):
     except Exception:
         return None
 
+
 def _calc_duration(start_min, end_min):
     if start_min is None or end_min is None:
         return None
     d = end_min - start_min
     if d < 0:
-        # 日跨ぎ扱い（例: 23:30 -> 01:00）
         d += 24 * 60
     return d
 
@@ -113,7 +113,6 @@ def _calc_duration(start_min, end_min):
 # =========================
 # KBトップ
 # =========================
-
 @router.get("/kb", response_class=HTMLResponse)
 def kb_index(request: Request, db: Session = Depends(get_db)):
     regions = db.query(KBRegion).order_by(KBRegion.name.asc()).all()
@@ -130,9 +129,7 @@ def kb_index(request: Request, db: Session = Depends(get_db)):
         stores_by_region[r.id].append(s)
 
     counts = dict(
-        db.query(KBPerson.store_id, func.count(KBPerson.id))
-        .group_by(KBPerson.store_id)
-        .all()
+        db.query(KBPerson.store_id, func.count(KBPerson.id)).group_by(KBPerson.store_id).all()
     )
 
     panic = request.query_params.get("panic") or ""
@@ -163,7 +160,8 @@ def kb_add_region(request: Request, name: str = Form(""), db: Session = Depends(
     try:
         exists_r = db.query(KBRegion).filter(KBRegion.name == name).first()
         if not exists_r:
-            db.add(KBRegion(name=name))
+            r = KBRegion(name=name, name_norm=norm_text(name))
+            db.add(r)
             db.commit()
     except Exception:
         db.rollback()
@@ -189,7 +187,8 @@ def kb_add_store(
             .first()
         )
         if not exists_s:
-            db.add(KBStore(region_id=int(region_id), name=name))
+            s = KBStore(region_id=int(region_id), name=name, name_norm=norm_text(name))
+            db.add(s)
             db.commit()
     except Exception:
         db.rollback()
@@ -200,7 +199,6 @@ def kb_add_store(
 # =========================
 # 店舗ページ
 # =========================
-
 @router.get("/kb/store/{store_id}", response_class=HTMLResponse)
 def kb_store_page(request: Request, store_id: int, db: Session = Depends(get_db)):
     store = db.query(KBStore).filter(KBStore.id == int(store_id)).first()
@@ -243,26 +241,22 @@ def kb_add_person(
         return RedirectResponse(url=back_url, status_code=303)
 
     try:
-        exists = (
+        exists_p = (
             db.query(KBPerson)
             .filter(KBPerson.store_id == int(store_id), KBPerson.name == name)
             .first()
         )
-        if exists:
-            return RedirectResponse(url=f"/kb/person/{exists.id}", status_code=303)
+        if exists_p:
+            return RedirectResponse(url=f"/kb/person/{exists_p.id}", status_code=303)
 
         p = KBPerson(store_id=int(store_id), name=name)
+        # norm（最低限）
+        p.name_norm = norm_text(name)
+        p.search_norm = build_person_search_blob(db, p)
+
         db.add(p)
         db.commit()
         db.refresh(p)
-
-        # search_norm 初期化
-        try:
-            p.search_norm = build_person_search_blob(db, p)
-            db.commit()
-        except Exception:
-            db.rollback()
-
         return RedirectResponse(url=f"/kb/person/{p.id}", status_code=303)
     except Exception:
         db.rollback()
@@ -273,7 +267,6 @@ def kb_add_person(
 # =========================
 # 人物ページ
 # =========================
-
 @router.get("/kb/person/{person_id}", response_class=HTMLResponse)
 def kb_person_page(request: Request, person_id: int, db: Session = Depends(get_db)):
     person = db.query(KBPerson).filter(KBPerson.id == int(person_id)).first()
@@ -323,7 +316,7 @@ def kb_update_person(
     bust_cm: str = Form(""),
     waist_cm: str = Form(""),
     hip_cm: str = Form(""),
-    service: str = Form(""),
+    services: str = Form(""),
     tags: str = Form(""),
     memo: str = Form(""),
     db: Session = Depends(get_db),
@@ -341,11 +334,20 @@ def kb_update_person(
         p.bust_cm = _parse_int(bust_cm)
         p.waist_cm = _parse_int(waist_cm)
         p.hip_cm = _parse_int(hip_cm)
-        p.service = (service or "").strip() or None
+
+        p.services = (services or "").strip() or None
         p.tags = (tags or "").strip() or None
         p.memo = (memo or "").strip() or None
 
+        # norm列（将来用）
+        p.name_norm = norm_text(p.name or "")
+        p.services_norm = norm_text(p.services or "")
+        p.tags_norm = norm_text(p.tags or "")
+        p.memo_norm = norm_text(p.memo or "")
+
+        # フリーワード検索のためのまとめ列
         p.search_norm = build_person_search_blob(db, p)
+
         db.commit()
     except Exception:
         db.rollback()
@@ -357,7 +359,7 @@ def kb_update_person(
 def kb_add_visit(
     request: Request,
     person_id: int,
-    visited_date: str = Form(""),       # YYYY-MM-DD
+    visited_at: str = Form(""),         # YYYY-MM-DD
     start_time: str = Form(""),         # HH:MM
     end_time: str = Form(""),           # HH:MM
     rating: str = Form(""),             # 1-5
@@ -370,9 +372,9 @@ def kb_add_visit(
     if not p:
         return RedirectResponse(url="/kb", status_code=303)
 
-    # visited_date -> DateTime（00:00）で保持（表示はテンプレで日付だけにする）
+    # visited_at -> DateTime（00:00）
     dt = None
-    vd = (visited_date or "").strip()
+    vd = (visited_at or "").strip()
     if vd:
         try:
             dt = datetime.strptime(vd, "%Y-%m-%d")
@@ -401,7 +403,7 @@ def kb_add_visit(
                 for it in data:
                     if not isinstance(it, dict):
                         continue
-                    label = str(it.get("label", "")).strip()
+                    label = str(it.get("label", "") or "").strip()
                     amt = it.get("amount", 0)
                     try:
                         amt_i = int(amt)
@@ -415,17 +417,18 @@ def kb_add_visit(
             items = []
             total = 0
 
+    # total_yen は NOT NULL 想定なので必ず int を入れる（0でも入れる）
     try:
         v = KBVisit(
             person_id=p.id,
             visited_at=dt,
-            start_min=smin,
-            end_min=emin,
+            start_time=(start_time or "").strip() or None,
+            end_time=(end_time or "").strip() or None,
             duration_min=dur,
             rating=r,
             memo=(memo or "").strip() or None,
             price_items=items or None,
-            total_yen=total if items else (total if total else None),
+            total_yen=int(total),
         )
         v.search_norm = build_visit_search_blob(v)
         db.add(v)
@@ -448,14 +451,12 @@ def kb_delete_visit(request: Request, visit_id: int, db: Session = Depends(get_d
 
 
 # =========================
-# ⑦ 人物削除（利用ログも削除）
+# 人物削除（利用ログも削除）
 # =========================
-
 @router.post("/kb/person/{person_id}/delete")
 def kb_delete_person(request: Request, person_id: int, db: Session = Depends(get_db)):
     back_url = request.headers.get("referer") or "/kb"
     try:
-        # visits -> person の順
         db.query(KBVisit).filter(KBVisit.person_id == int(person_id)).delete(synchronize_session=False)
         db.query(KBPerson).filter(KBPerson.id == int(person_id)).delete(synchronize_session=False)
         db.commit()
@@ -465,22 +466,18 @@ def kb_delete_person(request: Request, person_id: int, db: Session = Depends(get
 
 
 # =========================
-# ⑧ パニック全削除
+# パニック全削除（チェック + confirm）
 # =========================
-
 @router.post("/kb/panic_delete_all")
 def kb_panic_delete_all(
     request: Request,
-    confirm_text: str = Form(""),
     confirm_check: str = Form(""),
     db: Session = Depends(get_db),
 ):
-    # 確認は絶対（2段階）
-    if (confirm_text or "").strip() != "DELETE" or (confirm_check or "") != "1":
+    if (confirm_check or "") != "1":
         return RedirectResponse(url="/kb?panic=failed", status_code=303)
 
     try:
-        # 参照順を考慮して下から消す
         db.query(KBVisit).delete(synchronize_session=False)
         db.query(KBPerson).delete(synchronize_session=False)
         db.query(KBStore).delete(synchronize_session=False)
@@ -494,9 +491,8 @@ def kb_panic_delete_all(
 
 
 # =========================
-# ⑨ KB フリーワード検索（地域で絞り込み可）
+# KB フリーワード検索（地域で絞り込み可）
 # =========================
-
 @router.get("/kb/search", response_class=HTMLResponse)
 def kb_search(request: Request, q: str = "", region_id: str = "", db: Session = Depends(get_db)):
     q_raw = (q or "").strip()
@@ -506,37 +502,31 @@ def kb_search(request: Request, q: str = "", region_id: str = "", db: Session = 
     qn = norm_text(q_raw)
 
     regions = db.query(KBRegion).order_by(KBRegion.name.asc()).all()
-
-    # region filter
     rid = _parse_int(region_id)
 
-    # person.search_norm contains q OR exists visit.search_norm contains q
     person_q = db.query(KBPerson)
-
     if rid:
         person_q = (
             person_q.join(KBStore, KBStore.id == KBPerson.store_id)
-                    .join(KBRegion, KBRegion.id == KBStore.region_id)
-                    .filter(KBRegion.id == rid)
+            .join(KBRegion, KBRegion.id == KBStore.region_id)
+            .filter(KBRegion.id == rid)
         )
 
     visit_match = (
         db.query(KBVisit.id)
-        .filter(KBVisit.person_id == KBPerson.id, KBVisit.search_norm.isnot(None), KBVisit.search_norm.contains(qn))
+        .filter(
+            KBVisit.person_id == KBPerson.id,
+            KBVisit.search_norm.isnot(None),
+            KBVisit.search_norm.contains(qn),
+        )
     )
 
     person_q = person_q.filter(
-        (KBPerson.search_norm.isnot(None) & KBPerson.search_norm.contains(qn))
-        | exists(visit_match)
+        (KBPerson.search_norm.isnot(None) & KBPerson.search_norm.contains(qn)) | exists(visit_match)
     )
 
-    persons = (
-        person_q.order_by(KBPerson.name.asc())
-                .limit(300)
-                .all()
-    )
+    persons = person_q.order_by(KBPerson.name.asc()).limit(300).all()
 
-    # store/regionを出すためにまとめて引く（N+1回避）
     store_ids = list({p.store_id for p in persons})
     stores = {}
     regions_map = {}
@@ -555,7 +545,7 @@ def kb_search(request: Request, q: str = "", region_id: str = "", db: Session = 
         {
             "request": request,
             "regions": regions,
-            "stores_by_region": defaultdict(list),  # 通常表示は下で別に出すので空でOK
+            "stores_by_region": defaultdict(list),
             "person_counts": {},
             "panic": request.query_params.get("panic") or "",
             "search_error": "",
