@@ -1,141 +1,219 @@
-{% set page_title_suffix = "人（KB）" %}
+{% set page_title_suffix = "KB - 人物" %}
 {% set body_class = "page-kb" %}
 {% set active_page = "kb" %}
 {% include "_header.html" %}
 
 <main>
-  <p>
-    <a href="/kb">← KBトップ</a>
-    {% if store %} / <a href="/kb/store/{{ store.id }}">{{ store.name }}</a>{% endif %}
-  </p>
+  <section class="card">
+    <div class="section-title">人物</div>
 
-  <h1>{{ person.name }}</h1>
+    <p class="back-link">
+      <a href="/kb/store/{{ store.id if store else '' }}">店舗に戻る</a>
+      &nbsp;|&nbsp;
+      <a href="/kb">KBトップに戻る</a>
+    </p>
 
-  <p class="muted">
-    {% if region %}{{ region.name }} / {% endif %}
-    {% if store %}{{ store.name }}{% endif %}
-    {% if rating_avg is not none %} ／ 平均評価 {{ "%.2f"|format(rating_avg) }}{% endif %}
-  </p>
+    <div class="thread-info">
+      <div>地域：<strong>{{ region.name if region else "（不明）" }}</strong></div>
+      <div>店舗：<strong>{{ store.name if store else "（不明）" }}</strong></div>
+      <div>人物：<strong>{{ person.name }}</strong></div>
+      {% if rating_avg %}
+        <div class="muted">平均評価：{{ "%.2f"|format(rating_avg) }}</div>
+      {% endif %}
+    </div>
+  </section>
 
-  <section>
-    <h2>基本情報（編集）</h2>
+  <section class="card">
+    <h2>人物情報（編集）</h2>
+
     <form method="post" action="/kb/person/{{ person.id }}/update">
-      <label>名前：</label><br>
-      <input type="text" name="name" value="{{ person.name }}"><br><br>
+      <div class="form-row">
+        <label>名前：</label>
+        <input type="text" name="name" value="{{ person.name }}">
+      </div>
 
-      <label>身長（cm）：</label><br>
-      <input type="text" name="height_cm" value="{{ person.height_cm or '' }}"><br><br>
+      <div class="form-row">
+        <label>年齢：</label>
+        <input type="number" name="age" value="{{ person.age or '' }}" placeholder="例：24" min="0" max="99">
+      </div>
 
-      <label>3サイズ（cm）：</label><br>
-      B <input type="text" name="bust_cm" value="{{ person.bust_cm or '' }}" size="4">
-      W <input type="text" name="waist_cm" value="{{ person.waist_cm or '' }}" size="4">
-      H <input type="text" name="hip_cm" value="{{ person.hip_cm or '' }}" size="4"><br><br>
+      <div class="form-row">
+        <label>身長：</label>
+        <input type="number" name="height_cm" value="{{ person.height_cm or '' }}" placeholder="例：160" min="0" max="250">
+      </div>
 
-      <label>タグ（カンマ区切り）：</label><br>
-      <input type="text" name="tags" value="{{ person.tags or '' }}" placeholder="例：タグ1, タグ2"><br><br>
+      <div class="form-row">
+        <label>カップ：</label>
+        <input type="text" name="cup" value="{{ person.cup or '' }}" placeholder="例：B" maxlength="8">
+      </div>
 
-      <label>固定メモ：</label><br>
-      <textarea name="memo" rows="5" style="width:100%;">{{ person.memo or '' }}</textarea><br>
+      <div class="form-row">
+        <label>3サイズ（cm）：</label>
+        <div class="kb-sizes">
+          <input type="number" name="bust_cm" value="{{ person.bust_cm or '' }}" placeholder="B" min="0" max="200">
+          <input type="number" name="waist_cm" value="{{ person.waist_cm or '' }}" placeholder="W" min="0" max="200">
+          <input type="number" name="hip_cm" value="{{ person.hip_cm or '' }}" placeholder="H" min="0" max="200">
+        </div>
+      </div>
 
-      <button type="submit">更新</button>
+      <div class="form-row">
+        <label>サービス（カンマ区切りで複数可）：</label>
+        <input type="text" name="service" value="{{ person.service or '' }}" placeholder="例：○○, △△, ××">
+      </div>
+
+      <div class="form-row">
+        <label>タグ（カンマ区切り）：</label>
+        <input type="text" name="tags" value="{{ person.tags or '' }}">
+      </div>
+
+      <div class="form-row">
+        <label>メモ：</label>
+        <textarea name="memo" rows="4">{{ person.memo or '' }}</textarea>
+      </div>
+
+      <div class="form-row">
+        <button type="submit" class="btn-primary">保存</button>
+      </div>
+    </form>
+
+    <hr>
+
+    <!-- ⑦ 人物削除 -->
+    <form method="post" action="/kb/person/{{ person.id }}/delete"
+          onsubmit="return confirm('この人物と利用ログをすべて削除します。本当に削除しますか？');">
+      <button type="submit" class="btn-secondary">この人物を削除</button>
     </form>
   </section>
 
-  <hr>
+  <section class="card">
+    <h2>利用ログを追加</h2>
 
-  <section>
-    <h2>利用ログ（口コミ）を追加</h2>
-
-    <form method="post" action="/kb/person/{{ person.id }}/visit" class="kb-visit-form">
-      <label>利用日：</label><br>
-      <input type="date" name="visited_at"><br><br>
-
-      <label>評価：</label><br>
-      <div class="kb-stars" data-star-rating>
-        <button type="button" class="kb-star" data-value="1">☆</button>
-        <button type="button" class="kb-star" data-value="2">☆</button>
-        <button type="button" class="kb-star" data-value="3">☆</button>
-        <button type="button" class="kb-star" data-value="4">☆</button>
-        <button type="button" class="kb-star" data-value="5">☆</button>
-        <input type="hidden" name="rating" value="">
-        <span class="muted" data-star-label></span>
+    <form method="post" action="/kb/person/{{ person.id }}/visit" data-kb-visit-form="1">
+      <div class="form-row">
+        <label>利用日：</label>
+        <input type="date" name="visited_date">
       </div>
-      <br>
 
-      <label>料金項目：</label><br>
-      <div data-price-items>
-        <table>
+      <!-- ⑤ 利用時間 -->
+      <div class="form-row">
+        <label>利用時間：</label>
+        <div class="kb-times">
+          <span class="muted">開始</span>
+          <input type="time" name="start_time" step="60">
+          <span class="muted">終了</span>
+          <input type="time" name="end_time" step="60">
+          <span class="muted">→</span>
+          <span class="kb-duration" data-kb-duration>—</span>
+        </div>
+      </div>
+
+      <!-- 星評価（クリックで値が入る） -->
+      <div class="form-row">
+        <label>評価：</label>
+        <input type="hidden" name="rating" value="" data-kb-rating>
+        <div class="kb-stars" data-kb-stars>
+          <button type="button" data-star="1">☆</button>
+          <button type="button" data-star="2">☆</button>
+          <button type="button" data-star="3">☆</button>
+          <button type="button" data-star="4">☆</button>
+          <button type="button" data-star="5">☆</button>
+          <span class="muted" data-kb-rating-label>未設定</span>
+        </div>
+      </div>
+
+      <div class="form-row">
+        <label>メモ：</label>
+        <textarea name="memo" rows="3"></textarea>
+      </div>
+
+      <!-- 明細 -->
+      <div class="section-title-small">料金明細</div>
+
+      <input type="hidden" name="price_items_json" value="[]" data-kb-price-json>
+
+      <div class="kb-price-box">
+        <table class="kb-price-table" data-kb-price-table>
           <thead>
-            <tr><th>項目</th><th>金額</th><th></th></tr>
-          </thead>
-          <tbody data-price-items-body>
             <tr>
-              <td><input type="text" data-price-label placeholder="例：基本料金"></td>
-              <td><input type="text" data-price-amount placeholder="例：12000"></td>
-              <td><button type="button" data-price-remove>削除</button></td>
+              <th>項目</th>
+              <th>金額</th>
+              <th></th>
             </tr>
+          </thead>
+          <tbody data-kb-price-body>
           </tbody>
         </table>
 
-        <button type="button" data-price-add>行を追加</button>
-        <div>
-          合計：<strong data-price-total>0</strong> 円
+        <div class="kb-price-actions">
+          <button type="button" class="btn-secondary" data-kb-add-row>明細行を追加</button>
+          <span class="muted">合計：</span>
+          <strong data-kb-total>0</strong><span class="muted">円</span>
         </div>
-
-        <input type="hidden" name="price_items_json" value="">
       </div>
 
-      <br>
-      <label>口コミメモ：</label><br>
-      <textarea name="memo" rows="6" style="width:100%;" placeholder="サービス内容、良かった点、注意点など"></textarea><br>
-
-      <button type="submit">追加</button>
+      <div class="form-row">
+        <button type="submit" class="btn-primary">追加</button>
+      </div>
     </form>
   </section>
 
-  <hr>
+  <section class="card">
+    <h2>利用ログ一覧（{{ visits|length }}件）</h2>
 
-  <section>
-    <h2>利用ログ一覧</h2>
     {% if visits %}
       {% for v in visits %}
-        <div class="thread-block">
-          <div class="thread-header">
-            <div>
-              <div class="thread-title">
-                {% if v.visited_at %}{{ v.visited_at }}{% else %}(日付なし){% endif %}
-                {% if v.rating %} ／ 評価 {{ "★"*v.rating }}{{ "☆"*(5 - v.rating) }}{% endif %}
-              </div>
-              <div class="muted">合計 {{ v.total_yen }} 円</div>
-            </div>
-
-            <div class="thread-actions">
-              <form method="post" action="/kb/visit/{{ v.id }}/delete" style="display:inline;"
-                    onsubmit="return confirm('この利用ログを削除します。よろしいですか？');">
-                <button type="submit">削除</button>
-              </form>
-            </div>
-          </div>
-
-          <div class="thread-results">
-            {% if v.price_items %}
-              <ul>
-                {% for it in v.price_items %}
-                  <li>{{ it.label }}：{{ it.amount }} 円</li>
-                {% endfor %}
-              </ul>
-            {% endif %}
-
-            {% if v.memo %}
-              <div class="memo">{{ v.memo }}</div>
+        <div class="result">
+          <div class="result-id">
+            {% if v.visited_at %}
+              {{ v.visited_at.strftime('%Y-%m-%d') }}
             {% else %}
-              <p class="muted">メモなし</p>
+              （日付未設定）
+            {% endif %}
+
+            {% if v.start_min is not none and v.end_min is not none %}
+              <span class="muted">
+                ／ {{ "%02d"|format(v.start_min // 60) }}:{{ "%02d"|format(v.start_min % 60) }}
+                - {{ "%02d"|format(v.end_min // 60) }}:{{ "%02d"|format(v.end_min % 60) }}
+              </span>
+            {% endif %}
+
+            {% if v.duration_min is not none %}
+              <span class="muted">／ {{ v.duration_min }}分</span>
             {% endif %}
           </div>
+
+          <div class="muted">
+            {% if v.rating %}
+              評価：
+              {% for i in range(1, 6) %}
+                {% if i <= v.rating %}★{% else %}☆{% endif %}
+              {% endfor %}
+            {% endif %}
+            {% if v.total_yen %} ／ 合計：{{ v.total_yen }}円{% endif %}
+          </div>
+
+          {% if v.memo %}
+            <div class="memo">メモ：{{ v.memo }}</div>
+          {% endif %}
+
+          {% if v.price_items %}
+            <div class="tags">
+              明細：
+              {% for it in v.price_items %}
+                {% if it.label %}{{ it.label }}{% else %}（項目）{% endif %}={{ it.amount or 0 }}円
+                {% if not loop.last %} / {% endif %}
+              {% endfor %}
+            </div>
+          {% endif %}
+
+          <form method="post" action="/kb/visit/{{ v.id }}/delete"
+                onsubmit="return confirm('この利用ログを削除しますか？');">
+            <button type="submit" class="btn-secondary">このログを削除</button>
+          </form>
         </div>
       {% endfor %}
     {% else %}
-      <p class="muted">まだ利用ログがありません。</p>
+      <p class="muted">利用ログはまだありません。</p>
     {% endif %}
   </section>
 </main>
