@@ -1,4 +1,4 @@
-# 003
+# 004
 # app_lifecycle.py
 from fastapi import FastAPI
 from sqlalchemy import text
@@ -66,7 +66,7 @@ def register_startup(app: FastAPI) -> None:
             except Exception:
                 pass
 
-            # kb_persons（今回落ちた age ほか）
+            # kb_persons
             try:
                 conn.execute(text("ALTER TABLE kb_persons ADD COLUMN IF NOT EXISTS age INTEGER"))
             except Exception:
@@ -92,10 +92,31 @@ def register_startup(app: FastAPI) -> None:
             except Exception:
                 pass
 
-            # kb_visits（利用時間/表示崩れ防止のため、将来参照されても落ちないように）
+            # kb_visits
+            # ★ここが今回の 500 の原因：コードが start_time / end_time を参照しているのにDBに無い
+            #   ひとまず「存在させる」ことで落ちなくする（型は分単位の int を想定）
+            try:
+                conn.execute(text("ALTER TABLE kb_visits ADD COLUMN IF NOT EXISTS start_time INTEGER"))
+            except Exception:
+                pass
+
+            try:
+                conn.execute(text("ALTER TABLE kb_visits ADD COLUMN IF NOT EXISTS end_time INTEGER"))
+            except Exception:
+                pass
+
+            # 既にある/ない両方に対応（今後どっちを参照しても落ちないように）
             try:
                 conn.execute(text("ALTER TABLE kb_visits ADD COLUMN IF NOT EXISTS start_min INTEGER"))
+            except Exception:
+                pass
+
+            try:
                 conn.execute(text("ALTER TABLE kb_visits ADD COLUMN IF NOT EXISTS end_min INTEGER"))
+            except Exception:
+                pass
+
+            try:
                 conn.execute(text("ALTER TABLE kb_visits ADD COLUMN IF NOT EXISTS duration_min INTEGER"))
             except Exception:
                 pass
