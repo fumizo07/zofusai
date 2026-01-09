@@ -27,48 +27,34 @@
     <h2>人物情報（編集）</h2>
 
     <form method="post" action="/kb/person/{{ person.id }}/update">
-      <div class="form-row">
-        <label>名前：</label>
-        <input type="text" name="name" value="{{ person.name }}">
-      </div>
+      <div class="kb-profile-grid">
+        <div class="kb-grid-label">名前：</div>
+        <div><input type="text" name="name" value="{{ person.name }}"></div>
 
-      <div class="form-row">
-        <label>年齢：</label>
-        <input type="number" name="age" value="{{ person.age or '' }}" placeholder="例：24" min="0" max="99">
-      </div>
+        <div class="kb-grid-label">年齢：</div>
+        <div><input class="kb-input-sm" type="number" name="age" value="{{ person.age or '' }}" placeholder="例：24" min="0" max="99"></div>
 
-      <div class="form-row">
-        <label>身長：</label>
-        <input type="number" name="height_cm" value="{{ person.height_cm or '' }}" placeholder="例：160" min="0" max="250">
-      </div>
+        <div class="kb-grid-label">身長：</div>
+        <div><input class="kb-input-sm" type="number" name="height_cm" value="{{ person.height_cm or '' }}" placeholder="例：160" min="0" max="250"></div>
 
-      <div class="form-row">
-        <label>カップ：</label>
-        <input type="text" name="cup" value="{{ person.cup or '' }}" placeholder="例：B" maxlength="8">
-      </div>
+        <div class="kb-grid-label">カップ：</div>
+        <div><input class="kb-input-sm" type="text" name="cup" value="{{ person.cup or '' }}" placeholder="例：B" maxlength="8"></div>
 
-      <div class="form-row">
-        <label>3サイズ（cm）：</label>
+        <div class="kb-grid-label">3サイズ：</div>
         <div class="kb-sizes">
-          <input type="number" name="bust_cm" value="{{ person.bust_cm or '' }}" placeholder="B" min="0" max="200">
-          <input type="number" name="waist_cm" value="{{ person.waist_cm or '' }}" placeholder="W" min="0" max="200">
-          <input type="number" name="hip_cm" value="{{ person.hip_cm or '' }}" placeholder="H" min="0" max="200">
+          <input class="kb-input-xs" type="number" name="bust_cm" value="{{ person.bust_cm or '' }}" placeholder="B" min="0" max="200">
+          <input class="kb-input-xs" type="number" name="waist_cm" value="{{ person.waist_cm or '' }}" placeholder="W" min="0" max="200">
+          <input class="kb-input-xs" type="number" name="hip_cm" value="{{ person.hip_cm or '' }}" placeholder="H" min="0" max="200">
         </div>
-      </div>
 
-      <div class="form-row">
-        <label>サービス（カンマ区切りで複数可）：</label>
-        <input type="text" name="service" value="{{ person.service or '' }}" placeholder="例：○○, △△, ××">
-      </div>
+        <div class="kb-grid-label">サービス：</div>
+        <div><input type="text" name="services" value="{{ person.services or '' }}" placeholder="例：○○, △△, ××（カンマ区切りで複数可）"></div>
 
-      <div class="form-row">
-        <label>タグ（カンマ区切り）：</label>
-        <input type="text" name="tags" value="{{ person.tags or '' }}">
-      </div>
+        <div class="kb-grid-label">タグ：</div>
+        <div><input type="text" name="tags" value="{{ person.tags or '' }}" placeholder="カンマ区切り"></div>
 
-      <div class="form-row">
-        <label>メモ：</label>
-        <textarea name="memo" rows="4">{{ person.memo or '' }}</textarea>
+        <div class="kb-grid-label">メモ：</div>
+        <div><textarea name="memo" rows="4">{{ person.memo or '' }}</textarea></div>
       </div>
 
       <div class="form-row">
@@ -88,10 +74,10 @@
   <section class="card">
     <h2>利用ログを追加</h2>
 
-    <form method="post" action="/kb/person/{{ person.id }}/visit" data-kb-visit-form="1">
+    <form method="post" action="/kb/person/{{ person.id }}/visit">
       <div class="form-row">
         <label>利用日：</label>
-        <input type="date" name="visited_date">
+        <input type="date" name="visited_at">
       </div>
 
       <!-- ⑤ 利用時間 -->
@@ -103,21 +89,22 @@
           <span class="muted">終了</span>
           <input type="time" name="end_time" step="60">
           <span class="muted">→</span>
-          <span class="kb-duration" data-kb-duration>—</span>
+          <span class="kb-duration" data-kb-duration-label></span>
+          <input type="hidden" name="duration_min" value="">
         </div>
       </div>
 
-      <!-- 星評価（クリックで値が入る） -->
+      <!-- 星評価（JS: [data-star-rating], .kb-star, input[name=rating], [data-star-label]） -->
       <div class="form-row">
         <label>評価：</label>
-        <input type="hidden" name="rating" value="" data-kb-rating>
-        <div class="kb-stars" data-kb-stars>
-          <button type="button" data-star="1">☆</button>
-          <button type="button" data-star="2">☆</button>
-          <button type="button" data-star="3">☆</button>
-          <button type="button" data-star="4">☆</button>
-          <button type="button" data-star="5">☆</button>
-          <span class="muted" data-kb-rating-label>未設定</span>
+        <div data-star-rating class="kb-stars">
+          <input type="hidden" name="rating" value="">
+          <button type="button" class="kb-star" data-value="1">☆</button>
+          <button type="button" class="kb-star" data-value="2">☆</button>
+          <button type="button" class="kb-star" data-value="3">☆</button>
+          <button type="button" class="kb-star" data-value="4">☆</button>
+          <button type="button" class="kb-star" data-value="5">☆</button>
+          <span class="muted" data-star-label></span>
         </div>
       </div>
 
@@ -126,13 +113,13 @@
         <textarea name="memo" rows="3"></textarea>
       </div>
 
-      <!-- 明細 -->
+      <!-- 明細（JS: [data-price-items]） -->
       <div class="section-title-small">料金明細</div>
 
-      <input type="hidden" name="price_items_json" value="[]" data-kb-price-json>
+      <div class="kb-price-box" data-price-items>
+        <input type="hidden" name="price_items_json" value="[]">
 
-      <div class="kb-price-box">
-        <table class="kb-price-table" data-kb-price-table>
+        <table class="kb-price-table">
           <thead>
             <tr>
               <th>項目</th>
@@ -140,14 +127,20 @@
               <th></th>
             </tr>
           </thead>
-          <tbody data-kb-price-body>
+          <tbody data-price-items-body>
+            <!-- 初期行（空。JSは空行を無視する） -->
+            <tr>
+              <td><input type="text" data-price-label placeholder="例：オプション"></td>
+              <td><input type="text" data-price-amount placeholder="例：3000"></td>
+              <td><button type="button" data-price-remove>削除</button></td>
+            </tr>
           </tbody>
         </table>
 
         <div class="kb-price-actions">
-          <button type="button" class="btn-secondary" data-kb-add-row>明細行を追加</button>
+          <button type="button" class="btn-secondary" data-price-add>明細行を追加</button>
           <span class="muted">合計：</span>
-          <strong data-kb-total>0</strong><span class="muted">円</span>
+          <strong data-price-total>0</strong><span class="muted">円</span>
         </div>
       </div>
 
@@ -170,11 +163,8 @@
               （日付未設定）
             {% endif %}
 
-            {% if v.start_min is not none and v.end_min is not none %}
-              <span class="muted">
-                ／ {{ "%02d"|format(v.start_min // 60) }}:{{ "%02d"|format(v.start_min % 60) }}
-                - {{ "%02d"|format(v.end_min // 60) }}:{{ "%02d"|format(v.end_min % 60) }}
-              </span>
+            {% if v.start_time and v.end_time %}
+              <span class="muted">／ {{ v.start_time }} - {{ v.end_time }}</span>
             {% endif %}
 
             {% if v.duration_min is not none %}
