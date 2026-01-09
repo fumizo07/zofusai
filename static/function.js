@@ -18,6 +18,19 @@
     return Math.max(min, Math.min(max, v));
   }
 
+  function parseTimeToMin(hhmm) {
+    const s = String(hhmm || "").trim();
+    if (!s) return null;
+    const m = s.match(/^(\d{1,2}):(\d{2})$/);
+    if (!m) return null;
+    const hh = parseInt(m[1], 10);
+    const mm = parseInt(m[2], 10);
+    if (!Number.isFinite(hh) || !Number.isFinite(mm)) return null;
+    if (hh < 0 || hh > 23) return null;
+    if (mm < 0 || mm > 59) return null;
+    return hh * 60 + mm;
+  }
+
   // 店舗名末尾の「数字」「丸数字①②③…」「絵文字」などを落とす
   function normalizeStoreTitle(raw) {
     let s = (raw || "").trim();
@@ -266,7 +279,6 @@
       root.dataset.kbPriceApplied = "1";
 
       const body = root.querySelector("[data-price-items-body]");
-      const btnAdd = root.querySelector("[data-price-add]");
       const elTotal = root.querySelector("[data-price-total]");
       const hidden = root.querySelector('input[type="hidden"][name="price_items_json"]');
 
@@ -343,6 +355,57 @@
 
       // 初回
       collect();
+    });
+  }
+
+  // ============================================================
+  // KB：利用時間（開始/終了 → ○○分）
+  // ============================================================
+  function initKbDuration() {
+    // KBページ以外でも安全に動くように「要素があれば」方式
+    const forms = document.querySelectorAll("form");
+    if (!forms || !forms.length) return;
+
+    forms.forEach((form) => {
+      // 同一フォームに start/end が無ければ無視
+      const start = form.querySelector('input[name="start_time"]');
+      const end = form.querySelector('input[name="end_time"]');
+      if (!start || !end) return;
+
+      if (form.dataset.kbDurationApplied === "1") return;
+      form.dataset.kbDurationApplied = "1";
+
+      const hidden = form.querySelector('input[name="duration_min"]');
+      const label = form.querySelector("[data-kb-duration-label]");
+
+      function render() {
+        const sMin = parseTimeToMin(start.value);
+        const eMin = parseTimeToMin(end.value);
+
+        let dur = null;
+        if (sMin != null && eMin != null) {
+          dur = eMin - sMin;
+          // 日跨ぎは今は未対応（必要ならここで +24h などにできます）
+          if (dur < 0) dur = null;
+          if (dur != null) dur = clamp(dur, 0, 24 * 60);
+        }
+
+        if (label) {
+          label.textContent = (dur == null) ? "" : `${dur}分`;
+        }
+        if (hidden) {
+          hidden.value = (dur == null) ? "" : String(dur);
+        }
+      }
+
+      start.addEventListener("input", render);
+      end.addEventListener("input", render);
+
+      // submit前にも確実に反映
+      form.addEventListener("submit", render);
+
+      // 初期表示
+      render();
     });
   }
 
@@ -709,5 +772,6 @@
     // KB
     initKbStarRating();
     initKbPriceItems();
+    initKbDuration();
   });
 })();
