@@ -1,4 +1,3 @@
-# models.py
 from datetime import datetime
 
 from sqlalchemy import Column, Integer, Text, DateTime, UniqueConstraint, ForeignKey, JSON
@@ -107,6 +106,10 @@ class KBRegion(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     name = Column(Text, nullable=False, unique=True, index=True)
+
+    # ゆらぎ検索用（将来用：無くても動くが、入れておく）
+    name_norm = Column(Text, nullable=True, index=True)
+
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
 
 
@@ -116,6 +119,10 @@ class KBStore(Base):
     id = Column(Integer, primary_key=True, index=True)
     region_id = Column(Integer, ForeignKey("kb_regions.id", ondelete="CASCADE"), nullable=False, index=True)
     name = Column(Text, nullable=False, index=True)
+
+    # ゆらぎ検索用（将来用）
+    name_norm = Column(Text, nullable=True, index=True)
+
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
 
     __table_args__ = (
@@ -131,13 +138,30 @@ class KBPerson(Base):
 
     name = Column(Text, nullable=False, index=True)
 
-    height_cm = Column(Integer, nullable=True)
+    # ★追加：年齢
+    age = Column(Integer, nullable=True, index=True)
+
+    height_cm = Column(Integer, nullable=True, index=True)
+
+    # ★追加：カップ（例: "B" / "C"）
+    cup = Column(Text, nullable=True, index=True)
+
     bust_cm = Column(Integer, nullable=True)
     waist_cm = Column(Integer, nullable=True)
     hip_cm = Column(Integer, nullable=True)
 
+    # ★追加：サービス（複数OK。まずはTextで運用）
+    # 例: "NN可, 写メ日記, デート" / あるいは改行区切りなど
+    services = Column(Text, nullable=True)
+
     tags = Column(Text, nullable=True)       # カンマ区切り（まずはシンプル）
     memo = Column(Text, nullable=True)       # 人の固定メモ（プロフィール的なやつ）
+
+    # ★追加：ゆらぎ検索用（将来用：NFKC + ひらがな化 + lower 等）
+    name_norm = Column(Text, nullable=True, index=True)
+    services_norm = Column(Text, nullable=True, index=True)
+    tags_norm = Column(Text, nullable=True, index=True)
+    memo_norm = Column(Text, nullable=True, index=True)
 
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
 
@@ -151,13 +175,22 @@ class KBVisit(Base):
     利用ログ（自分用口コミ）
     - 星評価(1-5)
     - 料金項目（JSON配列）と合計
+    - ★追加：開始/終了時刻と利用分数
     """
     __tablename__ = "kb_visits"
 
     id = Column(Integer, primary_key=True, index=True)
     person_id = Column(Integer, ForeignKey("kb_persons.id", ondelete="CASCADE"), nullable=False, index=True)
 
+    # 既存：日付入力を DateTime で保持（テンプレ側で YYYY-MM-DD 表示にする）
     visited_at = Column(DateTime, nullable=True, index=True)
+
+    # ★追加：開始/終了（"HH:MM"想定）
+    start_time = Column(Text, nullable=True)
+    end_time = Column(Text, nullable=True)
+
+    # ★追加：利用分（分単位）
+    duration_min = Column(Integer, nullable=True, index=True)
 
     rating = Column(Integer, nullable=True, index=True)  # 1〜5
     memo = Column(Text, nullable=True)                   # 口コミ本文
