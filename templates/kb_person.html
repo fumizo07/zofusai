@@ -1,4 +1,4 @@
-{# 002 #}
+{# 003 #}
 {% set page_title_suffix = "KB - 人物" %}
 {% set body_class = "page-kb" %}
 {% set active_page = "kb" %}
@@ -159,8 +159,12 @@
               （日付未設定）
             {% endif %}
 
-            {% if v.start_time and v.end_time %}
-              <span class="muted">／ {{ v.start_time }} - {{ v.end_time }}</span>
+            {# ★start_time/end_time は「分」なので HH:MM 表示にする #}
+            {% if v.start_time is not none and v.end_time is not none %}
+              <span class="muted">
+                ／ {{ "%02d"|format(v.start_time // 60) }}:{{ "%02d"|format(v.start_time % 60) }}
+                - {{ "%02d"|format(v.end_time // 60) }}:{{ "%02d"|format(v.end_time % 60) }}
+              </span>
             {% endif %}
 
             {% if v.duration_min is not none %}

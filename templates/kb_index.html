@@ -1,4 +1,4 @@
-{# 002 #}
+{# 003 #}
 {% set page_title_suffix = "KB" %}
 {% set body_class = "page-kb" %}
 {% set active_page = "kb" %}
@@ -40,7 +40,8 @@
 
       <div class="form-row">
         <button type="submit" class="btn-primary">検索</button>
-        <a href="/kb" class="btn-secondary">リセット</a>
+        <!-- ★②：見た目を揃えるため a ではなく button にする -->
+        <button type="button" class="btn-secondary" onclick="window.location.href='/kb'">リセット</button>
       </div>
     </form>
 
@@ -80,15 +81,27 @@
           onsubmit="return confirm('KBの全データ（地域/店舗/人物/利用ログ）を削除します。よろしいですか？');">
       <div class="form-row">
         <label>
-          <input type="checkbox" name="confirm_check" value="1">
+          <input id="kb_panic_check" type="checkbox" name="confirm_check" value="1">
           すべて削除されることを理解しました
         </label>
       </div>
 
+      <!-- ★①：チェックしないと押せない -->
       <div class="form-row">
-        <button type="submit" class="btn-secondary">全削除を実行</button>
+        <button id="kb_panic_btn" type="submit" class="btn-secondary" disabled>全削除を実行</button>
       </div>
     </form>
+
+    <script>
+      (function () {
+        const chk = document.getElementById("kb_panic_check");
+        const btn = document.getElementById("kb_panic_btn");
+        if (!chk || !btn) return;
+        const sync = () => { btn.disabled = !chk.checked; };
+        chk.addEventListener("change", sync);
+        sync();
+      })();
+    </script>
   </section>
 
   <!-- 通常のツリー -->

@@ -1,4 +1,4 @@
-# 002
+# 003
 # routers/kb.py
 import json
 import unicodedata
@@ -250,7 +250,6 @@ def kb_add_person(
             return RedirectResponse(url=f"/kb/person/{exists_p.id}", status_code=303)
 
         p = KBPerson(store_id=int(store_id), name=name)
-        # norm（最低限）
         p.name_norm = norm_text(name)
         p.search_norm = build_person_search_blob(db, p)
 
@@ -339,13 +338,11 @@ def kb_update_person(
         p.tags = (tags or "").strip() or None
         p.memo = (memo or "").strip() or None
 
-        # norm列（将来用）
         p.name_norm = norm_text(p.name or "")
         p.services_norm = norm_text(p.services or "")
         p.tags_norm = norm_text(p.tags or "")
         p.memo_norm = norm_text(p.memo or "")
 
-        # フリーワード検索のためのまとめ列
         p.search_norm = build_person_search_blob(db, p)
 
         db.commit()
@@ -372,7 +369,6 @@ def kb_add_visit(
     if not p:
         return RedirectResponse(url="/kb", status_code=303)
 
-    # visited_at -> DateTime（00:00）
     dt = None
     vd = (visited_at or "").strip()
     if vd:
@@ -417,13 +413,13 @@ def kb_add_visit(
             items = []
             total = 0
 
-    # total_yen は NOT NULL 想定なので必ず int を入れる（0でも入れる）
+    # ★重要：DBの start_time/end_time は「分（int）」で保存する
     try:
         v = KBVisit(
             person_id=p.id,
             visited_at=dt,
-            start_time=(start_time or "").strip() or None,
-            end_time=(end_time or "").strip() or None,
+            start_time=smin,
+            end_time=emin,
             duration_min=dur,
             rating=r,
             memo=(memo or "").strip() or None,
@@ -450,9 +446,6 @@ def kb_delete_visit(request: Request, visit_id: int, db: Session = Depends(get_d
     return RedirectResponse(url=back_url, status_code=303)
 
 
-# =========================
-# 人物削除（利用ログも削除）
-# =========================
 @router.post("/kb/person/{person_id}/delete")
 def kb_delete_person(request: Request, person_id: int, db: Session = Depends(get_db)):
     back_url = request.headers.get("referer") or "/kb"
@@ -465,9 +458,6 @@ def kb_delete_person(request: Request, person_id: int, db: Session = Depends(get
     return RedirectResponse(url=back_url, status_code=303)
 
 
-# =========================
-# パニック全削除（チェック + confirm）
-# =========================
 @router.post("/kb/panic_delete_all")
 def kb_panic_delete_all(
     request: Request,
@@ -490,9 +480,6 @@ def kb_panic_delete_all(
     return RedirectResponse(url="/kb?panic=done", status_code=303)
 
 
-# =========================
-# KB フリーワード検索（地域で絞り込み可）
-# =========================
 @router.get("/kb/search", response_class=HTMLResponse)
 def kb_search(request: Request, q: str = "", region_id: str = "", db: Session = Depends(get_db)):
     q_raw = (q or "").strip()

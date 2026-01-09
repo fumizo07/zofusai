@@ -1,4 +1,4 @@
-# 002
+# 003
 # models.py
 from datetime import datetime
 
@@ -151,8 +151,9 @@ class KBVisit(Base):
 
     visited_at = Column(DateTime, nullable=True, index=True)
 
-    start_time = Column(Text, nullable=True)
-    end_time = Column(Text, nullable=True)
+    # DBは start_time/end_time を「分（int）」で持つ前提に統一
+    start_time = Column(Integer, nullable=True)  # 分（0-1439）
+    end_time = Column(Integer, nullable=True)    # 分（0-1439）
     duration_min = Column(Integer, nullable=True, index=True)
 
     rating = Column(Integer, nullable=True, index=True)
