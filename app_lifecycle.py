@@ -1,3 +1,4 @@
+# 002
 # app_lifecycle.py
 from fastapi import FastAPI
 from sqlalchemy import text
@@ -43,6 +44,28 @@ def register_startup(app: FastAPI) -> None:
                         "ON thread_posts USING gin (body_norm gin_trgm_ops)"
                     )
                 )
+            except Exception:
+                pass
+
+            # =========================
+            # KB 系：不足カラムを後付け（なければ）
+            # いま落ちている「kb_regions.name_norm」対策
+            # =========================
+            try:
+                conn.execute(text("ALTER TABLE kb_regions ADD COLUMN IF NOT EXISTS name_norm TEXT"))
+            except Exception:
+                pass
+
+            # ついでに将来の検索用（参照されても落ちないように保険）
+            try:
+                conn.execute(text("ALTER TABLE kb_stores ADD COLUMN IF NOT EXISTS name_norm TEXT"))
+            except Exception:
+                pass
+
+            try:
+                conn.execute(text("ALTER TABLE kb_persons ADD COLUMN IF NOT EXISTS name_norm TEXT"))
+                conn.execute(text("ALTER TABLE kb_persons ADD COLUMN IF NOT EXISTS tags_norm TEXT"))
+                conn.execute(text("ALTER TABLE kb_persons ADD COLUMN IF NOT EXISTS memo_norm TEXT"))
             except Exception:
                 pass
 
