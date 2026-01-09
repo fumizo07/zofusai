@@ -1,3 +1,4 @@
+{# 002 #}
 {% set page_title_suffix = "KB - 人物" %}
 {% set body_class = "page-kb" %}
 {% set active_page = "kb" %}
@@ -64,7 +65,6 @@
 
     <hr>
 
-    <!-- ⑦ 人物削除 -->
     <form method="post" action="/kb/person/{{ person.id }}/delete"
           onsubmit="return confirm('この人物と利用ログをすべて削除します。本当に削除しますか？');">
       <button type="submit" class="btn-secondary">この人物を削除</button>
@@ -80,7 +80,6 @@
         <input type="date" name="visited_at">
       </div>
 
-      <!-- ⑤ 利用時間 -->
       <div class="form-row">
         <label>利用時間：</label>
         <div class="kb-times">
@@ -94,7 +93,6 @@
         </div>
       </div>
 
-      <!-- 星評価（JS: [data-star-rating], .kb-star, input[name=rating], [data-star-label]） -->
       <div class="form-row">
         <label>評価：</label>
         <div data-star-rating class="kb-stars">
@@ -113,7 +111,6 @@
         <textarea name="memo" rows="3"></textarea>
       </div>
 
-      <!-- 明細（JS: [data-price-items]） -->
       <div class="section-title-small">料金明細</div>
 
       <div class="kb-price-box" data-price-items>
@@ -128,7 +125,6 @@
             </tr>
           </thead>
           <tbody data-price-items-body>
-            <!-- 初期行（空。JSは空行を無視する） -->
             <tr>
               <td><input type="text" data-price-label placeholder="例：オプション"></td>
               <td><input type="text" data-price-amount placeholder="例：3000"></td>
@@ -137,14 +133,14 @@
           </tbody>
         </table>
 
-        <div class="kb-price-actions">
+        <div class="kb-price-actions kb-price-actions-gap">
           <button type="button" class="btn-secondary" data-price-add>明細行を追加</button>
           <span class="muted">合計：</span>
           <strong data-price-total>0</strong><span class="muted">円</span>
         </div>
       </div>
 
-      <div class="form-row">
+      <div class="form-row kb-visit-submit-row">
         <button type="submit" class="btn-primary">追加</button>
       </div>
     </form>

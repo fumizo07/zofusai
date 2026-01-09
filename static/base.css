@@ -1,3 +1,4 @@
+/* 001 */
 /* base.css */
 :root {
     --bg: #f5f5f7;
@@ -1267,3 +1268,24 @@ input[type="time"] {
     font-size: 13px;
     margin-top: 4px;
 }
+
+/* KB: 検索結果見出しの上余白 */
+.kb-section-top {
+  margin-top: 12px;
+}
+
+/* KB: 明細行ボタンと合計表示のレイアウト */
+.kb-price-actions-gap {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin-top: 10px;
+  margin-bottom: 14px; /* 追加ボタンとの距離 */
+}
+
+/* KB: 利用ログ「追加」ボタンを少し下げる */
+.kb-visit-submit-row {
+  margin-top: 10px;
+}
+
