@@ -1,4 +1,4 @@
-# 004
+# 005
 # models.py
 from datetime import datetime
 
@@ -124,11 +124,14 @@ class KBPerson(Base):
     hip_cm = Column(Integer, nullable=True)
 
     services = Column(Text, nullable=True)
-
     tags = Column(Text, nullable=True)
 
     # ★追加：URL
     url = Column(Text, nullable=True)
+
+    # ★追加：画像URL（複数）: ["https://...jpg", "https://...png", ...]
+    # DBにはURL文字列だけが保存され、画像本体は保存しません
+    image_urls = Column(JSON, nullable=True)
 
     memo = Column(Text, nullable=True)
 
