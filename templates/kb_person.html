@@ -1,4 +1,4 @@
-{# 005 #}
+{# 006 #}
 {% set page_title_suffix = "KB - 人物" %}
 {% set body_class = "page-kb" %}
 {% set active_page = "kb" %}
@@ -19,9 +19,26 @@
       <div>店舗：<strong>{{ store.name if store else "（不明）" }}</strong></div>
       <div>人物：<strong>{{ person.name }}</strong></div>
 
-      {# ★URL（モデルに url がある前提） #}
       {% if person.url %}
         <div>URL：<a href="{{ person.url|e }}" target="_blank" rel="noopener noreferrer">{{ person.url }}</a></div>
+      {% endif %}
+
+      {# ★追加：画像URL（複数） #}
+      {% if person.image_urls %}
+        <div>画像：</div>
+        <div class="kb-person-images">
+          {% for u in person.image_urls %}
+            {% if u %}
+              <a href="{{ u|e }}" target="_blank" rel="noopener noreferrer">
+                <img class="kb-person-image"
+                     src="{{ u|e }}"
+                     alt="image"
+                     loading="lazy"
+                     referrerpolicy="no-referrer">
+              </a>
+            {% endif %}
+          {% endfor %}
+        </div>
       {% endif %}
 
       {% if rating_avg %}
@@ -60,9 +77,16 @@
         <div class="kb-grid-label">タグ：</div>
         <div><input type="text" name="tags" value="{{ person.tags or '' }}" placeholder="カンマ区切り"></div>
 
-        {# ★URL（タグとメモの間） #}
         <div class="kb-grid-label">URL：</div>
         <div><input type="text" name="url" value="{{ person.url or '' }}" placeholder="https://..."></div>
+
+        {# ★追加：画像URL（複数） #}
+        <div class="kb-grid-label">画像URL：</div>
+        <div>
+          <textarea name="image_urls_text" rows="4"
+                    placeholder="1行に1つ、http(s)の直リンクURLを貼ってください（例：https://.../a.jpg）">{% if person.image_urls %}{{ person.image_urls|join('\n') }}{% endif %}</textarea>
+          <div class="muted">※画像自体は保存せず、URLだけ保存します。表示はブラウザが外部から読み込みます。</div>
+        </div>
 
         <div class="kb-grid-label">メモ：</div>
         <div><textarea name="memo" rows="4">{{ person.memo or '' }}</textarea></div>
@@ -169,7 +193,6 @@
               （日付未設定）
             {% endif %}
 
-            {# ★start_time/end_time は「分」なので HH:MM 表示にする #}
             {% if v.start_time is not none and v.end_time is not none %}
               <span class="muted">
                 ／ {{ "%02d"|format(v.start_time // 60) }}:{{ "%02d"|format(v.start_time % 60) }}
@@ -252,7 +275,6 @@
               <div class="section-title-small">料金明細</div>
 
               <div class="kb-price-box" data-price-items>
-                {# initKbPriceItems() が行から JSON を作ってここへ入れます #}
                 <input type="hidden" name="price_items_json" value="[]">
 
                 <table class="kb-price-table">
