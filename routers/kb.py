@@ -1,4 +1,4 @@
-# 004
+# 006
 # routers/kb.py
 import json
 import unicodedata
@@ -60,6 +60,8 @@ def build_person_search_blob(db: Session, p: KBPerson) -> str:
             str(p.hip_cm or ""),
             p.services or "",
             p.tags or "",
+            # ★追加：URL（モデルにカラムがある前提）
+            getattr(p, "url", "") or "",
             p.memo or "",
         ]
     )
@@ -347,6 +349,8 @@ def kb_update_person(
     hip_cm: str = Form(""),
     services: str = Form(""),
     tags: str = Form(""),
+    # ★追加：URL
+    url: str = Form(""),
     memo: str = Form(""),
     db: Session = Depends(get_db),
 ):
@@ -366,6 +370,14 @@ def kb_update_person(
 
         p.services = (services or "").strip() or None
         p.tags = (tags or "").strip() or None
+
+        # ★モデルに url がある前提
+        if hasattr(p, "url"):
+            u = (url or "").strip()
+            p.url = u or None
+            if hasattr(p, "url_norm"):
+                p.url_norm = norm_text(p.url or "")
+
         p.memo = (memo or "").strip() or None
 
         p.name_norm = norm_text(p.name or "")
@@ -464,6 +476,107 @@ def kb_add_visit(
     return RedirectResponse(url=back_url, status_code=303)
 
 
+# =========================
+# 利用ログ編集（追加）
+# =========================
+@router.post("/kb/visit/{visit_id}/update")
+def kb_update_visit(
+    request: Request,
+    visit_id: int,
+    visited_at: str = Form(""),         # YYYY-MM-DD
+    start_time: str = Form(""),         # HH:MM
+    end_time: str = Form(""),           # HH:MM
+    rating: str = Form(""),             # 1-5
+    memo: str = Form(""),
+    price_items_json: str = Form(""),   # 空=変更なし, "[]"=クリア, JSON=上書き
+    db: Session = Depends(get_db),
+):
+    v = db.query(KBVisit).filter(KBVisit.id == int(visit_id)).first()
+    if not v:
+        return RedirectResponse(url="/kb", status_code=303)
+
+    back_url = request.headers.get("referer") or f"/kb/person/{v.person_id}"
+
+    dt = None
+    vd = (visited_at or "").strip()
+    if vd:
+        try:
+            dt = datetime.strptime(vd, "%Y-%m-%d")
+        except Exception:
+            dt = None
+
+    smin = _parse_time_hhmm_to_min(start_time)
+    emin = _parse_time_hhmm_to_min(end_time)
+    dur = _calc_duration(smin, emin)
+
+    r = None
+    try:
+        rr = int((rating or "").strip() or "0")
+        if 1 <= rr <= 5:
+            r = rr
+    except Exception:
+        r = None
+
+    raw = (price_items_json or "").strip()
+
+    # 明細：空なら触らない（入力ミスで既存が消えるのを防ぐ）
+    update_price = False
+    new_items = None
+    new_total = None
+
+    if raw == "":
+        update_price = False
+    elif raw == "[]":
+        update_price = True
+        new_items = None
+        new_total = 0
+    else:
+        try:
+            data = json.loads(raw)
+            items = []
+            total = 0
+            if isinstance(data, list):
+                for it in data:
+                    if not isinstance(it, dict):
+                        continue
+                    label = str(it.get("label", "") or "").strip()
+                    amt = it.get("amount", 0)
+                    try:
+                        amt_i = int(amt)
+                    except Exception:
+                        amt_i = 0
+                    if not label and amt_i == 0:
+                        continue
+                    items.append({"label": label, "amount": amt_i})
+                    total += amt_i
+            update_price = True
+            new_items = items or None
+            new_total = int(total)
+        except Exception:
+            # パース失敗：明細は触らない（安全側）
+            update_price = False
+
+    try:
+        v.visited_at = dt
+        v.start_time = smin
+        v.end_time = emin
+        v.duration_min = dur
+        v.rating = r
+        v.memo = (memo or "").strip() or None
+
+        if update_price:
+            v.price_items = new_items
+            v.total_yen = int(new_total or 0)
+
+        v.search_norm = build_visit_search_blob(v)
+
+        db.commit()
+    except Exception:
+        db.rollback()
+
+    return RedirectResponse(url=back_url, status_code=303)
+
+
 @router.post("/kb/visit/{visit_id}/delete")
 def kb_delete_visit(request: Request, visit_id: int, db: Session = Depends(get_db)):
     back_url = request.headers.get("referer") or "/kb"
@@ -549,6 +662,22 @@ def kb_search(request: Request, q: str = "", region_id: str = "", db: Session = 
 
     persons = person_q.order_by(KBPerson.name.asc()).limit(300).all()
 
+    # ★ここが修正点：検索結果表示中でも「地域→店舗一覧」が消えないように、
+    #   トップと同じ stores_by_region / person_counts を組み立てて渡す
+    store_rows = (
+        db.query(KBStore, KBRegion)
+        .join(KBRegion, KBRegion.id == KBStore.region_id)
+        .order_by(KBRegion.name.asc(), KBStore.name.asc())
+        .all()
+    )
+    stores_by_region = defaultdict(list)
+    for s, r in store_rows:
+        stores_by_region[r.id].append(s)
+
+    counts = dict(
+        db.query(KBPerson.store_id, func.count(KBPerson.id)).group_by(KBPerson.store_id).all()
+    )
+
     store_ids = list({p.store_id for p in persons})
     stores = {}
     regions_map = {}
@@ -569,8 +698,8 @@ def kb_search(request: Request, q: str = "", region_id: str = "", db: Session = 
         {
             "request": request,
             "regions": regions,
-            "stores_by_region": defaultdict(list),
-            "person_counts": {},
+            "stores_by_region": stores_by_region,  # ★空じゃない
+            "person_counts": counts,               # ★空じゃない
             "panic": request.query_params.get("panic") or "",
             "search_error": "",
             "search_q": q_raw,

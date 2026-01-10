@@ -1,4 +1,4 @@
-# 003
+# 004
 # models.py
 from datetime import datetime
 
@@ -124,13 +124,22 @@ class KBPerson(Base):
     hip_cm = Column(Integer, nullable=True)
 
     services = Column(Text, nullable=True)
+
     tags = Column(Text, nullable=True)
+
+    # ★追加：URL
+    url = Column(Text, nullable=True)
+
     memo = Column(Text, nullable=True)
 
     # 将来用の正規化列
     name_norm = Column(Text, nullable=True, index=True)
     services_norm = Column(Text, nullable=True, index=True)
     tags_norm = Column(Text, nullable=True, index=True)
+
+    # ★追加：URLの正規化
+    url_norm = Column(Text, nullable=True, index=True)
+
     memo_norm = Column(Text, nullable=True, index=True)
 
     # フリーワード検索のためのまとめ列

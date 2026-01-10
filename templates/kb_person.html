@@ -1,4 +1,4 @@
-{# 003 #}
+{# 005 #}
 {% set page_title_suffix = "KB - 人物" %}
 {% set body_class = "page-kb" %}
 {% set active_page = "kb" %}
@@ -18,6 +18,12 @@
       <div>地域：<strong>{{ region.name if region else "（不明）" }}</strong></div>
       <div>店舗：<strong>{{ store.name if store else "（不明）" }}</strong></div>
       <div>人物：<strong>{{ person.name }}</strong></div>
+
+      {# ★URL（モデルに url がある前提） #}
+      {% if person.url %}
+        <div>URL：<a href="{{ person.url|e }}" target="_blank" rel="noopener noreferrer">{{ person.url }}</a></div>
+      {% endif %}
+
       {% if rating_avg %}
         <div class="muted">平均評価：{{ "%.2f"|format(rating_avg) }}</div>
       {% endif %}
@@ -53,6 +59,10 @@
 
         <div class="kb-grid-label">タグ：</div>
         <div><input type="text" name="tags" value="{{ person.tags or '' }}" placeholder="カンマ区切り"></div>
+
+        {# ★URL（タグとメモの間） #}
+        <div class="kb-grid-label">URL：</div>
+        <div><input type="text" name="url" value="{{ person.url or '' }}" placeholder="https://..."></div>
 
         <div class="kb-grid-label">メモ：</div>
         <div><textarea name="memo" rows="4">{{ person.memo or '' }}</textarea></div>
@@ -195,6 +205,95 @@
               {% endfor %}
             </div>
           {% endif %}
+
+          <details class="kb-visit-edit">
+            <summary class="muted">このログを編集</summary>
+
+            <form method="post" action="/kb/visit/{{ v.id }}/update">
+              <div class="form-row">
+                <label>利用日：</label>
+                <input type="date" name="visited_at"
+                       value="{{ v.visited_at.strftime('%Y-%m-%d') if v.visited_at else '' }}">
+              </div>
+
+              <div class="form-row">
+                <label>利用時間：</label>
+                <div class="kb-times">
+                  <span class="muted">開始</span>
+                  <input type="time" name="start_time" step="60"
+                         value="{% if v.start_time is not none %}{{ '%02d'|format(v.start_time // 60) }}:{{ '%02d'|format(v.start_time % 60) }}{% endif %}">
+                  <span class="muted">終了</span>
+                  <input type="time" name="end_time" step="60"
+                         value="{% if v.end_time is not none %}{{ '%02d'|format(v.end_time // 60) }}:{{ '%02d'|format(v.end_time % 60) }}{% endif %}">
+                  <span class="muted">→</span>
+                  <span class="kb-duration" data-kb-duration-label></span>
+                  <input type="hidden" name="duration_min" value="">
+                </div>
+              </div>
+
+              <div class="form-row">
+                <label>評価：</label>
+                <div data-star-rating class="kb-stars">
+                  <input type="hidden" name="rating" value="{{ v.rating or '' }}">
+                  <button type="button" class="kb-star" data-value="1">☆</button>
+                  <button type="button" class="kb-star" data-value="2">☆</button>
+                  <button type="button" class="kb-star" data-value="3">☆</button>
+                  <button type="button" class="kb-star" data-value="4">☆</button>
+                  <button type="button" class="kb-star" data-value="5">☆</button>
+                  <span class="muted" data-star-label></span>
+                </div>
+              </div>
+
+              <div class="form-row">
+                <label>メモ：</label>
+                <textarea name="memo" rows="3">{{ v.memo or '' }}</textarea>
+              </div>
+
+              <div class="section-title-small">料金明細</div>
+
+              <div class="kb-price-box" data-price-items>
+                {# initKbPriceItems() が行から JSON を作ってここへ入れます #}
+                <input type="hidden" name="price_items_json" value="[]">
+
+                <table class="kb-price-table">
+                  <thead>
+                    <tr>
+                      <th>項目</th>
+                      <th>金額</th>
+                      <th></th>
+                    </tr>
+                  </thead>
+                  <tbody data-price-items-body>
+                    {% if v.price_items %}
+                      {% for it in v.price_items %}
+                        <tr>
+                          <td><input type="text" data-price-label value="{{ it.label or '' }}" placeholder="例：オプション"></td>
+                          <td><input type="text" data-price-amount value="{{ it.amount or 0 }}" placeholder="例：3000"></td>
+                          <td><button type="button" data-price-remove>削除</button></td>
+                        </tr>
+                      {% endfor %}
+                    {% else %}
+                      <tr>
+                        <td><input type="text" data-price-label placeholder="例：オプション"></td>
+                        <td><input type="text" data-price-amount placeholder="例：3000"></td>
+                        <td><button type="button" data-price-remove>削除</button></td>
+                      </tr>
+                    {% endif %}
+                  </tbody>
+                </table>
+
+                <div class="kb-price-actions kb-price-actions-gap">
+                  <button type="button" class="btn-secondary" data-price-add>明細行を追加</button>
+                  <span class="muted">合計：</span>
+                  <strong data-price-total>0</strong><span class="muted">円</span>
+                </div>
+              </div>
+
+              <div class="form-row">
+                <button type="submit" class="btn-primary">このログを保存</button>
+              </div>
+            </form>
+          </details>
 
           <form method="post" action="/kb/visit/{{ v.id }}/delete"
                 onsubmit="return confirm('この利用ログを削除しますか？');">
