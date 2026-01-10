@@ -47,11 +47,17 @@
                 {% if p.cup %}／{{ p.cup }}カップ{% endif %}
                 {% if p.tags %}／タグ:{{ p.tags }}{% endif %}
               </span>
+              <div class="muted">
+                {% if rg %}{{ rg.name }}{% endif %}
+                {% if st %}／{{ st.name }}{% endif %}
+                {% if p.services %}／サービス:{{ p.services }}{% endif %}
+                {% if p.tags %}／タグ:{{ p.tags }}{% endif %}
+              </div>
             </div>
 
             {# ★利用ログがあり rating が入っている人だけ平均評価を表示 #}
             {% if avg is not none %}
-              <div class="muted" style="margin-top:4px;">平均評価：{{ "%.2f"|format(avg) }}</div>
+              <div class="mutede">平均評価：{{ "%.2f"|format(avg) }}</div>
             {% endif %}
           </div>
         {% endfor %}
