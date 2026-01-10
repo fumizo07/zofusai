@@ -522,7 +522,11 @@ def kb_update_person(
         p.name = (name or "").strip() or p.name
         p.age = _parse_int(age)
         p.height_cm = _parse_int(height_cm)
-        p.cup = (cup or "").strip() or None
+        
+        cu = (cup or "").strip()
+        cu = unicodedata.normalize("NFKC", cu).upper()
+        p.cup = (cu[:1] if cu and "A" <= cu[:1] <= "Z" else None)
+
         p.bust_cm = _parse_int(bust_cm)
         p.waist_cm = _parse_int(waist_cm)
         p.hip_cm = _parse_int(hip_cm)
