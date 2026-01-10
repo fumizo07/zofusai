@@ -1,4 +1,4 @@
-{# 002 #}
+{# 003 #}
 {% set page_title_suffix = "KB - 店舗" %}
 {% set body_class = "page-kb" %}
 {% set active_page = "kb" %}
@@ -36,6 +36,7 @@
     {% if persons %}
       <div class="thread-results">
         {% for p in persons %}
+          {% set avg = (rating_avg_map or {}).get(p.id) %}
           <div class="result">
             <div class="result-id">
               <a href="/kb/person/{{ p.id }}">{{ p.name }}</a>
@@ -47,6 +48,11 @@
                 {% if p.tags %}／タグ:{{ p.tags }}{% endif %}
               </span>
             </div>
+
+            {# ★利用ログがあり rating が入っている人だけ平均評価を表示 #}
+            {% if avg is not none %}
+              <div class="muted" style="margin-top:4px;">平均評価：{{ "%.2f"|format(avg) }}</div>
+            {% endif %}
           </div>
         {% endfor %}
       </div>
