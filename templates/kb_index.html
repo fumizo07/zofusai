@@ -1,8 +1,23 @@
-{# 005 #}
+{# 006 #}
 {% set page_title_suffix = "KB" %}
 {% set body_class = "page-kb" %}
 {% set active_page = "kb" %}
 {% include "_header.html" %}
+
+{% set search_region_id = search_region_id|default('') %}
+{% set search_budget_min = search_budget_min|default('') %}
+{% set search_budget_max = search_budget_max|default('') %}
+{% set search_age = search_age|default([]) %}
+{% set search_height = search_height|default([]) %}
+{% set search_cup = search_cup|default([]) %}
+{% set search_waist = search_waist|default([]) %}
+{% set search_svc = search_svc|default([]) %}
+{% set search_tag = search_tag|default([]) %}
+{% set svc_options = svc_options|default([]) %}
+{% set tag_options = tag_options|default([]) %}
+{% set search_q = search_q|default('') %}
+{% set search_total_count = search_total_count|default(None) %}
+{% set search_truncated = search_truncated|default(False) %}
 
 <main>
   <section class="card">
@@ -63,26 +78,26 @@
         <label>プロフィール：</label>
         <div>
           <div class="muted">年齢</div>
-          <label><input type="checkbox" name="age" value="u20" {% if "u20" in (search_age or []) %}checked{% endif %}> 20歳以下</label>
-          <label><input type="checkbox" name="age" value="21_23" {% if "21_23" in (search_age or []) %}checked{% endif %}> 21～23歳</label>
-          <label><input type="checkbox" name="age" value="24_25" {% if "24_25" in (search_age or []) %}checked{% endif %}> 24～25歳</label>
-          <label><input type="checkbox" name="age" value="ge26" {% if "ge26" in (search_age or []) %}checked{% endif %}> 26歳以上</label>
+          <label><input type="checkbox" name="age" value="u20" {% if "u20" in search_age %}checked{% endif %}> 20歳以下</label>
+          <label><input type="checkbox" name="age" value="21_23" {% if "21_23" in search_age %}checked{% endif %}> 21～23歳</label>
+          <label><input type="checkbox" name="age" value="24_25" {% if "24_25" in search_age %}checked{% endif %}> 24～25歳</label>
+          <label><input type="checkbox" name="age" value="ge26" {% if "ge26" in search_age %}checked{% endif %}> 26歳以上</label>
 
-          <div class="muted muteded">身長</div>
-          <label><input type="checkbox" name="height" value="le149" {% if "le149" in (search_height or []) %}checked{% endif %}> 149cm以下</label>
-          <label><input type="checkbox" name="height" value="150_158" {% if "150_158" in (search_height or []) %}checked{% endif %}> 150～158cm</label>
-          <label><input type="checkbox" name="height" value="ge159" {% if "ge159" in (search_height or []) %}checked{% endif %}> 159cm以上</label>
+          <div class="muted">身長</div>
+          <label><input type="checkbox" name="height" value="le149" {% if "le149" in search_height %}checked{% endif %}> 149cm以下</label>
+          <label><input type="checkbox" name="height" value="150_158" {% if "150_158" in search_height %}checked{% endif %}> 150～158cm</label>
+          <label><input type="checkbox" name="height" value="ge159" {% if "ge159" in search_height %}checked{% endif %}> 159cm以上</label>
 
-          <div class="muted muteded">カップ</div>
-          <label><input type="checkbox" name="cup" value="leD" {% if "leD" in (search_cup or []) %}checked{% endif %}> D以下</label>
-          <label><input type="checkbox" name="cup" value="EF" {% if "EF" in (search_cup or []) %}checked{% endif %}> E～F</label>
-          <label><input type="checkbox" name="cup" value="geG" {% if "geG" in (search_cup or []) %}checked{% endif %}> G以上</label>
+          <div class="muted">カップ</div>
+          <label><input type="checkbox" name="cup" value="leD" {% if "leD" in search_cup %}checked{% endif %}> D以下</label>
+          <label><input type="checkbox" name="cup" value="EF" {% if "EF" in search_cup %}checked{% endif %}> E～F</label>
+          <label><input type="checkbox" name="cup" value="geG" {% if "geG" in search_cup %}checked{% endif %}> G以上</label>
 
-          <div class="muted muteded">ウエスト</div>
-          <label><input type="checkbox" name="waist" value="le49" {% if "le49" in (search_waist or []) %}checked{% endif %}> 49以下</label>
-          <label><input type="checkbox" name="waist" value="50_56" {% if "50_56" in (search_waist or []) %}checked{% endif %}> 50～56</label>
-          <label><input type="checkbox" name="waist" value="57_59" {% if "57_59" in (search_waist or []) %}checked{% endif %}> 57～59</label>
-          <label><input type="checkbox" name="waist" value="ge60" {% if "ge60" in (search_waist or []) %}checked{% endif %}> 60以上</label>
+          <div class="muted">ウエスト</div>
+          <label><input type="checkbox" name="waist" value="le49" {% if "le49" in search_waist %}checked{% endif %}> 49以下</label>
+          <label><input type="checkbox" name="waist" value="50_56" {% if "50_56" in search_waist %}checked{% endif %}> 50～56</label>
+          <label><input type="checkbox" name="waist" value="57_59" {% if "57_59" in search_waist %}checked{% endif %}> 57～59</label>
+          <label><input type="checkbox" name="waist" value="ge60" {% if "ge60" in search_waist %}checked{% endif %}> 60以上</label>
         </div>
       </div>
 
@@ -95,8 +110,7 @@
               <div class="kb-tags-box">
                 {% for s in svc_options %}
                   <label class="kb-tag-chip">
-                    <input type="checkbox" name="svc" value="{{ s }}"
-                      {% if s in (search_svc or []) %}checked{% endif %}>
+                    <input type="checkbox" name="svc" value="{{ s }}" {% if s in search_svc %}checked{% endif %}>
                     {{ s }}
                   </label>
                 {% endfor %}
@@ -117,8 +131,7 @@
               <div class="kb-tags-box">
                 {% for t in tag_options %}
                   <label class="kb-tag-chip">
-                    <input type="checkbox" name="tag" value="{{ t }}"
-                      {% if t in (search_tag or []) %}checked{% endif %}>
+                    <input type="checkbox" name="tag" value="{{ t }}" {% if t in search_tag %}checked{% endif %}>
                     {{ t }}
                   </label>
                 {% endfor %}
@@ -132,7 +145,7 @@
 
       <div class="form-row">
         <label>フリーワード：</label>
-        <input type="text" name="q" value="{{ search_q or '' }}" placeholder="例：メモの単語、サービス名、タグ など">
+        <input type="text" name="q" value="{{ search_q }}" placeholder="例：メモの単語、サービス名、タグ など">
       </div>
 
       <div class="form-row">
@@ -159,10 +172,10 @@
               {% if p.services %}／{{ p.services }}{% endif %}
               {% if p.age %}／{{ p.age }}歳{% endif %}
               {% if p.height_cm %}／T{{ p.height_cm }}cm{% endif %}
-              {% if person.bust_cm %}／B{{ person.bust_cm }}{% if p.cup %}（{{ p.cup }}）{% endif %}{% endif %}
-              {% if person.waist_cm %}・W{{ person.waist_cm }}{% endif %}
-              {% if person.hip_cm %}・H{{ person.hip_cm }}{% endif %}
-            </div>           
+              {% if p.bust_cm %}／B{{ p.bust_cm }}{% if p.cup %}({{ p.cup }}){% endif %}{% endif %}
+              {% if p.waist_cm %}・W{{ p.waist_cm }}{% endif %}
+              {% if p.hip_cm %}・H{{ p.hip_cm }}{% endif %}
+            </div>
             <div class="muted">
               {% if rg %}{{ rg.name }}{% endif %}
               {% if st %}／{{ st.name }}{% endif %}
@@ -171,7 +184,7 @@
             </div>
 
             {% if avg is not none %}
-              <div class="muted mutede">平均評価：{{ "%.2f"|format(avg) }}</div>
+              <div class="muted">平均評価：{{ "%.2f"|format(avg) }}</div>
             {% endif %}
           </div>
         {% endfor %}
