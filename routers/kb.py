@@ -1,4 +1,4 @@
-# 003
+# 004
 # routers/kb.py
 import json
 import unicodedata
@@ -7,7 +7,7 @@ from datetime import datetime
 
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
-from sqlalchemy import desc, func, exists
+from sqlalchemy import desc, func, exists, and_, or_
 from sqlalchemy.orm import Session
 
 from app_context import templates
@@ -110,6 +110,26 @@ def _calc_duration(start_min, end_min):
     return d
 
 
+def _avg_rating_map_for_person_ids(db: Session, person_ids: list[int]) -> dict[int, float]:
+    if not person_ids:
+        return {}
+    rows = (
+        db.query(KBVisit.person_id, func.avg(KBVisit.rating))
+        .filter(
+            KBVisit.person_id.in_(person_ids),
+            KBVisit.rating.isnot(None),
+        )
+        .group_by(KBVisit.person_id)
+        .all()
+    )
+    out = {}
+    for pid, avg in rows:
+        if pid is None or avg is None:
+            continue
+        out[int(pid)] = float(avg)
+    return out
+
+
 # =========================
 # KBトップ
 # =========================
@@ -135,6 +155,7 @@ def kb_index(request: Request, db: Session = Depends(get_db)):
     panic = request.query_params.get("panic") or ""
     search_error = request.query_params.get("search_error") or ""
 
+    # ★テンプレが常に参照する変数は「必ず」渡す（StrictUndefined対策）
     return templates.TemplateResponse(
         "kb_index.html",
         {
@@ -144,6 +165,12 @@ def kb_index(request: Request, db: Session = Depends(get_db)):
             "person_counts": counts,
             "panic": panic,
             "search_error": search_error,
+            "search_q": "",
+            "search_region_id": "",
+            "search_results": None,
+            "stores_map": {},
+            "regions_map": {},
+            "rating_avg_map": {},
             "active_page": "kb",
             "page_title_suffix": "KB",
             "body_class": "page-kb",
@@ -214,6 +241,8 @@ def kb_store_page(request: Request, store_id: int, db: Session = Depends(get_db)
         .all()
     )
 
+    rating_avg_map = _avg_rating_map_for_person_ids(db, [p.id for p in persons])
+
     return templates.TemplateResponse(
         "kb_store.html",
         {
@@ -221,6 +250,7 @@ def kb_store_page(request: Request, store_id: int, db: Session = Depends(get_db)
             "region": region,
             "store": store,
             "persons": persons,
+            "rating_avg_map": rating_avg_map,
             "active_page": "kb",
             "page_title_suffix": "KB",
             "body_class": "page-kb",
@@ -413,7 +443,6 @@ def kb_add_visit(
             items = []
             total = 0
 
-    # ★重要：DBの start_time/end_time は「分（int）」で保存する
     try:
         v = KBVisit(
             person_id=p.id,
@@ -480,6 +509,9 @@ def kb_panic_delete_all(
     return RedirectResponse(url="/kb?panic=done", status_code=303)
 
 
+# =========================
+# KB フリーワード検索（地域で絞り込み可）
+# =========================
 @router.get("/kb/search", response_class=HTMLResponse)
 def kb_search(request: Request, q: str = "", region_id: str = "", db: Session = Depends(get_db)):
     q_raw = (q or "").strip()
@@ -499,9 +531,9 @@ def kb_search(request: Request, q: str = "", region_id: str = "", db: Session = 
             .filter(KBRegion.id == rid)
         )
 
-    visit_match = (
-        db.query(KBVisit.id)
-        .filter(
+    # ★安全な exists()（SQLAlchemy 2.x 向け）
+    visit_exists = exists().where(
+        and_(
             KBVisit.person_id == KBPerson.id,
             KBVisit.search_norm.isnot(None),
             KBVisit.search_norm.contains(qn),
@@ -509,7 +541,10 @@ def kb_search(request: Request, q: str = "", region_id: str = "", db: Session = 
     )
 
     person_q = person_q.filter(
-        (KBPerson.search_norm.isnot(None) & KBPerson.search_norm.contains(qn)) | exists(visit_match)
+        or_(
+            and_(KBPerson.search_norm.isnot(None), KBPerson.search_norm.contains(qn)),
+            visit_exists,
+        )
     )
 
     persons = person_q.order_by(KBPerson.name.asc()).limit(300).all()
@@ -527,6 +562,8 @@ def kb_search(request: Request, q: str = "", region_id: str = "", db: Session = 
             for r in rr:
                 regions_map[r.id] = r
 
+    rating_avg_map = _avg_rating_map_for_person_ids(db, [p.id for p in persons])
+
     return templates.TemplateResponse(
         "kb_index.html",
         {
@@ -541,6 +578,7 @@ def kb_search(request: Request, q: str = "", region_id: str = "", db: Session = 
             "search_results": persons,
             "stores_map": stores,
             "regions_map": regions_map,
+            "rating_avg_map": rating_avg_map,
             "active_page": "kb",
             "page_title_suffix": "KB",
             "body_class": "page-kb",

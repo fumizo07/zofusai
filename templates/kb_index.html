@@ -1,4 +1,4 @@
-{# 003 #}
+{# 004 #}
 {% set page_title_suffix = "KB" %}
 {% set body_class = "page-kb" %}
 {% set active_page = "kb" %}
@@ -40,7 +40,6 @@
 
       <div class="form-row">
         <button type="submit" class="btn-primary">検索</button>
-        <!-- ★②：見た目を揃えるため a ではなく button にする -->
         <button type="button" class="btn-secondary" onclick="window.location.href='/kb'">リセット</button>
       </div>
     </form>
@@ -49,8 +48,9 @@
       <div class="section-title kb-section-top">検索結果（{{ search_results|length }}件）</div>
       <div class="thread-results">
         {% for p in search_results %}
-          {% set st = stores_map.get(p.store_id) %}
-          {% set rg = regions_map.get(st.region_id) if st else None %}
+          {% set st = (stores_map or {}).get(p.store_id) %}
+          {% set rg = (regions_map or {}).get(st.region_id) if st else None %}
+          {% set avg = (rating_avg_map or {}).get(p.id) %}
           <div class="result">
             <div class="result-id">
               <a href="/kb/person/{{ p.id }}">{{ p.name }}</a>
@@ -64,6 +64,11 @@
               {% if p.services %}／ サービス: {{ p.services }}{% endif %}
               {% if p.tags %}／ タグ: {{ p.tags }}{% endif %}
             </div>
+
+            {# ★②：平均評価（利用ログにratingがある人だけ） #}
+            {% if avg is not none %}
+              <div class="muted" style="margin-top:4px;">平均評価：{{ "%.2f"|format(avg) }}</div>
+            {% endif %}
           </div>
         {% endfor %}
       </div>
@@ -86,7 +91,6 @@
         </label>
       </div>
 
-      <!-- ★①：チェックしないと押せない -->
       <div class="form-row">
         <button id="kb_panic_btn" type="submit" class="btn-secondary" disabled>全削除を実行</button>
       </div>
@@ -130,14 +134,14 @@
         </div>
       </form>
 
-      {% set stores = stores_by_region.get(r.id) or [] %}
+      {% set stores = (stores_by_region.get(r.id) if stores_by_region else []) or [] %}
       {% if stores %}
         <div class="thread-results">
           {% for s in stores %}
             <div class="result">
               <div class="result-id">
                 <a href="/kb/store/{{ s.id }}">{{ s.name }}</a>
-                <span class="muted">（{{ person_counts.get(s.id, 0) }}人）</span>
+                <span class="muted">（{{ (person_counts or {}).get(s.id, 0) }}人）</span>
               </div>
             </div>
           {% endfor %}

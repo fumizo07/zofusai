@@ -1,3 +1,4 @@
+# 002
 # routers/external_search.py
 from __future__ import annotations
 
@@ -631,6 +632,10 @@ def thread_search_posts(
     prev_thread_url: Optional[str] = None
     next_thread_url: Optional[str] = None
 
+    # ★④：prev/next のスレタイ
+    prev_thread_title: str = ""
+    next_thread_title: str = ""
+
     board_category_label: str = ""
     board_label: str = ""
 
@@ -661,6 +666,21 @@ def thread_search_posts(
                         break
 
             prev_thread_url, next_thread_url = find_prev_next_thread_urls(selected_thread)
+
+            # ★④：prev/next のタイトルを取得（失敗しても空でOK）
+            if prev_thread_url:
+                try:
+                    pt = get_thread_title(prev_thread_url)
+                    prev_thread_title = simplify_thread_title(pt or "")
+                except Exception:
+                    prev_thread_title = ""
+
+            if next_thread_url:
+                try:
+                    nt = get_thread_title(next_thread_url)
+                    next_thread_title = simplify_thread_title(nt or "")
+                except Exception:
+                    next_thread_title = ""
 
             all_posts = get_thread_posts_cached(db, selected_thread)
 
@@ -761,6 +781,8 @@ def thread_search_posts(
             "highlight": highlight_text,
             "prev_thread_url": prev_thread_url,
             "next_thread_url": next_thread_url,
+            "prev_thread_title": prev_thread_title,
+            "next_thread_title": next_thread_title,
             "highlight_with_links": highlight_with_links,
             "board_category": board_category,
             "board_id": board_id,

@@ -1,3 +1,4 @@
+{# 001 #}
 <!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -33,7 +34,7 @@
        ハンバーガーは3ページだけ表示
        index / thread_search_posts / thread_showall
        ========================= #}
-    {% if active_page in ['index', 'thread_search'] %}
+    {% if active_page in ['index', 'thread_search_posts', 'thread_search_showall'] %}
     <button class="hamburger-button" id="hamburgerButton" type="button">
         <span class="hamburger-button-inner">
             <span class="hamburger-line"></span>
@@ -44,7 +45,7 @@
     {% endif %}
 </header>
 
-{% if active_page in ['index', 'thread_search'] %}
+{% if active_page in ['index', 'thread_search_posts', 'thread_search_showall'] %}
 <div class="quick-menu-overlay" id="quickMenuOverlay">
     <div class="quick-menu-panel">
         <div class="quick-menu-header">

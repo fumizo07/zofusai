@@ -1,12 +1,16 @@
+{# 002 #}
 {% set page_title_suffix = "スレッド内検索結果" %}
 {% set body_class = "page-thread-posts" %}
 {% set active_page = "thread_search" %}
 {% include "_header.html" %}
 
+{# ★重要：include(_header.html) で set した変数はこのテンプレに漏れないので、ここで定義する #}
+{% set _back_url = back_url or "/thread_search" %}
+{% if _back_url == "/thread_search/posts" %}
+  {% set _back_url = "/thread_search" %}
+{% endif %}
+
 {% set store_title = store_base_title or thread_title or title_keyword or '' %}
-
-
-
 
 <main data-thread-url="{{ thread_url|e }}">
     <section class="card">
@@ -82,6 +86,12 @@
                 <button type="submit" class="btn-secondary" {% if not prev_thread_url %}disabled{% endif %}>
                     前スレで再検索
                 </button>
+
+                {# ★④：スレタイ表示（取得できた時だけ） #}
+                {% if prev_thread_title %}
+                  <span class="muted" style="margin-left:8px;">{{ prev_thread_title }}</span>
+                {% endif %}
+
                 <span class="thread-url">
                     {% if prev_thread_url %}{{ prev_thread_url }}{% else %}前スレが見つかりません。{% endif %}
                 </span>
@@ -100,6 +110,12 @@
                 <button type="submit" class="btn-secondary" {% if not next_thread_url %}disabled{% endif %}>
                     次スレで再検索
                 </button>
+
+                {# ★④：スレタイ表示（取得できた時だけ） #}
+                {% if next_thread_title %}
+                  <span class="muted" style="margin-left:8px;">{{ next_thread_title }}</span>
+                {% endif %}
+
                 <span class="thread-url">
                     {% if next_thread_url %}{{ next_thread_url }}{% else %}次スレが見つかりません。{% endif %}
                 </span>
@@ -224,6 +240,11 @@
                 <button type="submit" class="btn-secondary" {% if not prev_thread_url %}disabled{% endif %}>
                     前スレで再検索
                 </button>
+
+                {% if prev_thread_title %}
+                  <span class="muted" style="margin-left:8px;">{{ prev_thread_title }}</span>
+                {% endif %}
+
                 <span class="thread-url">
                     {% if prev_thread_url %}{{ prev_thread_url }}{% else %}前スレが見つかりません。{% endif %}
                 </span>
@@ -242,6 +263,11 @@
                 <button type="submit" class="btn-secondary" {% if not next_thread_url %}disabled{% endif %}>
                     次スレで再検索
                 </button>
+
+                {% if next_thread_title %}
+                  <span class="muted" style="margin-left:8px;">{{ next_thread_title }}</span>
+                {% endif %}
+
                 <span class="thread-url">
                     {% if next_thread_url %}{{ next_thread_url }}{% else %}次スレが見つかりません。{% endif %}
                 </span>
@@ -249,7 +275,5 @@
         </div>
     </section>
 </main>
-
-
 
 {% include "_footer.html" %}
