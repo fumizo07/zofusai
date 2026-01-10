@@ -68,17 +68,17 @@
           <label><input type="checkbox" name="age" value="24_25" {% if "24_25" in (search_age or []) %}checked{% endif %}> 24～25歳</label>
           <label><input type="checkbox" name="age" value="ge26" {% if "ge26" in (search_age or []) %}checked{% endif %}> 26歳以上</label>
 
-          <div class="muted muteded" style="margin-top:8px;">身長</div>
+          <div class="muted muteded">身長</div>
           <label><input type="checkbox" name="height" value="le149" {% if "le149" in (search_height or []) %}checked{% endif %}> 149cm以下</label>
           <label><input type="checkbox" name="height" value="150_158" {% if "150_158" in (search_height or []) %}checked{% endif %}> 150～158cm</label>
           <label><input type="checkbox" name="height" value="ge159" {% if "ge159" in (search_height or []) %}checked{% endif %}> 159cm以上</label>
 
-          <div class="muted muteded" style="margin-top:8px;">カップ</div>
+          <div class="muted muteded">カップ</div>
           <label><input type="checkbox" name="cup" value="leD" {% if "leD" in (search_cup or []) %}checked{% endif %}> D以下</label>
           <label><input type="checkbox" name="cup" value="EF" {% if "EF" in (search_cup or []) %}checked{% endif %}> E～F</label>
           <label><input type="checkbox" name="cup" value="geG" {% if "geG" in (search_cup or []) %}checked{% endif %}> G以上</label>
 
-          <div class="muted muteded" style="margin-top:8px;">ウエスト</div>
+          <div class="muted muteded">ウエスト</div>
           <label><input type="checkbox" name="waist" value="le49" {% if "le49" in (search_waist or []) %}checked{% endif %}> 49以下</label>
           <label><input type="checkbox" name="waist" value="50_56" {% if "50_56" in (search_waist or []) %}checked{% endif %}> 50～56</label>
           <label><input type="checkbox" name="waist" value="57_59" {% if "57_59" in (search_waist or []) %}checked{% endif %}> 57～59</label>
@@ -168,7 +168,7 @@
             </div>
 
             {% if avg is not none %}
-              <div class="muted mutede" style="margin-top:4px;">平均評価：{{ "%.2f"|format(avg) }}</div>
+              <div class="muted mutede">平均評価：{{ "%.2f"|format(avg) }}</div>
             {% endif %}
           </div>
         {% endfor %}
