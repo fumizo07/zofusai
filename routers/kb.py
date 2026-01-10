@@ -1,18 +1,20 @@
-# 007
+# 008
 # routers/kb.py
 import json
+import re
 import unicodedata
 from collections import defaultdict
 from datetime import datetime
+from typing import Dict, List, Optional, Tuple
 
-from fastapi import APIRouter, Depends, Form, Request
+from fastapi import APIRouter, Depends, Form, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
-from sqlalchemy import desc, func, exists, and_, or_
+from sqlalchemy import and_, desc, exists, func, or_
 from sqlalchemy.orm import Session
 
 from app_context import templates
 from db import get_db
-from models import KBRegion, KBStore, KBPerson, KBVisit
+from models import KBPerson, KBRegion, KBStore, KBVisit
 
 router = APIRouter()
 
@@ -66,6 +68,92 @@ def _sanitize_image_urls(raw: str) -> list[str]:
         if len(out) >= 20:
             break
     return out
+
+
+def _split_tokens(raw: Optional[str]) -> List[str]:
+    """
+    services/tags の「カンマ区切り想定」をトークン配列にする
+    - 区切り: , ， 、 / 改行 / タブ
+    - 前後空白除去
+    - 空要素除外
+    """
+    if not raw:
+        return []
+    s = unicodedata.normalize("NFKC", raw)
+    parts = re.split(r"[,\n\r\t/、，]+", s)
+    out = []
+    for p in parts:
+        t = (p or "").strip()
+        if not t:
+            continue
+        out.append(t)
+    return out
+
+
+def _token_set_norm(raw: Optional[str]) -> set:
+    """
+    トークン集合（正規化済）を作る
+    """
+    toks = _split_tokens(raw)
+    return {norm_text(t) for t in toks if t}
+
+
+def _collect_service_tag_options(db: Session) -> Tuple[List[str], List[str]]:
+    """
+    全人物から services/tags を集計してチェックボックスの候補にする
+    - 表示文字列は「最初に見つかった表記」を採用
+    - 並びは表示文字列の昇順
+    """
+    persons = db.query(KBPerson.services, KBPerson.tags).all()
+
+    svc_map: Dict[str, str] = {}
+    tag_map: Dict[str, str] = {}
+
+    for services, tags in persons:
+        for t in _split_tokens(services):
+            k = norm_text(t)
+            if k and k not in svc_map:
+                svc_map[k] = t
+        for t in _split_tokens(tags):
+            k = norm_text(t)
+            if k and k not in tag_map:
+                tag_map[k] = t
+
+    svc_list = sorted(svc_map.values(), key=lambda x: norm_text(x))
+    tag_list = sorted(tag_map.values(), key=lambda x: norm_text(x))
+    return svc_list, tag_list
+
+
+def _cup_letter(raw: Optional[str]) -> str:
+    """
+    cup欄から A-Z の1文字を抜く
+    - NFKC + upper
+    - 先に出た英字を採用（例：'Ｄカップ'→'D'）
+    """
+    if not raw:
+        return ""
+    s = unicodedata.normalize("NFKC", raw).upper()
+    m = re.search(r"[A-Z]", s)
+    return m.group(0) if m else ""
+
+
+def _cup_bucket_hit(bucket: str, cup_letter: str) -> bool:
+    """
+    cup_bucket:
+      - leD: A-D
+      - EF: E,F
+      - geG: G-Z
+    """
+    if not cup_letter:
+        return False
+    c = cup_letter
+    if bucket == "leD":
+        return "A" <= c <= "D"
+    if bucket == "EF":
+        return c in {"E", "F"}
+    if bucket == "geG":
+        return "G" <= c <= "Z"
+    return False
 
 
 def build_person_search_blob(db: Session, p: KBPerson) -> str:
@@ -168,11 +256,7 @@ def _avg_rating_map_for_person_ids(db: Session, person_ids: list[int]) -> dict[i
     return out
 
 
-# =========================
-# KBトップ
-# =========================
-@router.get("/kb", response_class=HTMLResponse)
-def kb_index(request: Request, db: Session = Depends(get_db)):
+def _build_tree_data(db: Session):
     regions = db.query(KBRegion).order_by(KBRegion.name.asc()).all()
 
     store_rows = (
@@ -181,7 +265,6 @@ def kb_index(request: Request, db: Session = Depends(get_db)):
         .order_by(KBRegion.name.asc(), KBStore.name.asc())
         .all()
     )
-
     stores_by_region = defaultdict(list)
     for s, r in store_rows:
         stores_by_region[r.id].append(s)
@@ -189,9 +272,35 @@ def kb_index(request: Request, db: Session = Depends(get_db)):
     counts = dict(
         db.query(KBPerson.store_id, func.count(KBPerson.id)).group_by(KBPerson.store_id).all()
     )
+    return regions, stores_by_region, counts
 
+
+def _build_store_region_maps(db: Session, persons: List[KBPerson]):
+    store_ids = list({p.store_id for p in persons})
+    stores = {}
+    regions_map = {}
+    if store_ids:
+        st_rows = db.query(KBStore).filter(KBStore.id.in_(store_ids)).all()
+        for s in st_rows:
+            stores[s.id] = s
+        reg_ids = list({s.region_id for s in st_rows})
+        if reg_ids:
+            rr = db.query(KBRegion).filter(KBRegion.id.in_(reg_ids)).all()
+            for r in rr:
+                regions_map[r.id] = r
+    return stores, regions_map
+
+
+# =========================
+# KBトップ
+# =========================
+@router.get("/kb", response_class=HTMLResponse)
+def kb_index(request: Request, db: Session = Depends(get_db)):
+    regions, stores_by_region, counts = _build_tree_data(db)
     panic = request.query_params.get("panic") or ""
     search_error = request.query_params.get("search_error") or ""
+
+    svc_options, tag_options = _collect_service_tag_options(db)
 
     return templates.TemplateResponse(
         "kb_index.html",
@@ -202,12 +311,27 @@ def kb_index(request: Request, db: Session = Depends(get_db)):
             "person_counts": counts,
             "panic": panic,
             "search_error": search_error,
+            # 検索フォーム保持用（デフォルト）
             "search_q": "",
             "search_region_id": "",
+            "search_budget_min": "",
+            "search_budget_max": "",
+            "search_age": [],
+            "search_height": [],
+            "search_cup": [],
+            "search_waist": [],
+            "search_svc": [],
+            "search_tag": [],
+            # 検索結果
             "search_results": None,
+            "search_truncated": False,
+            "search_total_count": 0,
             "stores_map": {},
             "regions_map": {},
             "rating_avg_map": {},
+            # チェックボックス候補
+            "svc_options": svc_options,
+            "tag_options": tag_options,
             "active_page": "kb",
             "page_title_suffix": "KB",
             "body_class": "page-kb",
@@ -385,7 +509,6 @@ def kb_update_person(
     services: str = Form(""),
     tags: str = Form(""),
     url: str = Form(""),
-    # ★追加：画像URL（複数行）
     image_urls_text: str = Form(""),
     memo: str = Form(""),
     db: Session = Depends(get_db),
@@ -399,7 +522,11 @@ def kb_update_person(
         p.name = (name or "").strip() or p.name
         p.age = _parse_int(age)
         p.height_cm = _parse_int(height_cm)
-        p.cup = (cup or "").strip() or None
+        
+        cu = (cup or "").strip()
+        cu = unicodedata.normalize("NFKC", cu).upper()
+        p.cup = (cu[:1] if cu and "A" <= cu[:1] <= "Z" else None)
+
         p.bust_cm = _parse_int(bust_cm)
         p.waist_cm = _parse_int(waist_cm)
         p.hip_cm = _parse_int(hip_cm)
@@ -414,7 +541,7 @@ def kb_update_person(
             if hasattr(p, "url_norm"):
                 p.url_norm = norm_text(p.url or "")
 
-        # ★画像URL（複数）
+        # 画像URL（複数）
         if hasattr(p, "image_urls"):
             urls = _sanitize_image_urls(image_urls_text or "")
             p.image_urls = urls or None
@@ -439,10 +566,10 @@ def kb_update_person(
 def kb_add_visit(
     request: Request,
     person_id: int,
-    visited_at: str = Form(""),         # YYYY-MM-DD
-    start_time: str = Form(""),         # HH:MM
-    end_time: str = Form(""),           # HH:MM
-    rating: str = Form(""),             # 1-5
+    visited_at: str = Form(""),  # YYYY-MM-DD
+    start_time: str = Form(""),  # HH:MM
+    end_time: str = Form(""),  # HH:MM
+    rating: str = Form(""),  # 1-5
     memo: str = Form(""),
     price_items_json: str = Form(""),
     db: Session = Depends(get_db),
@@ -524,12 +651,12 @@ def kb_add_visit(
 def kb_update_visit(
     request: Request,
     visit_id: int,
-    visited_at: str = Form(""),         # YYYY-MM-DD
-    start_time: str = Form(""),         # HH:MM
-    end_time: str = Form(""),           # HH:MM
-    rating: str = Form(""),             # 1-5
+    visited_at: str = Form(""),  # YYYY-MM-DD
+    start_time: str = Form(""),  # HH:MM
+    end_time: str = Form(""),  # HH:MM
+    rating: str = Form(""),  # 1-5
     memo: str = Form(""),
-    price_items_json: str = Form(""),   # 空=変更なし, "[]"=クリア, JSON=上書き
+    price_items_json: str = Form(""),  # 空=変更なし, "[]"=クリア, JSON=上書き
     db: Session = Depends(get_db),
 ):
     v = db.query(KBVisit).filter(KBVisit.id == int(visit_id)).first()
@@ -662,20 +789,40 @@ def kb_panic_delete_all(
 
 
 # =========================
-# KB フリーワード検索（地域で絞り込み可）
+# 人物検索（詳細検索 + フリーワード）
+#  - 何も指定せず検索 → 全員表示
 # =========================
 @router.get("/kb/search", response_class=HTMLResponse)
-def kb_search(request: Request, q: str = "", region_id: str = "", db: Session = Depends(get_db)):
-    q_raw = (q or "").strip()
-    if not q_raw:
-        return RedirectResponse(url="/kb?search_error=empty", status_code=303)
+def kb_search(
+    request: Request,
+    db: Session = Depends(get_db),
+    q: str = "",
+    region_id: str = "",
+    budget_min: str = "",
+    budget_max: str = "",
+    age: List[str] = Query(default=[]),
+    height: List[str] = Query(default=[]),
+    cup: List[str] = Query(default=[]),
+    waist: List[str] = Query(default=[]),
+    svc: List[str] = Query(default=[]),
+    tag: List[str] = Query(default=[]),
+):
+    # ツリーは常に表示する
+    regions, stores_by_region, counts = _build_tree_data(db)
 
-    qn = norm_text(q_raw)
+    # チェックボックス候補
+    svc_options, tag_options = _collect_service_tag_options(db)
 
-    regions = db.query(KBRegion).order_by(KBRegion.name.asc()).all()
     rid = _parse_int(region_id)
+    bmin = _parse_int(budget_min)
+    bmax = _parse_int(budget_max)
+
+    q_raw = (q or "").strip()
+    qn = norm_text(q_raw) if q_raw else ""
 
     person_q = db.query(KBPerson)
+
+    # 地域絞り込み（KBStore, KBRegion へJOIN）
     if rid:
         person_q = (
             person_q.join(KBStore, KBStore.id == KBPerson.store_id)
@@ -683,50 +830,113 @@ def kb_search(request: Request, q: str = "", region_id: str = "", db: Session = 
             .filter(KBRegion.id == rid)
         )
 
-    visit_exists = exists().where(
-        and_(
-            KBVisit.person_id == KBPerson.id,
-            KBVisit.search_norm.isnot(None),
-            KBVisit.search_norm.contains(qn),
+    # 年齢レンジ（複数チェックは OR）
+    age_conds = []
+    if age:
+        for a in age:
+            if a == "u20":
+                age_conds.append(KBPerson.age.isnot(None) & (KBPerson.age <= 20))
+            elif a == "21_23":
+                age_conds.append(KBPerson.age.isnot(None) & KBPerson.age.between(21, 23))
+            elif a == "24_25":
+                age_conds.append(KBPerson.age.isnot(None) & KBPerson.age.between(24, 25))
+            elif a == "ge26":
+                age_conds.append(KBPerson.age.isnot(None) & (KBPerson.age >= 26))
+    if age_conds:
+        person_q = person_q.filter(or_(*age_conds))
+
+    # 身長レンジ（複数チェックは OR）
+    height_conds = []
+    if height:
+        for h in height:
+            if h == "le149":
+                height_conds.append(KBPerson.height_cm.isnot(None) & (KBPerson.height_cm <= 149))
+            elif h == "150_158":
+                height_conds.append(KBPerson.height_cm.isnot(None) & KBPerson.height_cm.between(150, 158))
+            elif h == "ge159":
+                height_conds.append(KBPerson.height_cm.isnot(None) & (KBPerson.height_cm >= 159))
+    if height_conds:
+        person_q = person_q.filter(or_(*height_conds))
+
+    # ウエストレンジ（複数チェックは OR）
+    waist_conds = []
+    if waist:
+        for w in waist:
+            if w == "le49":
+                waist_conds.append(KBPerson.waist_cm.isnot(None) & (KBPerson.waist_cm <= 49))
+            elif w == "50_56":
+                waist_conds.append(KBPerson.waist_cm.isnot(None) & KBPerson.waist_cm.between(50, 56))
+            elif w == "57_59":
+                waist_conds.append(KBPerson.waist_cm.isnot(None) & KBPerson.waist_cm.between(57, 59))
+            elif w == "ge60":
+                waist_conds.append(KBPerson.waist_cm.isnot(None) & (KBPerson.waist_cm >= 60))
+    if waist_conds:
+        person_q = person_q.filter(or_(*waist_conds))
+
+    # 予算（A案）：過去利用ログのうち1回でも範囲内があればヒット（exists）
+    if bmin is not None or bmax is not None:
+        conds = [KBVisit.person_id == KBPerson.id]
+        if bmin is not None:
+            conds.append(KBVisit.total_yen >= int(bmin))
+        if bmax is not None:
+            conds.append(KBVisit.total_yen <= int(bmax))
+        budget_exists = exists().where(and_(*conds))
+        person_q = person_q.filter(budget_exists)
+
+    # フリーワード（人物 or 利用ログ）
+    if qn:
+        visit_exists = exists().where(
+            and_(
+                KBVisit.person_id == KBPerson.id,
+                KBVisit.search_norm.isnot(None),
+                KBVisit.search_norm.contains(qn),
+            )
         )
-    )
-
-    person_q = person_q.filter(
-        or_(
-            and_(KBPerson.search_norm.isnot(None), KBPerson.search_norm.contains(qn)),
-            visit_exists,
+        person_q = person_q.filter(
+            or_(
+                and_(KBPerson.search_norm.isnot(None), KBPerson.search_norm.contains(qn)),
+                visit_exists,
+            )
         )
-    )
 
-    persons = person_q.order_by(KBPerson.name.asc()).limit(300).all()
+    # 一旦SQLで取ってから、Python側で「完全一致トークン」系（svc/tag/cup）を詰める
+    # ※人数が増えたら、ここは最適化（別テーブル化など）できます
+    candidates = person_q.order_by(KBPerson.name.asc()).limit(2000).all()
 
-    store_rows = (
-        db.query(KBStore, KBRegion)
-        .join(KBRegion, KBRegion.id == KBStore.region_id)
-        .order_by(KBRegion.name.asc(), KBStore.name.asc())
-        .all()
-    )
-    stores_by_region = defaultdict(list)
-    for s, r in store_rows:
-        stores_by_region[r.id].append(s)
+    # サービス/タグ選択（OR判定：チェックされたどれか1つでも含めばヒット）
+    svc_norm_set = {norm_text(x) for x in (svc or []) if (x or "").strip()}
+    tag_norm_set = {norm_text(x) for x in (tag or []) if (x or "").strip()}
 
-    counts = dict(
-        db.query(KBPerson.store_id, func.count(KBPerson.id)).group_by(KBPerson.store_id).all()
-    )
+    def hit_svc(p: KBPerson) -> bool:
+        if not svc_norm_set:
+            return True
+        ps = _token_set_norm(getattr(p, "services", None))
+        return any(x in ps for x in svc_norm_set)
 
-    store_ids = list({p.store_id for p in persons})
-    stores = {}
-    regions_map = {}
-    if store_ids:
-        st_rows = db.query(KBStore).filter(KBStore.id.in_(store_ids)).all()
-        for s in st_rows:
-            stores[s.id] = s
-        reg_ids = list({s.region_id for s in st_rows})
-        if reg_ids:
-            rr = db.query(KBRegion).filter(KBRegion.id.in_(reg_ids)).all()
-            for r in rr:
-                regions_map[r.id] = r
+    def hit_tag(p: KBPerson) -> bool:
+        if not tag_norm_set:
+            return True
+        pt = _token_set_norm(getattr(p, "tags", None))
+        return any(x in pt for x in tag_norm_set)
 
+    # カップ（A-D / E-F / G-Z）
+    def hit_cup(p: KBPerson) -> bool:
+        if not cup:
+            return True
+        c = _cup_letter(getattr(p, "cup", None))
+        # 複数チェックは OR
+        return any(_cup_bucket_hit(b, c) for b in cup)
+
+    persons = [p for p in candidates if hit_svc(p) and hit_tag(p) and hit_cup(p)]
+
+    # 表示の安全上限（極端に増えた場合の防御）
+    truncated = False
+    total_count = len(persons)
+    if len(persons) > 500:
+        persons = persons[:500]
+        truncated = True
+
+    stores_map, regions_map = _build_store_region_maps(db, persons)
     rating_avg_map = _avg_rating_map_for_person_ids(db, [p.id for p in persons])
 
     return templates.TemplateResponse(
@@ -738,12 +948,27 @@ def kb_search(request: Request, q: str = "", region_id: str = "", db: Session = 
             "person_counts": counts,
             "panic": request.query_params.get("panic") or "",
             "search_error": "",
+            # 検索フォーム保持
             "search_q": q_raw,
             "search_region_id": rid or "",
+            "search_budget_min": str(bmin) if bmin is not None else "",
+            "search_budget_max": str(bmax) if bmax is not None else "",
+            "search_age": age or [],
+            "search_height": height or [],
+            "search_cup": cup or [],
+            "search_waist": waist or [],
+            "search_svc": svc or [],
+            "search_tag": tag or [],
+            # 検索結果
             "search_results": persons,
-            "stores_map": stores,
+            "search_truncated": truncated,
+            "search_total_count": total_count,
+            "stores_map": stores_map,
             "regions_map": regions_map,
             "rating_avg_map": rating_avg_map,
+            # チェックボックス候補
+            "svc_options": svc_options,
+            "tag_options": tag_options,
             "active_page": "kb",
             "page_title_suffix": "KB",
             "body_class": "page-kb",

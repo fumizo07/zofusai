@@ -625,6 +625,14 @@ mark {
     font-size: 12px;
 }
 
+.mutede {
+    margin-top:4px;
+}
+
+.muteded {
+    margin-top:8px;
+}
+
 /* 店舗検索 UI 共通 */
 .store-search {
     margin-top: 4px;

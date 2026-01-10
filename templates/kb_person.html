@@ -1,4 +1,4 @@
-{# 006 #}
+{# 007 #}
 {% set page_title_suffix = "KB - 人物" %}
 {% set body_class = "page-kb" %}
 {% set active_page = "kb" %}
@@ -62,7 +62,14 @@
         <div><input class="kb-input-sm" type="number" name="height_cm" value="{{ person.height_cm or '' }}" placeholder="例：160" min="0" max="250"></div>
 
         <div class="kb-grid-label">カップ：</div>
-        <div><input class="kb-input-sm" type="text" name="cup" value="{{ person.cup or '' }}" placeholder="例：B" maxlength="8"></div>
+        <div>
+          <select class="kb-input-sm" name="cup">
+            <option value="" {% if not person.cup %}selected{% endif %}>（未設定）</option>
+            {% for c in "ABCDEFGHIJKLMNOPQRSTUVWXYZ" %}
+              <option value="{{ c }}" {% if person.cup == c %}selected{% endif %}>{{ c }}カップ</option>
+            {% endfor %}
+          </select>
+        </div>
 
         <div class="kb-grid-label">3サイズ：</div>
         <div class="kb-sizes">
