@@ -1,4 +1,4 @@
-# 005
+# 006
 # routers/kb.py
 import json
 import unicodedata
@@ -662,6 +662,22 @@ def kb_search(request: Request, q: str = "", region_id: str = "", db: Session = 
 
     persons = person_q.order_by(KBPerson.name.asc()).limit(300).all()
 
+    # ★ここが修正点：検索結果表示中でも「地域→店舗一覧」が消えないように、
+    #   トップと同じ stores_by_region / person_counts を組み立てて渡す
+    store_rows = (
+        db.query(KBStore, KBRegion)
+        .join(KBRegion, KBRegion.id == KBStore.region_id)
+        .order_by(KBRegion.name.asc(), KBStore.name.asc())
+        .all()
+    )
+    stores_by_region = defaultdict(list)
+    for s, r in store_rows:
+        stores_by_region[r.id].append(s)
+
+    counts = dict(
+        db.query(KBPerson.store_id, func.count(KBPerson.id)).group_by(KBPerson.store_id).all()
+    )
+
     store_ids = list({p.store_id for p in persons})
     stores = {}
     regions_map = {}
@@ -682,8 +698,8 @@ def kb_search(request: Request, q: str = "", region_id: str = "", db: Session = 
         {
             "request": request,
             "regions": regions,
-            "stores_by_region": defaultdict(list),
-            "person_counts": {},
+            "stores_by_region": stores_by_region,  # ★空じゃない
+            "person_counts": counts,               # ★空じゃない
             "panic": request.query_params.get("panic") or "",
             "search_error": "",
             "search_q": q_raw,
