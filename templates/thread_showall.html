@@ -3,7 +3,11 @@
 {% set active_page = "thread_search" %}
 {% include "_header.html" %}
 
-
+{# ★重要：include(_header.html) で set した変数はこのテンプレに漏れないので、ここで定義する #}
+{% set _back_url = back_url or "/thread_search" %}
+{% if _back_url == "/thread_search/posts" %}
+  {% set _back_url = "/thread_search" %}
+{% endif %}
 
 
 <main>
