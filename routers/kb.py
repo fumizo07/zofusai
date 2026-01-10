@@ -1,4 +1,4 @@
-# 006
+# 007
 # routers/kb.py
 import json
 import unicodedata
@@ -39,6 +39,35 @@ def norm_text(s: str) -> str:
     return s
 
 
+def _sanitize_image_urls(raw: str) -> list[str]:
+    """
+    テキスト入力（複数行）→ URLリストへ
+    - http(s)以外は捨てる（javascript: 等を避ける）
+    - 空行除外
+    - 重複除外（順序維持）
+    - 件数上限（暴走防止）
+    """
+    if not raw:
+        return []
+
+    lines = raw.splitlines()
+    out = []
+    seen = set()
+    for line in lines:
+        u = (line or "").strip()
+        if not u:
+            continue
+        if not (u.startswith("http://") or u.startswith("https://")):
+            continue
+        if u in seen:
+            continue
+        seen.add(u)
+        out.append(u)
+        if len(out) >= 20:
+            break
+    return out
+
+
 def build_person_search_blob(db: Session, p: KBPerson) -> str:
     store = db.query(KBStore).filter(KBStore.id == p.store_id).first()
     region = db.query(KBRegion).filter(KBRegion.id == store.region_id).first() if store else None
@@ -48,6 +77,13 @@ def build_person_search_blob(db: Session, p: KBPerson) -> str:
         parts.append(region.name)
     if store and store.name:
         parts.append(store.name)
+
+    img_parts = []
+    try:
+        if isinstance(getattr(p, "image_urls", None), list):
+            img_parts = [str(x or "") for x in (p.image_urls or [])]
+    except Exception:
+        img_parts = []
 
     parts.extend(
         [
@@ -60,8 +96,8 @@ def build_person_search_blob(db: Session, p: KBPerson) -> str:
             str(p.hip_cm or ""),
             p.services or "",
             p.tags or "",
-            # ★追加：URL（モデルにカラムがある前提）
             getattr(p, "url", "") or "",
+            " ".join([x for x in img_parts if x]),
             p.memo or "",
         ]
     )
@@ -157,7 +193,6 @@ def kb_index(request: Request, db: Session = Depends(get_db)):
     panic = request.query_params.get("panic") or ""
     search_error = request.query_params.get("search_error") or ""
 
-    # ★テンプレが常に参照する変数は「必ず」渡す（StrictUndefined対策）
     return templates.TemplateResponse(
         "kb_index.html",
         {
@@ -349,8 +384,9 @@ def kb_update_person(
     hip_cm: str = Form(""),
     services: str = Form(""),
     tags: str = Form(""),
-    # ★追加：URL
     url: str = Form(""),
+    # ★追加：画像URL（複数行）
+    image_urls_text: str = Form(""),
     memo: str = Form(""),
     db: Session = Depends(get_db),
 ):
@@ -371,12 +407,17 @@ def kb_update_person(
         p.services = (services or "").strip() or None
         p.tags = (tags or "").strip() or None
 
-        # ★モデルに url がある前提
+        # URL
         if hasattr(p, "url"):
             u = (url or "").strip()
             p.url = u or None
             if hasattr(p, "url_norm"):
                 p.url_norm = norm_text(p.url or "")
+
+        # ★画像URL（複数）
+        if hasattr(p, "image_urls"):
+            urls = _sanitize_image_urls(image_urls_text or "")
+            p.image_urls = urls or None
 
         p.memo = (memo or "").strip() or None
 
@@ -519,7 +560,6 @@ def kb_update_visit(
 
     raw = (price_items_json or "").strip()
 
-    # 明細：空なら触らない（入力ミスで既存が消えるのを防ぐ）
     update_price = False
     new_items = None
     new_total = None
@@ -553,7 +593,6 @@ def kb_update_visit(
             new_items = items or None
             new_total = int(total)
         except Exception:
-            # パース失敗：明細は触らない（安全側）
             update_price = False
 
     try:
@@ -644,7 +683,6 @@ def kb_search(request: Request, q: str = "", region_id: str = "", db: Session = 
             .filter(KBRegion.id == rid)
         )
 
-    # ★安全な exists()（SQLAlchemy 2.x 向け）
     visit_exists = exists().where(
         and_(
             KBVisit.person_id == KBPerson.id,
@@ -662,8 +700,6 @@ def kb_search(request: Request, q: str = "", region_id: str = "", db: Session = 
 
     persons = person_q.order_by(KBPerson.name.asc()).limit(300).all()
 
-    # ★ここが修正点：検索結果表示中でも「地域→店舗一覧」が消えないように、
-    #   トップと同じ stores_by_region / person_counts を組み立てて渡す
     store_rows = (
         db.query(KBStore, KBRegion)
         .join(KBRegion, KBRegion.id == KBStore.region_id)
@@ -698,8 +734,8 @@ def kb_search(request: Request, q: str = "", region_id: str = "", db: Session = 
         {
             "request": request,
             "regions": regions,
-            "stores_by_region": stores_by_region,  # ★空じゃない
-            "person_counts": counts,               # ★空じゃない
+            "stores_by_region": stores_by_region,
+            "person_counts": counts,
             "panic": request.query_params.get("panic") or "",
             "search_error": "",
             "search_q": q_raw,
