@@ -17,8 +17,15 @@
     <div class="thread-info">
       <div>地域：<strong>{{ region.name if region else "（不明）" }}</strong></div>
       <div>店舗：<strong>{{ store.name if store else "（不明）" }}</strong></div>
-      <div>人物：<strong>{{ person.name }}</strong></div>
-
+      <div>
+        人物：<strong>{{ person.name }}</strong>
+        {% if person.age %}／{{ person.age }}歳{% endif %}
+        {% if person.height_cm %}／T{{ person.height_cm }}cm{% endif %}
+        {% if person.bust_cm %}／B{{ person.bust_cm }}{% endif %}
+        {% if person.waist_cm %}・W{{ person.waist_cm }}{% endif %}
+        {% if person.hip_cm %}・H{{ person.hip_cm }}{% endif %}
+      </div>
+      
       {% if person.url %}
         <div>URL：<a href="{{ person.url|e }}" target="_blank" rel="noopener noreferrer">{{ person.url }}</a></div>
       {% endif %}
