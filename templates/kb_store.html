@@ -42,9 +42,9 @@
               <a href="/kb/person/{{ p.id }}">{{ p.name }}</a>
               <span class="muted">
                 {% if p.services %}／{{ p.services }}{% endif %}
-                {% if p.height_cm %}／{{ p.height_cm }}cm{% endif %}
-                {% if p.cup %}／{{ p.cup }}{% endif %}
                 {% if p.age %}／{{ p.age }}歳{% endif %}
+                {% if p.height_cm %}／{{ p.height_cm }}cm{% endif %}
+                {% if p.cup %}／{{ p.cup }}カップ{% endif %}
                 {% if p.tags %}／タグ:{{ p.tags }}{% endif %}
               </span>
             </div>
