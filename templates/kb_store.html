@@ -43,9 +43,10 @@
               <span class="muted">
                 {% if p.services %}／{{ p.services }}{% endif %}
                 {% if p.age %}／{{ p.age }}歳{% endif %}
-                {% if p.height_cm %}／{{ p.height_cm }}cm{% endif %}
-                {% if p.cup %}／{{ p.cup }}カップ{% endif %}
-                {% if p.tags %}／タグ:{{ p.tags }}{% endif %}
+                {% if p.height_cm %}／T{{ p.height_cm }}cm{% endif %}
+                {% if person.bust_cm %}／B{{ person.bust_cm }}{% if p.cup %}({{ p.cup }}){% endif %}{% endif %}
+                {% if person.waist_cm %}・W{{ person.waist_cm }}{% endif %}
+                {% if person.hip_cm %}・H{{ person.hip_cm }}{% endif %}
               </span>
               <div class="muted">
                 {% if rg %}{{ rg.name }}{% endif %}
