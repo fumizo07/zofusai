@@ -19,11 +19,12 @@
       <div>店舗：<strong>{{ store.name if store else "（不明）" }}</strong></div>
       <div>
         人物：<strong>{{ person.name }}</strong>
-        {% if person.age %}／{{ person.age }}歳{% endif %}
-        {% if person.height_cm %}／T{{ person.height_cm }}cm{% endif %}
-        {% if person.bust_cm %}／B{{ person.bust_cm }}{% endif %}
-        {% if person.waist_cm %}・W{{ person.waist_cm }}{% endif %}
-        {% if person.hip_cm %}・H{{ person.hip_cm }}{% endif %}
+          {% if p.services %}／{{ p.services }}{% endif %}
+          {% if p.age %}／{{ p.age }}歳{% endif %}
+          {% if p.height_cm %}／T{{ p.height_cm }}cm{% endif %}
+          {% if person.bust_cm %}／B{{ person.bust_cm }}{% if p.cup %}({{ p.cup }}){% endif %}{% endif %}
+          {% if person.waist_cm %}・W{{ person.waist_cm }}{% endif %}
+          {% if person.hip_cm %}・H{{ person.hip_cm }}{% endif %}
       </div>
       
       {% if person.url %}
