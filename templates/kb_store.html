@@ -49,8 +49,8 @@
                 {% if person.hip_cm %}・H{{ person.hip_cm }}{% endif %}
               </span>
               <div class="muted">
-                {% if rg %}{{ rg.name }}{% endif %}
-                {% if st %}／{{ st.name }}{% endif %}
+                {{ region.name if region else "（不明）" }}
+                {{ store.name }}
                 {% if p.services %}／サービス:{{ p.services }}{% endif %}
                 {% if p.tags %}／タグ:{{ p.tags }}{% endif %}
               </div>

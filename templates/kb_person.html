@@ -1,4 +1,4 @@
-{# 007 #}
+{# 008 #}
 {% set page_title_suffix = "KB - 人物" %}
 {% set body_class = "page-kb" %}
 {% set active_page = "kb" %}
@@ -26,12 +26,11 @@
           {% if person.waist_cm %}・W{{ person.waist_cm }}{% endif %}
           {% if person.hip_cm %}・H{{ person.hip_cm }}{% endif %}
       </div>
-      
+
       {% if person.url %}
         <div>URL：<a href="{{ person.url|e }}" target="_blank" rel="noopener noreferrer">{{ person.url }}</a></div>
       {% endif %}
 
-      {# ★追加：画像URL（複数） #}
       {% if person.image_urls %}
         <div>画像：</div>
         <div class="kb-person-images">
@@ -95,7 +94,6 @@
         <div class="kb-grid-label">URL：</div>
         <div><input type="text" name="url" value="{{ person.url or '' }}" placeholder="https://..."></div>
 
-        {# ★追加：画像URL（複数） #}
         <div class="kb-grid-label">画像URL：</div>
         <div>
           <textarea name="image_urls_text" rows="4"
