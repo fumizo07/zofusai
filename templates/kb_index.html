@@ -1,4 +1,4 @@
-{# 004 #}
+{# 005 #}
 {% set page_title_suffix = "KB" %}
 {% set body_class = "page-kb" %}
 {% set active_page = "kb" %}
@@ -15,11 +15,11 @@
     {% endif %}
 
     {% if search_error == "empty" %}
-      <p class="error-message">検索ワードが空です。</p>
+      <p class="error-message">検索条件が空です。</p>
     {% endif %}
 
-    <!-- フリーワード検索 -->
-    <div class="section-title">フリーワード検索</div>
+    <!-- 人物検索（詳細検索 + フリーワード） -->
+    <div class="section-title">人物検索</div>
     <form method="get" action="/kb/search">
       <div class="form-row">
         <label>地域：</label>
@@ -34,18 +34,120 @@
       </div>
 
       <div class="form-row">
-        <label>検索：</label>
-        <input type="text" name="q" value="{{ search_q or '' }}" placeholder="例：テスト、メモの単語、サービス名 など">
+        <label>予算（合計）：</label>
+        <div class="kb-sizes">
+          <select name="budget_min">
+            <option value="" {% if not search_budget_min %}selected{% endif %}>下限なし</option>
+            <option value="5000" {% if search_budget_min == "5000" %}selected{% endif %}>5000</option>
+            <option value="10000" {% if search_budget_min == "10000" %}selected{% endif %}>10000</option>
+            <option value="15000" {% if search_budget_min == "15000" %}selected{% endif %}>15000</option>
+            <option value="20000" {% if search_budget_min == "20000" %}selected{% endif %}>20000</option>
+          </select>
+          <span class="muted">〜</span>
+          <select name="budget_max">
+            <option value="" {% if not search_budget_max %}selected{% endif %}>上限なし</option>
+            <option value="15000" {% if search_budget_max == "15000" %}selected{% endif %}>15000</option>
+            <option value="20000" {% if search_budget_max == "20000" %}selected{% endif %}>20000</option>
+            <option value="25000" {% if search_budget_max == "25000" %}selected{% endif %}>25000</option>
+            <option value="30000" {% if search_budget_max == "30000" %}selected{% endif %}>30000</option>
+            <option value="35000" {% if search_budget_max == "35000" %}selected{% endif %}>35000</option>
+            <option value="40000" {% if search_budget_max == "40000" %}selected{% endif %}>40000</option>
+            <option value="45000" {% if search_budget_max == "45000" %}selected{% endif %}>45000</option>
+          </select>
+          <span class="muted">円</span>
+        </div>
+        <div class="muted">※過去の利用ログのうち1回でも範囲内があればヒット</div>
+      </div>
+
+      <div class="form-row">
+        <label>プロフィール：</label>
+        <div>
+          <div class="muted">年齢</div>
+          <label><input type="checkbox" name="age" value="u20" {% if "u20" in (search_age or []) %}checked{% endif %}> 20歳以下</label>
+          <label><input type="checkbox" name="age" value="21_23" {% if "21_23" in (search_age or []) %}checked{% endif %}> 21～23歳</label>
+          <label><input type="checkbox" name="age" value="24_25" {% if "24_25" in (search_age or []) %}checked{% endif %}> 24～25歳</label>
+          <label><input type="checkbox" name="age" value="ge26" {% if "ge26" in (search_age or []) %}checked{% endif %}> 26歳以上</label>
+
+          <div class="muted" style="margin-top:8px;">身長</div>
+          <label><input type="checkbox" name="height" value="le149" {% if "le149" in (search_height or []) %}checked{% endif %}> 149cm以下</label>
+          <label><input type="checkbox" name="height" value="150_158" {% if "150_158" in (search_height or []) %}checked{% endif %}> 150～158cm</label>
+          <label><input type="checkbox" name="height" value="ge159" {% if "ge159" in (search_height or []) %}checked{% endif %}> 159cm以上</label>
+
+          <div class="muted" style="margin-top:8px;">カップ</div>
+          <label><input type="checkbox" name="cup" value="leD" {% if "leD" in (search_cup or []) %}checked{% endif %}> D以下</label>
+          <label><input type="checkbox" name="cup" value="EF" {% if "EF" in (search_cup or []) %}checked{% endif %}> E～F</label>
+          <label><input type="checkbox" name="cup" value="geG" {% if "geG" in (search_cup or []) %}checked{% endif %}> G以上</label>
+
+          <div class="muted" style="margin-top:8px;">ウエスト</div>
+          <label><input type="checkbox" name="waist" value="le49" {% if "le49" in (search_waist or []) %}checked{% endif %}> 49以下</label>
+          <label><input type="checkbox" name="waist" value="50_56" {% if "50_56" in (search_waist or []) %}checked{% endif %}> 50～56</label>
+          <label><input type="checkbox" name="waist" value="57_59" {% if "57_59" in (search_waist or []) %}checked{% endif %}> 57～59</label>
+          <label><input type="checkbox" name="waist" value="ge60" {% if "ge60" in (search_waist or []) %}checked{% endif %}> 60以上</label>
+        </div>
+      </div>
+
+      <div class="form-row">
+        <label>サービス：</label>
+        <div>
+          {% if svc_options %}
+            <details {% if search_svc %}open{% endif %}>
+              <summary class="muted">サービスを選択（{{ svc_options|length }}件）</summary>
+              <div class="kb-tags-box">
+                {% for s in svc_options %}
+                  <label class="kb-tag-chip">
+                    <input type="checkbox" name="svc" value="{{ s }}"
+                      {% if s in (search_svc or []) %}checked{% endif %}>
+                    {{ s }}
+                  </label>
+                {% endfor %}
+              </div>
+            </details>
+          {% else %}
+            <span class="muted">サービス候補はまだありません。</span>
+          {% endif %}
+        </div>
+      </div>
+
+      <div class="form-row">
+        <label>タグ：</label>
+        <div>
+          {% if tag_options %}
+            <details {% if search_tag %}open{% endif %}>
+              <summary class="muted">タグを選択（{{ tag_options|length }}件）</summary>
+              <div class="kb-tags-box">
+                {% for t in tag_options %}
+                  <label class="kb-tag-chip">
+                    <input type="checkbox" name="tag" value="{{ t }}"
+                      {% if t in (search_tag or []) %}checked{% endif %}>
+                    {{ t }}
+                  </label>
+                {% endfor %}
+              </div>
+            </details>
+          {% else %}
+            <span class="muted">タグ候補はまだありません。</span>
+          {% endif %}
+        </div>
+      </div>
+
+      <div class="form-row">
+        <label>フリーワード：</label>
+        <input type="text" name="q" value="{{ search_q or '' }}" placeholder="例：メモの単語、サービス名、タグ など">
       </div>
 
       <div class="form-row">
         <button type="submit" class="btn-primary">検索</button>
         <button type="button" class="btn-secondary" onclick="window.location.href='/kb'">リセット</button>
       </div>
+
+      <div class="muted">※何も指定せず検索すると全員表示になります（上限500件）。</div>
     </form>
 
-    {% if search_results %}
-      <div class="section-title kb-section-top">検索結果（{{ search_results|length }}件）</div>
+    {% if search_results is not none %}
+      <div class="section-title kb-section-top">検索結果（{{ search_total_count or (search_results|length) }}件）</div>
+      {% if search_truncated %}
+        <p class="muted">表示件数が多いため先頭500件のみ表示しています。条件を絞ってください。</p>
+      {% endif %}
       <div class="thread-results">
         {% for p in search_results %}
           {% set st = (stores_map or {}).get(p.store_id) %}
@@ -65,7 +167,6 @@
               {% if p.tags %}／ タグ: {{ p.tags }}{% endif %}
             </div>
 
-            {# ★②：平均評価（利用ログにratingがある人だけ） #}
             {% if avg is not none %}
               <div class="muted" style="margin-top:4px;">平均評価：{{ "%.2f"|format(avg) }}</div>
             {% endif %}
