@@ -180,19 +180,19 @@
                 <a href="/kb/person/{{ p.id }}">{{ p.name }}</a>
                 {%- if p.services -%}/{{ p.services }}{%- endif -%}
                 {% if p.age %}/{{ p.age }}歳{% endif %}
-                {% if p.height_cm %}/T{{ p.height_cm }}{% endif %}
+                {%- if p.height_cm -%}/T{{ p.height_cm }}{%- endif -%}
                 {% if p.bust_cm %}-{{ p.bust_cm }}{% if p.cup %}({{ p.cup }}){% endif %}{% endif %}
-                {% if p.waist_cm %}-{{ p.waist_cm }}{% endif %}
+                {%- if p.waist_cm -%}-{{ p.waist_cm }}{%- endif -%}
                 {% if p.hip_cm %}-{{ p.hip_cm }}{% endif %}
               </div>
               <div class="muted">
                 {% if rg %}{{ rg.name }}{% endif %}
-                {% if st %}/{{ st.name }}{% endif %}
+                {%- if st -%}/{{ st.name }}{%- endif -%}
                 {% if p.tags %}/タグ:{{ p.tags }}{% endif %}
               </div>
               <div class="muted">
                 {% if avg is not none %}平均評価:{{ "%.2f"|format(avg) }}{% endif %}
-                {% if avg_amt is not none %}/平均金額:{{ "{:,}".format(avg_amt) }}円{% endif %}
+                {%- if avg_amt is not none -%}/平均金額:{{ "{:,}".format(avg_amt) }}円{%- endif -%}
               </div>
             </div>
           </div>
