@@ -41,7 +41,7 @@
             <div class="result-id">
               <a href="/kb/person/{{ p.id }}">{{ p.name }}</a>
               <span class="muted">
-                {% if p.services %}／{{ p.services }}{% endif %}
+                {%- if p.services -%}／{{ p.services }}{%- endif -%}
                 {% if p.age %}／{{ p.age }}歳{% endif %}
                 {% if p.height_cm %}／T{{ p.height_cm }}{% endif %}
                 {% if p.bust_cm %}・B{{ p.bust_cm }}{% if p.cup %}({{ p.cup }}){% endif %}{% endif %}
