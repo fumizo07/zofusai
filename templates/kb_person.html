@@ -225,7 +225,7 @@
                 {% if i <= v.rating %}★{% else %}☆{% endif %}
               {% endfor %}
             {% endif %}
-            {% if v.total_yen %} ／ 合計：{{ v.total_yen }}円{% endif %}
+            {% if v.total_yen %} ／ 合計：{{ "{:,}".format(v.total_yen or 0) }}円{% endif %}
           </div>
 
           {% if v.memo %}
@@ -236,7 +236,7 @@
             <div class="tags">
               明細：
               {% for it in v.price_items %}
-                {% if it.label %}{{ it.label }}{% else %}（項目）{% endif %}={{ it.amount or 0 }}円
+                {% if it.label %}{{ it.label }}{% else %}（項目）{% endif %}={{ "{:,}".format(it.amount or 0) }}円
                 {% if not loop.last %} / {% endif %}
               {% endfor %}
             </div>
