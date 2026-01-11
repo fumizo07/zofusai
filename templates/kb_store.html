@@ -1,4 +1,4 @@
-{# 003 #}
+{# 004 #}
 {% set page_title_suffix = "KB - 店舗" %}
 {% set body_class = "page-kb" %}
 {% set active_page = "kb" %}
@@ -44,21 +44,19 @@
                 {% if p.services %}／{{ p.services }}{% endif %}
                 {% if p.age %}／{{ p.age }}歳{% endif %}
                 {% if p.height_cm %}／T{{ p.height_cm }}cm{% endif %}
-                {% if person.bust_cm %}／B{{ person.bust_cm }}{% if p.cup %}({{ p.cup }}){% endif %}{% endif %}
-                {% if person.waist_cm %}・W{{ person.waist_cm }}{% endif %}
-                {% if person.hip_cm %}・H{{ person.hip_cm }}{% endif %}
+                {% if p.bust_cm %}／B{{ p.bust_cm }}{% if p.cup %}({{ p.cup }}){% endif %}{% endif %}
+                {% if p.waist_cm %}・W{{ p.waist_cm }}{% endif %}
+                {% if p.hip_cm %}・H{{ p.hip_cm }}{% endif %}
               </span>
-              <div class="muted">
-                {{ region.name if region else "（不明）" }}
-                {{ store.name }}
-                {% if p.services %}／サービス:{{ p.services }}{% endif %}
-                {% if p.tags %}／タグ:{{ p.tags }}{% endif %}
-              </div>
             </div>
 
-            {# ★利用ログがあり rating が入っている人だけ平均評価を表示 #}
+            <div class="muted">
+              {{ region.name if region else "（不明）" }}／{{ store.name }}
+              {% if p.tags %}／タグ:{{ p.tags }}{% endif %}
+            </div>
+
             {% if avg is not none %}
-              <div class="mutede">平均評価：{{ "%.2f"|format(avg) }}</div>
+              <div class="muted">平均評価：{{ "%.2f"|format(avg) }}</div>
             {% endif %}
           </div>
         {% endfor %}
