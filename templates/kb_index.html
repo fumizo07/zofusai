@@ -53,21 +53,21 @@
         <div class="kb-sizes">
           <select name="budget_min">
             <option value="" {% if not search_budget_min %}selected{% endif %}>下限なし</option>
-            <option value="5000" {% if search_budget_min == "5000" %}selected{% endif %}>5000</option>
-            <option value="10000" {% if search_budget_min == "10000" %}selected{% endif %}>10000</option>
-            <option value="15000" {% if search_budget_min == "15000" %}selected{% endif %}>15000</option>
-            <option value="20000" {% if search_budget_min == "20000" %}selected{% endif %}>20000</option>
+            <option value="5000" {% if search_budget_min == "5000" %}selected{% endif %}>5,000</option>
+            <option value="10000" {% if search_budget_min == "10000" %}selected{% endif %}>10,000</option>
+            <option value="15000" {% if search_budget_min == "15000" %}selected{% endif %}>15,000</option>
+            <option value="20000" {% if search_budget_min == "20000" %}selected{% endif %}>20,000</option>
           </select>
           <span class="muted">〜</span>
           <select name="budget_max">
             <option value="" {% if not search_budget_max %}selected{% endif %}>上限なし</option>
-            <option value="15000" {% if search_budget_max == "15000" %}selected{% endif %}>15000</option>
-            <option value="20000" {% if search_budget_max == "20000" %}selected{% endif %}>20000</option>
-            <option value="25000" {% if search_budget_max == "25000" %}selected{% endif %}>25000</option>
-            <option value="30000" {% if search_budget_max == "30000" %}selected{% endif %}>30000</option>
-            <option value="35000" {% if search_budget_max == "35000" %}selected{% endif %}>35000</option>
-            <option value="40000" {% if search_budget_max == "40000" %}selected{% endif %}>40000</option>
-            <option value="45000" {% if search_budget_max == "45000" %}selected{% endif %}>45000</option>
+            <option value="15000" {% if search_budget_max == "15000" %}selected{% endif %}>15,000</option>
+            <option value="20000" {% if search_budget_max == "20000" %}selected{% endif %}>20,000</option>
+            <option value="25000" {% if search_budget_max == "25000" %}selected{% endif %}>25,000</option>
+            <option value="30000" {% if search_budget_max == "30000" %}selected{% endif %}>30,000</option>
+            <option value="35000" {% if search_budget_max == "35000" %}selected{% endif %}>35,000</option>
+            <option value="40000" {% if search_budget_max == "40000" %}selected{% endif %}>40,000</option>
+            <option value="45000" {% if search_budget_max == "45000" %}selected{% endif %}>45,000</option>
           </select>
           <span class="muted">円</span>
         </div>
@@ -166,6 +166,7 @@
           {% set st = (stores_map or {}).get(p.store_id) %}
           {% set rg = (regions_map or {}).get(st.region_id) if st else None %}
           {% set avg = (rating_avg_map or {}).get(p.id) %}
+          {% set avg_amt = (amount_avg_map or {}).get(p.id) %}
           <div class="result">
             <div class="result-id">
               <a href="/kb/person/{{ p.id }}">{{ p.name }}</a>
@@ -183,9 +184,10 @@
               {% if p.tags %}／タグ:{{ p.tags }}{% endif %}
             </div>
 
-            {% if avg is not none %}
-              <div class="muted">平均評価：{{ "%.2f"|format(avg) }}</div>
-            {% endif %}
+            <div class="muted">
+              {% if avg is not none %}平均評価：{{ "%.2f"|format(avg) }}{% endif %}
+              {% if avg_amt is not none %}／平均金額：{{ "{:,}".format(avg_amt) }}円{% endif %}
+            </div>
           </div>
         {% endfor %}
       </div>

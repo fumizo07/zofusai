@@ -1,4 +1,4 @@
-# 009
+# 011
 # routers/kb.py
 import json
 import re
@@ -213,7 +213,6 @@ def _parse_int(x: str):
     if not s:
         return None
 
-    # よく混ざるものを先に除去
     s = s.replace(",", "")
     s = s.replace("_", "")
     s = re.sub(r"[ \t\u3000]", "", s)  # 半角/全角スペース
@@ -284,6 +283,36 @@ def _avg_rating_map_for_person_ids(db: Session, person_ids: list[int]) -> dict[i
         if pid is None or avg is None:
             continue
         out[int(pid)] = float(avg)
+    return out
+
+
+def _avg_amount_map_for_person_ids(db: Session, person_ids: list[int]) -> dict[int, int]:
+    """
+    person_id ごとの平均金額（total_yen の平均）を返す
+    - total_yen が None は除外
+    - total_yen <= 0 は除外（=0円ログが平均を汚染しない）
+    - 返り値は「円の整数」（四捨五入）
+    """
+    if not person_ids:
+        return {}
+    rows = (
+        db.query(KBVisit.person_id, func.avg(KBVisit.total_yen))
+        .filter(
+            KBVisit.person_id.in_(person_ids),
+            KBVisit.total_yen.isnot(None),
+            KBVisit.total_yen > 0,
+        )
+        .group_by(KBVisit.person_id)
+        .all()
+    )
+    out: dict[int, int] = {}
+    for pid, avg in rows:
+        if pid is None or avg is None:
+            continue
+        try:
+            out[int(pid)] = int(round(float(avg)))
+        except Exception:
+            continue
     return out
 
 
@@ -360,6 +389,7 @@ def kb_index(request: Request, db: Session = Depends(get_db)):
             "stores_map": {},
             "regions_map": {},
             "rating_avg_map": {},
+            "amount_avg_map": {},
             # チェックボックス候補
             "svc_options": svc_options,
             "tag_options": tag_options,
@@ -434,6 +464,7 @@ def kb_store_page(request: Request, store_id: int, db: Session = Depends(get_db)
     )
 
     rating_avg_map = _avg_rating_map_for_person_ids(db, [p.id for p in persons])
+    amount_avg_map = _avg_amount_map_for_person_ids(db, [p.id for p in persons])
 
     return templates.TemplateResponse(
         "kb_store.html",
@@ -443,6 +474,7 @@ def kb_store_page(request: Request, store_id: int, db: Session = Depends(get_db)
             "store": store,
             "persons": persons,
             "rating_avg_map": rating_avg_map,
+            "amount_avg_map": amount_avg_map,
             "active_page": "kb",
             "page_title_suffix": "KB",
             "body_class": "page-kb",
@@ -510,6 +542,23 @@ def kb_person_page(request: Request, person_id: int, db: Session = Depends(get_d
         .scalar()
     )
 
+    amount_avg = (
+        db.query(func.avg(KBVisit.total_yen))
+        .filter(
+            KBVisit.person_id == person.id,
+            KBVisit.total_yen.isnot(None),
+            KBVisit.total_yen > 0,
+        )
+        .scalar()
+    )
+
+    amount_avg_yen = None
+    try:
+        if amount_avg is not None:
+            amount_avg_yen = int(round(float(amount_avg)))
+    except Exception:
+        amount_avg_yen = None
+
     return templates.TemplateResponse(
         "kb_person.html",
         {
@@ -519,6 +568,7 @@ def kb_person_page(request: Request, person_id: int, db: Session = Depends(get_d
             "person": person,
             "visits": visits,
             "rating_avg": rating_avg,
+            "amount_avg_yen": amount_avg_yen,
             "active_page": "kb",
             "page_title_suffix": "KB",
             "body_class": "page-kb",
@@ -834,10 +884,7 @@ def kb_search(
     svc: List[str] = Query(default=[]),
     tag: List[str] = Query(default=[]),
 ):
-    # ツリーは常に表示する
     regions, stores_by_region, counts = _build_tree_data(db)
-
-    # チェックボックス候補
     svc_options, tag_options = _collect_service_tag_options(db)
 
     rid = _parse_int(region_id)
@@ -849,7 +896,6 @@ def kb_search(
 
     person_q = db.query(KBPerson)
 
-    # 地域絞り込み（KBStore, KBRegion へJOIN）
     if rid:
         person_q = (
             person_q.join(KBStore, KBStore.id == KBPerson.store_id)
@@ -857,7 +903,6 @@ def kb_search(
             .filter(KBRegion.id == rid)
         )
 
-    # 年齢レンジ（複数チェックは OR）
     age_conds = []
     if age:
         for a in age:
@@ -872,7 +917,6 @@ def kb_search(
     if age_conds:
         person_q = person_q.filter(or_(*age_conds))
 
-    # 身長レンジ（複数チェックは OR）
     height_conds = []
     if height:
         for h in height:
@@ -887,7 +931,6 @@ def kb_search(
     if height_conds:
         person_q = person_q.filter(or_(*height_conds))
 
-    # ウエストレンジ（複数チェックは OR）
     waist_conds = []
     if waist:
         for w in waist:
@@ -902,7 +945,6 @@ def kb_search(
     if waist_conds:
         person_q = person_q.filter(or_(*waist_conds))
 
-    # 予算（A案）：過去利用ログのうち1回でも範囲内があればヒット（exists）
     if bmin is not None or bmax is not None:
         conds = [KBVisit.person_id == KBPerson.id]
         if bmin is not None:
@@ -912,7 +954,6 @@ def kb_search(
         budget_exists = exists().where(and_(*conds))
         person_q = person_q.filter(budget_exists)
 
-    # フリーワード（人物 or 利用ログ）
     if qn:
         visit_exists = exists().where(
             and_(
@@ -928,10 +969,8 @@ def kb_search(
             )
         )
 
-    # 一旦SQLで取ってから、Python側で「完全一致トークン」系（svc/tag/cup）を詰める
     candidates = person_q.order_by(KBPerson.name.asc()).limit(2000).all()
 
-    # サービス/タグ選択（OR判定：チェックされたどれか1つでも含めばヒット）
     svc_norm_set = {norm_text(x) for x in (svc or []) if (x or "").strip()}
     tag_norm_set = {norm_text(x) for x in (tag or []) if (x or "").strip()}
 
@@ -947,7 +986,6 @@ def kb_search(
         pt = _token_set_norm(getattr(p, "tags", None))
         return any(x in pt for x in tag_norm_set)
 
-    # カップ（A-D / E-F / G-Z）
     def hit_cup(p: KBPerson) -> bool:
         if not cup:
             return True
@@ -956,7 +994,6 @@ def kb_search(
 
     persons = [p for p in candidates if hit_svc(p) and hit_tag(p) and hit_cup(p)]
 
-    # 表示の安全上限
     truncated = False
     total_count = len(persons)
     if len(persons) > 500:
@@ -965,6 +1002,7 @@ def kb_search(
 
     stores_map, regions_map = _build_store_region_maps(db, persons)
     rating_avg_map = _avg_rating_map_for_person_ids(db, [p.id for p in persons])
+    amount_avg_map = _avg_amount_map_for_person_ids(db, [p.id for p in persons])
 
     return templates.TemplateResponse(
         "kb_index.html",
@@ -975,7 +1013,6 @@ def kb_search(
             "person_counts": counts,
             "panic": request.query_params.get("panic") or "",
             "search_error": "",
-            # 検索フォーム保持
             "search_q": q_raw,
             "search_region_id": rid or "",
             "search_budget_min": str(bmin) if bmin is not None else "",
@@ -986,14 +1023,13 @@ def kb_search(
             "search_waist": waist or [],
             "search_svc": svc or [],
             "search_tag": tag or [],
-            # 検索結果
             "search_results": persons,
             "search_truncated": truncated,
             "search_total_count": total_count,
             "stores_map": stores_map,
             "regions_map": regions_map,
             "rating_avg_map": rating_avg_map,
-            # チェックボックス候補
+            "amount_avg_map": amount_avg_map,
             "svc_options": svc_options,
             "tag_options": tag_options,
             "active_page": "kb",

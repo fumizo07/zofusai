@@ -51,6 +51,9 @@
       {% if rating_avg %}
         <div class="muted">平均評価：{{ "%.2f"|format(rating_avg) }}</div>
       {% endif %}
+      {% if amount_avg_yen is not none %}
+        <div class="muted">平均金額：{{ "{:,}".format(amount_avg_yen) }}円</div>
+      {% endif %}
     </div>
   </section>
 
