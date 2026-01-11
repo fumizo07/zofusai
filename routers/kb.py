@@ -1,4 +1,4 @@
-# 008
+# 009
 # routers/kb.py
 import json
 import re
@@ -203,13 +203,44 @@ def build_visit_search_blob(v: KBVisit) -> str:
 
 
 def _parse_int(x: str):
-    x = (x or "").strip()
-    if not x:
+    """
+    int化（ゆるめ）
+    - NFKC
+    - カンマ/空白/通貨記号/「円」などを除去
+    - 文字列中の最初の -?\d+ を採用
+    """
+    s = unicodedata.normalize("NFKC", str(x or "")).strip()
+    if not s:
+        return None
+
+    # よく混ざるものを先に除去
+    s = s.replace(",", "")
+    s = s.replace("_", "")
+    s = re.sub(r"[ \t\u3000]", "", s)  # 半角/全角スペース
+    s = s.replace("円", "")
+    s = s.replace("￥", "").replace("¥", "")
+
+    m = re.search(r"-?\d+", s)
+    if not m:
         return None
     try:
-        return int(x)
+        return int(m.group(0))
     except Exception:
         return None
+
+
+def _parse_amount_int(x) -> int:
+    """
+    金額用：カンマ有無などを許容して int にする
+    - 失敗は 0
+    - マイナスは 0 に丸め（防御）
+    """
+    v = _parse_int(str(x))
+    if v is None:
+        return 0
+    if v < 0:
+        return 0
+    return int(v)
 
 
 def _parse_time_hhmm_to_min(x: str):
@@ -522,7 +553,7 @@ def kb_update_person(
         p.name = (name or "").strip() or p.name
         p.age = _parse_int(age)
         p.height_cm = _parse_int(height_cm)
-        
+
         cu = (cup or "").strip()
         cu = unicodedata.normalize("NFKC", cu).upper()
         p.cup = (cu[:1] if cu and "A" <= cu[:1] <= "Z" else None)
@@ -611,10 +642,8 @@ def kb_add_visit(
                         continue
                     label = str(it.get("label", "") or "").strip()
                     amt = it.get("amount", 0)
-                    try:
-                        amt_i = int(amt)
-                    except Exception:
-                        amt_i = 0
+                    amt_i = _parse_amount_int(amt)
+
                     if not label and amt_i == 0:
                         continue
                     items.append({"label": label, "amount": amt_i})
@@ -708,10 +737,8 @@ def kb_update_visit(
                         continue
                     label = str(it.get("label", "") or "").strip()
                     amt = it.get("amount", 0)
-                    try:
-                        amt_i = int(amt)
-                    except Exception:
-                        amt_i = 0
+                    amt_i = _parse_amount_int(amt)
+
                     if not label and amt_i == 0:
                         continue
                     items.append({"label": label, "amount": amt_i})
@@ -852,7 +879,9 @@ def kb_search(
             if h == "le149":
                 height_conds.append(KBPerson.height_cm.isnot(None) & (KBPerson.height_cm <= 149))
             elif h == "150_158":
-                height_conds.append(KBPerson.height_cm.isnot(None) & KBPerson.height_cm.between(150, 158))
+                height_conds.append(
+                    KBPerson.height_cm.isnot(None) & KBPerson.height_cm.between(150, 158)
+                )
             elif h == "ge159":
                 height_conds.append(KBPerson.height_cm.isnot(None) & (KBPerson.height_cm >= 159))
     if height_conds:
@@ -900,7 +929,6 @@ def kb_search(
         )
 
     # 一旦SQLで取ってから、Python側で「完全一致トークン」系（svc/tag/cup）を詰める
-    # ※人数が増えたら、ここは最適化（別テーブル化など）できます
     candidates = person_q.order_by(KBPerson.name.asc()).limit(2000).all()
 
     # サービス/タグ選択（OR判定：チェックされたどれか1つでも含めばヒット）
@@ -924,12 +952,11 @@ def kb_search(
         if not cup:
             return True
         c = _cup_letter(getattr(p, "cup", None))
-        # 複数チェックは OR
         return any(_cup_bucket_hit(b, c) for b in cup)
 
     persons = [p for p in candidates if hit_svc(p) and hit_tag(p) and hit_cup(p)]
 
-    # 表示の安全上限（極端に増えた場合の防御）
+    # 表示の安全上限
     truncated = False
     total_count = len(persons)
     if len(persons) > 500:
