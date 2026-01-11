@@ -21,8 +21,8 @@
         人物：<strong>{{ person.name }}</strong>
         {% if person.services %}／{{ person.services }}{% endif %}
         {% if person.age %}／{{ person.age }}歳{% endif %}
-        {% if person.height_cm %}／T{{ person.height_cm }}cm{% endif %}
-        {% if person.bust_cm %}／B{{ person.bust_cm }}{% if person.cup %}({{ person.cup }}){% endif %}{% endif %}
+        {% if person.height_cm %}／T{{ person.height_cm }}{% endif %}
+        {% if person.bust_cm %}・B{{ person.bust_cm }}{% if person.cup %}({{ person.cup }}){% endif %}{% endif %}
         {% if person.waist_cm %}・W{{ person.waist_cm }}{% endif %}
         {% if person.hip_cm %}・H{{ person.hip_cm }}{% endif %}
       </div>
