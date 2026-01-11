@@ -1314,11 +1314,12 @@ input[type="time"] {
 }
 
 .kb-person-thumb {
-  width: auto;
-  height: 61px;
-  object-fit: cover;
-  border-radius: 8px;
-  display: block;
+    width: auto;
+    min-width: 46.0833px
+    height: 61.4333px;
+    object-fit: cover;
+    border-radius: 8px;
+    display: block;
 }
 
 .kb-person-result-text {
