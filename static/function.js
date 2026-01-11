@@ -312,7 +312,7 @@
         const tr = document.createElement("tr");
         tr.innerHTML = `
           <td><input type="text" data-price-label placeholder="例：オプション"></td>
-          <td><input type="text" data-price-amount placeholder="例：3000"></td>
+          <td><input type="text" data-price-amount placeholder="例：3,000"></td>
           <td><button type="button" data-price-remove>削除</button></td>
         `;
         body.appendChild(tr);
