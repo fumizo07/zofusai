@@ -1,4 +1,4 @@
-# 009
+# 010
 # routers/kb.py
 import json
 import re
@@ -213,7 +213,6 @@ def _parse_int(x: str):
     if not s:
         return None
 
-    # よく混ざるものを先に除去
     s = s.replace(",", "")
     s = s.replace("_", "")
     s = re.sub(r"[ \t\u3000]", "", s)  # 半角/全角スペース
@@ -284,6 +283,34 @@ def _avg_rating_map_for_person_ids(db: Session, person_ids: list[int]) -> dict[i
         if pid is None or avg is None:
             continue
         out[int(pid)] = float(avg)
+    return out
+
+
+def _avg_amount_map_for_person_ids(db: Session, person_ids: list[int]) -> dict[int, int]:
+    """
+    person_id ごとの平均金額（total_yen の平均）を返す
+    - 返り値は「円の整数」（四捨五入）
+    - total_yen が None の行は除外
+    """
+    if not person_ids:
+        return {}
+    rows = (
+        db.query(KBVisit.person_id, func.avg(KBVisit.total_yen))
+        .filter(
+            KBVisit.person_id.in_(person_ids),
+            KBVisit.total_yen.isnot(None),
+        )
+        .group_by(KBVisit.person_id)
+        .all()
+    )
+    out: dict[int, int] = {}
+    for pid, avg in rows:
+        if pid is None or avg is None:
+            continue
+        try:
+            out[int(pid)] = int(round(float(avg)))
+        except Exception:
+            continue
     return out
 
 
@@ -360,6 +387,7 @@ def kb_index(request: Request, db: Session = Depends(get_db)):
             "stores_map": {},
             "regions_map": {},
             "rating_avg_map": {},
+            "amount_avg_map": {},  # ★追加
             # チェックボックス候補
             "svc_options": svc_options,
             "tag_options": tag_options,
@@ -434,6 +462,7 @@ def kb_store_page(request: Request, store_id: int, db: Session = Depends(get_db)
     )
 
     rating_avg_map = _avg_rating_map_for_person_ids(db, [p.id for p in persons])
+    amount_avg_map = _avg_amount_map_for_person_ids(db, [p.id for p in persons])  # ★追加（未使用でもOK）
 
     return templates.TemplateResponse(
         "kb_store.html",
@@ -443,6 +472,7 @@ def kb_store_page(request: Request, store_id: int, db: Session = Depends(get_db)
             "store": store,
             "persons": persons,
             "rating_avg_map": rating_avg_map,
+            "amount_avg_map": amount_avg_map,  # ★追加（テンプレで使うなら）
             "active_page": "kb",
             "page_title_suffix": "KB",
             "body_class": "page-kb",
@@ -902,7 +932,7 @@ def kb_search(
     if waist_conds:
         person_q = person_q.filter(or_(*waist_conds))
 
-    # 予算（A案）：過去利用ログのうち1回でも範囲内があればヒット（exists）
+    # 予算：過去利用ログのうち1回でも範囲内があればヒット（exists）
     if bmin is not None or bmax is not None:
         conds = [KBVisit.person_id == KBPerson.id]
         if bmin is not None:
@@ -928,10 +958,8 @@ def kb_search(
             )
         )
 
-    # 一旦SQLで取ってから、Python側で「完全一致トークン」系（svc/tag/cup）を詰める
     candidates = person_q.order_by(KBPerson.name.asc()).limit(2000).all()
 
-    # サービス/タグ選択（OR判定：チェックされたどれか1つでも含めばヒット）
     svc_norm_set = {norm_text(x) for x in (svc or []) if (x or "").strip()}
     tag_norm_set = {norm_text(x) for x in (tag or []) if (x or "").strip()}
 
@@ -947,7 +975,6 @@ def kb_search(
         pt = _token_set_norm(getattr(p, "tags", None))
         return any(x in pt for x in tag_norm_set)
 
-    # カップ（A-D / E-F / G-Z）
     def hit_cup(p: KBPerson) -> bool:
         if not cup:
             return True
@@ -956,7 +983,6 @@ def kb_search(
 
     persons = [p for p in candidates if hit_svc(p) and hit_tag(p) and hit_cup(p)]
 
-    # 表示の安全上限
     truncated = False
     total_count = len(persons)
     if len(persons) > 500:
@@ -965,6 +991,7 @@ def kb_search(
 
     stores_map, regions_map = _build_store_region_maps(db, persons)
     rating_avg_map = _avg_rating_map_for_person_ids(db, [p.id for p in persons])
+    amount_avg_map = _avg_amount_map_for_person_ids(db, [p.id for p in persons])  # ★追加
 
     return templates.TemplateResponse(
         "kb_index.html",
@@ -993,6 +1020,7 @@ def kb_search(
             "stores_map": stores_map,
             "regions_map": regions_map,
             "rating_avg_map": rating_avg_map,
+            "amount_avg_map": amount_avg_map,  # ★追加
             # チェックボックス候補
             "svc_options": svc_options,
             "tag_options": tag_options,
