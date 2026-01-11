@@ -174,7 +174,7 @@
           <tbody data-price-items-body>
             <tr>
               <td><input type="text" data-price-label placeholder="例：オプション"></td>
-              <td><input type="text" data-price-amount placeholder="例：3000"></td>
+              <td><input type="text" data-price-amount placeholder="例：3,000"></td>
               <td><button type="button" data-price-remove>削除</button></td>
             </tr>
           </tbody>
@@ -225,7 +225,7 @@
                 {% if i <= v.rating %}★{% else %}☆{% endif %}
               {% endfor %}
             {% endif %}
-            {% if v.total_yen %} ／ 合計：{{ v.total_yen }}円{% endif %}
+            {% if v.total_yen is not none %} ／ 合計：{{ "{:,}".format(v.total_yen) }}円{% endif %}
           </div>
 
           {% if v.memo %}
@@ -236,7 +236,7 @@
             <div class="tags">
               明細：
               {% for it in v.price_items %}
-                {% if it.label %}{{ it.label }}{% else %}（項目）{% endif %}={{ it.amount or 0 }}円
+                {% if it.label %}{{ it.label }}{% else %}（項目）{% endif %}={{ "{:,}".format(it.amount or 0) }}円
                 {% if not loop.last %} / {% endif %}
               {% endfor %}
             </div>
@@ -303,14 +303,14 @@
                       {% for it in v.price_items %}
                         <tr>
                           <td><input type="text" data-price-label value="{{ it.label or '' }}" placeholder="例：オプション"></td>
-                          <td><input type="text" data-price-amount value="{{ it.amount or 0 }}" placeholder="例：3000"></td>
+                          <td><input type="text" data-price-amount value="{{ it.amount or 0 }}" placeholder="例：3,000"></td>
                           <td><button type="button" data-price-remove>削除</button></td>
                         </tr>
                       {% endfor %}
                     {% else %}
                       <tr>
                         <td><input type="text" data-price-label placeholder="例：オプション"></td>
-                        <td><input type="text" data-price-amount placeholder="例：3000"></td>
+                        <td><input type="text" data-price-amount placeholder="例：3,000"></td>
                         <td><button type="button" data-price-remove>削除</button></td>
                       </tr>
                     {% endif %}
