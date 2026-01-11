@@ -1,4 +1,4 @@
-// 001
+// 002
 // static/function.js
 (() => {
   "use strict";
@@ -30,6 +30,25 @@
     if (hh < 0 || hh > 23) return null;
     if (mm < 0 || mm > 59) return null;
     return hh * 60 + mm;
+  }
+
+  // 金額：入力は「1,234円」「¥1,234」「１２３４」などを許容 → 0以上の整数にする
+  function parseYen(v) {
+    const s = String(v ?? "").trim();
+    if (!s) return 0;
+    // 数字とマイナス以外を捨てる（カンマ、円、空白など）
+    const cleaned = s.replace(/[^\d-]/g, "");
+    if (!cleaned) return 0;
+    const n = parseInt(cleaned, 10);
+    if (!Number.isFinite(n) || n < 0) return 0;
+    return n;
+  }
+
+  // 金額：表示用（カンマ付け）
+  function formatYen(n) {
+    const x = Number(n || 0);
+    if (!Number.isFinite(x)) return "0";
+    return Math.trunc(x).toLocaleString("ja-JP");
   }
 
   // 店舗名末尾の「数字」「丸数字①②③…」「絵文字」などを落とす
@@ -283,13 +302,6 @@
       const elTotal = root.querySelector("[data-price-total]");
       const hidden = root.querySelector('input[type="hidden"][name="price_items_json"]');
 
-      function parseAmount(s) {
-        const t = String(s ?? "").replace(/[^\d\-]/g, "").trim();
-        if (!t) return 0;
-        const n = parseInt(t, 10);
-        return Number.isFinite(n) ? n : 0;
-      }
-
       function collect() {
         const rows = body ? Array.from(body.querySelectorAll("tr")) : [];
         const items = [];
@@ -297,13 +309,16 @@
 
         rows.forEach((tr) => {
           const label = (tr.querySelector("[data-price-label]")?.value || "").trim();
-          const amt = parseAmount(tr.querySelector("[data-price-amount]")?.value || "");
+          const amtRaw = tr.querySelector("[data-price-amount]")?.value || "";
+          const amt = parseYen(amtRaw);
+
           if (!label && amt === 0) return;
-          items.push({ label, amount: amt });
+
+          items.push({ label, amount: amt }); // 数値だけ保存（カンマなし）
           total += amt;
         });
 
-        if (elTotal) elTotal.textContent = String(total);
+        if (elTotal) elTotal.textContent = formatYen(total); // 表示だけカンマ
         if (hidden) hidden.value = JSON.stringify(items);
       }
 
@@ -319,6 +334,7 @@
         collect();
       }
 
+      // 入力変化で再計算（合計の表示更新）
       root.addEventListener("input", (e) => {
         const t = e.target;
         if (!t) return;
@@ -326,6 +342,20 @@
           collect();
         }
       });
+
+      // 金額欄は「フォーカス外れたら」見た目だけカンマ整形（内部は常に数値でJSON化）
+      root.addEventListener("blur", (e) => {
+        const t = e.target;
+        if (!t || !t.matches || !t.matches("[data-price-amount]")) return;
+
+        const raw = (t.value || "").trim();
+        if (!raw) return;
+
+        const n = parseYen(raw);
+        // 0 でも表示を 0 に寄せる（空欄を保ちたいならここは return でもOK）
+        t.value = formatYen(n);
+        collect();
+      }, true);
 
       root.addEventListener("click", (e) => {
         const t = e.target;
