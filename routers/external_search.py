@@ -1,4 +1,4 @@
-# 003
+# 004
 # routers/external_search.py
 from __future__ import annotations
 
@@ -205,6 +205,8 @@ def _touch_external_history(
         db.commit()
     except Exception:
         db.rollback()
+        # 競合（同時リクエスト）等で unique 失敗した場合も、ここでは黙って戻す
+        # 次回アクセス時に更新されます。
 
 
 def _build_recent_external_searches(db: Session, limit: int = 15) -> List[dict]:
@@ -259,13 +261,14 @@ def _build_recent_external_searches(db: Session, limit: int = 15) -> List[dict]:
 
 
 # =========================
-# ★追加：スレタイのDBキャッシュ
+# ★追加（003の機能移植）：スレタイのDBキャッシュ
 # =========================
 def _get_thread_title_cached(db: Session, url: str) -> str:
     url = (url or "").strip()
     if not url:
         return ""
 
+    row = None
     try:
         row = db.query(ThreadMeta).filter(ThreadMeta.thread_url == url).one_or_none()
         if row and (row.label or "").strip():
@@ -346,6 +349,7 @@ def thread_search_page(
         area, period, board_category, board_id, keyword
     )
 
+    # ★no_log はテンプレから隠蔽：戻りURLに勝手に付ける
     no_log_flag = _truthy(no_log) or _truthy(request.query_params.get("no_log"))
 
     results: List[dict] = []
@@ -357,6 +361,7 @@ def thread_search_page(
 
     board_options = get_board_options_for_category(board_category)
 
+    # この画面の「正しい戻り先URL」（条件一式 + no_log=1）
     back_url = _build_thread_search_url(
         area=area,
         period=period,
@@ -395,6 +400,7 @@ def thread_search_page(
                     bid=board_id,
                 )
 
+        # ★履歴：no_log=1 のときは積まない（戻っただけで増えるのを防ぐ）
         if not error_message and not no_log_flag:
             _touch_external_history(db, area, period, board_category, board_id, keyword)
 
@@ -424,7 +430,7 @@ def thread_search_page(
             "ranking_board": ranking_board,
             "ranking_board_label": ranking_board_label,
             "ranking_source_url": ranking_source_url,
-            "back_url": back_url,
+            "back_url": back_url,  # ★テンプレはこれだけ使う
         },
     )
 
@@ -434,6 +440,7 @@ async def save_external_thread(
     request: Request,
     db: Session = Depends(get_db),
 ):
+    # back_url を優先（なければ referer）
     back_url = ""
     try:
         if request.method == "POST":
@@ -482,6 +489,165 @@ async def save_external_thread(
     return RedirectResponse(url=redirect_to, status_code=303)
 
 
+@router.get("/thread_search/showall", response_class=HTMLResponse)
+def thread_showall_page(
+    request: Request,
+    url: str = "",
+    area: str = DEFAULT_AREA,
+    period: str = DEFAULT_PERIOD,
+    title_keyword: str = "",
+    view: str = "tree",
+    board_category: str = DEFAULT_BOARD_CATEGORY,
+    board_id: str = DEFAULT_BOARD_ID_BY_CATEGORY.get(DEFAULT_BOARD_CATEGORY, ""),
+    back_url: str = "",
+    db: Session = Depends(get_db),
+):
+    url = (url or "").strip()
+
+    area, period, board_category, board_id, title_keyword = _normalize_thread_search_params(
+        area, period, board_category, board_id, title_keyword
+    )
+
+    view = (view or "").strip().lower()
+    if view not in ("tree", "flat"):
+        view = "tree"
+
+    back_url = _safe_back_url(
+        back_url,
+        default=_build_thread_search_url(area, period, board_category, board_id, title_keyword),
+    )
+
+    # ★ここが今回の肝：showall でもラベルを作る（未定義エラー回避）
+    board_category_label: str = ""
+    board_label: str = ""
+
+    if board_category:
+        board_category_label = next(
+            (c["label"] for c in BOARD_CATEGORY_OPTIONS if c.get("id") == board_category),
+            board_category,
+        )
+
+    if board_category and board_id:
+        for b in get_board_options_for_category(board_category):
+            if b.get("id") == board_id:
+                board_label = b.get("label") or ""
+                break
+
+    error_message = ""
+    thread_title_display = ""
+    posts_sorted: List[object] = []
+
+    tree_roots: List[dict] = []
+    posts_unknown: List[object] = []
+
+    if not url:
+        error_message = "URLが指定されていません。"
+    elif not is_valid_bakusai_thread_url(url):
+        error_message = "爆サイのスレURLのみ表示できます。"
+    else:
+        try:
+            try:
+                t = get_thread_title(url)
+                thread_title_display = simplify_thread_title(t or "")
+            except Exception:
+                thread_title_display = ""
+
+            all_posts = get_thread_posts_cached(db, url)
+
+            def _post_key(p):
+                return p.post_no if getattr(p, "post_no", None) is not None else 10**9
+
+            posts_sorted = sorted(list(all_posts), key=_post_key)
+
+            def _extract_anchors(p) -> List[int]:
+                a = getattr(p, "anchors", None)
+                if not a:
+                    return []
+                if isinstance(a, str):
+                    try:
+                        return parse_anchors_csv(a)
+                    except Exception:
+                        return []
+                if isinstance(a, (list, tuple, set)):
+                    out: List[int] = []
+                    for x in a:
+                        try:
+                            n = int(x)
+                            if n > 0:
+                                out.append(n)
+                        except Exception:
+                            continue
+                    return out
+                return []
+
+            nodes_by_no: Dict[int, dict] = {}
+            for p in posts_sorted:
+                pn = getattr(p, "post_no", None)
+                if pn is None:
+                    posts_unknown.append(p)
+                    continue
+                if pn not in nodes_by_no:
+                    nodes_by_no[pn] = {"post": p, "children": []}
+
+            for pn, node in nodes_by_no.items():
+                p = node["post"]
+                anchors = _extract_anchors(p)
+                parent_no: Optional[int] = None
+                for a in anchors:
+                    if a in nodes_by_no and a != pn and a < pn:
+                        parent_no = a
+                        break
+
+                if parent_no is None:
+                    tree_roots.append(node)
+                else:
+                    nodes_by_no[parent_no]["children"].append(node)
+
+            def _sort_subtree(n: dict) -> None:
+                n["children"].sort(key=lambda c: getattr(c["post"], "post_no", None) or 10**9)
+                for ch in n["children"]:
+                    _sort_subtree(ch)
+
+            tree_roots.sort(key=lambda n: getattr(n["post"], "post_no", None) or 10**9)
+            for r in tree_roots:
+                _sort_subtree(r)
+
+        except Exception as e:
+            error_message = f"全レス取得中にエラーが発生しました: {e}"
+            posts_sorted = []
+            tree_roots = []
+            posts_unknown = []
+
+    store_title = build_store_search_title(thread_title_display or title_keyword)
+    store_cityheaven_url = build_google_site_search_url("cityheaven.net", store_title)
+    store_dto_url = build_google_site_search_url("dto.jp", store_title)
+
+    return templates.TemplateResponse(
+        "thread_showall.html",
+        {
+            "request": request,
+            "thread_url": url,
+            "thread_title": thread_title_display,
+            "area": area,
+            "period": period,
+            "title_keyword": title_keyword,
+            "view": view,
+            "posts": posts_sorted,
+            "tree_roots": tree_roots,
+            "posts_unknown": posts_unknown,
+            "error_message": error_message,
+            "store_title": store_title,
+            "store_cityheaven_url": store_cityheaven_url,
+            "store_dto_url": store_dto_url,
+            "board_category": board_category,
+            "board_id": board_id,
+            "board_category_label": board_category_label,
+            "board_label": board_label,
+            "back_url": back_url,
+        },
+    )
+
+
 @router.post("/thread_search/posts", response_class=HTMLResponse)
 def thread_search_posts(
     request: Request,
@@ -513,6 +679,7 @@ def thread_search_posts(
     prev_thread_url: Optional[str] = None
     next_thread_url: Optional[str] = None
 
+    # ★④：prev/next のスレタイ
     prev_thread_title: str = ""
     next_thread_title: str = ""
 
@@ -527,7 +694,7 @@ def thread_search_posts(
         error_message = "爆サイのスレURLのみ検索できます。"
     else:
         try:
-            # ★ここもキャッシュ経由
+            # ★003機能移植：タイトルはDBキャッシュ経由（失敗しても空でOK）
             thread_title_display = _get_thread_title_cached(db, selected_thread)
 
             if board_category:
@@ -544,7 +711,7 @@ def thread_search_posts(
 
             prev_thread_url, next_thread_url = find_prev_next_thread_urls(selected_thread)
 
-            # ★prev/next タイトルもキャッシュ経由
+            # ★003機能移植：prev/next のタイトルもキャッシュ経由（失敗しても空でOK）
             if prev_thread_url:
                 prev_thread_title = _get_thread_title_cached(db, prev_thread_url)
             if next_thread_url:
