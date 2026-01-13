@@ -63,11 +63,6 @@
                 <input type="text" id="post_keyword_bottom" name="post_keyword" value="{{ post_keyword|e }}">
                 <button type="submit" class="btn-primary">このスレで再検索</button>
             </div>
-
-            <div class="form-row">
-                <label for="title_keyword_bottom">（メモ用）タイトル検索ワード：</label>
-                <input type="text" id="title_keyword_bottom" name="title_keyword" value="{{ title_keyword|e }}">
-            </div>
         </form>
 
         <h2 style="margin-top:12px;">前後スレで再検索</h2>
@@ -207,6 +202,40 @@
         {% endif %}
     </section>
 
+  <section class="card">
+        <div class="section-title">スレッド情報</div>
+
+        <p class="back-link">
+            <a href="{{ _back_url|e }}">外部検索に戻る</a>
+        </p>
+
+        {% if error_message %}
+            <div class="error">{{ error_message }}</div>
+        {% endif %}
+
+        <div class="thread-info">
+            <div>タイトル：{{ thread_title or "（取得できませんでした）" }}</div>
+            <div class="thread-url">URL：{{ thread_url }}</div>
+            <div>
+                カテゴリ：<strong>{{ board_category_label or '（未指定）' }}</strong><br>
+                板：<strong>{{ board_label or '（未指定）' }}</strong>
+            </div>
+            <div>
+                タイトルキーワード：<strong>{{ title_keyword or '（未指定）' }}</strong><br>
+                本文キーワード：<strong>{{ post_keyword or '（未指定）' }}</strong>
+            </div>
+
+            {% if store_title %}
+            <div class="store-search" data-store-title="{{ store_title }}">
+                <span class="store-search-label">店舗ページ検索：</span>
+                <a href="#" class="btn-mini store-search-link" data-site="city">シティヘブン</a>
+                <a href="#" class="btn-mini store-search-link" data-site="dto">デリヘルタウン</a>
+                <a href="#" class="btn-mini store-search-link" data-site="google">Google</a>
+            </div>
+            {% endif %}
+        </div>
+    </section>
+
     <section class="card">
         <h2>別キーワードで再検索（下部）</h2>
         <form method="post" action="/thread_search/posts">
@@ -274,6 +303,15 @@
                 </span>
             </form>
         </div>
+      {% if not error_message %}
+        <div class="thread-save">
+            <form method="post" action="/thread_search/save">
+              <input type="hidden" name="thread_url" value="{{ thread_url|e }}">
+              <input type="hidden" name="back_url" value="{{ _back_url|e }}">
+              <button type="submit" class="btn-secondary">このスレを保存</button>
+            </form>
+        </div>
+        {% endif %}
     </section>
 </main>
 
