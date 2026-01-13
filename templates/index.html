@@ -1,4 +1,4 @@
-{# 001 #}
+{# 002 #}
 {% set page_title_suffix = "内部検索" %}
 {% set body_class = "page-index" %}
 {% set active_page = "index" %}
@@ -218,6 +218,22 @@
                     </div>
                 </div>
             {% endfor %}
+
+            {# ▼追加：ページ下部（再検索の上）にもページネーションを表示 #}
+            {% if hit_count > 0 and last_page > 1 %}
+              <div class="pagination">
+                {% if page > 1 %}
+                  <a href="/?{{ qs_base }}&page={{ page - 1 }}">← 前へ</a>
+                {% endif %}
+
+                <span class="muted">page {{ page }} / {{ last_page }}</span>
+
+                {% if page < last_page %}
+                  <a href="/?{{ qs_base }}&page={{ page + 1 }}">次へ →</a>
+                {% endif %}
+              </div>
+            {% endif %}
+
         {% else %}
             {% if not error_message %}
                 <p class="no-result">該当する投稿は見つかりませんでした。</p>
