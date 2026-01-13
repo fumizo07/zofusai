@@ -220,6 +220,7 @@
             {% endfor %}
 
             {# ▼追加：ページ下部（再検索の上）にもページネーションを表示 #}
+            <h2>検索結果（{{ hit_count }}件）<small class="muted">／ {{ shown_count }}件表示 ／ page {{ page }} / {{ last_page }} ／ per_page {{ per_page }}</small></h2>
             {% if hit_count > 0 and last_page > 1 %}
               <div class="pagination">
                 {% if page > 1 %}
