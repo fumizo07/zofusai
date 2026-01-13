@@ -140,6 +140,7 @@
             {% for item in entries %}
                 {% set post = item.root %}
                 <div class="result">
+                  <div>タイトル：{{ thread_title or "（取得できませんでした）" }}</div>
                     {% if store_title %}
                     <div class="name-store-search" data-store-title="{{ store_title }}">
                         <span class="name-store-search-label">名前で店舗ページ検索：</span>

@@ -1,3 +1,4 @@
+{# 002 #}
 {% set page_title_suffix = "内部検索" %}
 {% set body_class = "page-index" %}
 {% set active_page = "index" %}
@@ -183,8 +184,57 @@
                             </div>
                         {% endfor %}
                     </div>
+                <div class="thread-header">
+                        <div>
+                            <div class="thread-title">{{ thread.thread_title }}</div>
+                            <div class="thread-url">{{ thread.thread_url }}</div>
+
+                            {% if store_title %}
+                            <div class="store-search" data-store-title="{{ store_title }}">
+                                <span class="store-search-label">店舗ページ検索：</span>
+                                <a href="#" class="btn-mini store-search-link" data-site="city">シティヘブン</a>
+                                <a href="#" class="btn-mini store-search-link" data-site="dto">デリヘルタウン</a>
+                                <a href="#" class="btn-mini store-search-link" data-site="google">Google</a>
+                            </div>
+                            {% endif %}
+                        </div>
+
+                        <div class="thread-actions">
+                            <form method="post" action="/admin/refetch" style="display:inline;">
+                                <input type="hidden" name="url" value="{{ thread.thread_url }}">
+                                <button type="submit">このスレだけ再取得</button>
+                            </form>
+                            &nbsp;
+                            <form method="post" action="/admin/fetch_next" style="display:inline;">
+                                <input type="hidden" name="url" value="{{ thread.thread_url }}">
+                                <button type="submit">次スレ取得</button>
+                            </form>
+                            &nbsp;
+                            <form method="post" action="/admin/delete_thread" style="display:inline;" onsubmit="return confirm('このスレの保存データをすべて削除します。よろしいですか？');">
+                                <input type="hidden" name="url" value="{{ thread.thread_url }}">
+                                <button type="submit">このスレだけ削除</button>
+                            </form>
+                        </div>
+                    </div>
                 </div>
             {% endfor %}
+
+            {# ▼追加：ページ下部（再検索の上）にもページネーションを表示 #}
+            <h2>検索結果（{{ hit_count }}件）<small class="muted">／ {{ shown_count }}件表示 ／ page {{ page }} / {{ last_page }} ／ per_page {{ per_page }}</small></h2>
+            {% if hit_count > 0 and last_page > 1 %}
+              <div class="pagination">
+                {% if page > 1 %}
+                  <a href="/?{{ qs_base }}&page={{ page - 1 }}">← 前へ</a>
+                {% endif %}
+
+                <span class="muted">page {{ page }} / {{ last_page }}</span>
+
+                {% if page < last_page %}
+                  <a href="/?{{ qs_base }}&page={{ page + 1 }}">次へ →</a>
+                {% endif %}
+              </div>
+            {% endif %}
+
         {% else %}
             {% if not error_message %}
                 <p class="no-result">該当する投稿は見つかりませんでした。</p>
@@ -193,6 +243,8 @@
     {% else %}
         <p class="no-result">上のフォームに条件を入力して検索してみてください。</p>
     {% endif %}
+
+    
 
     {% if (keyword or tags_input or thread_filter) and results %}
         <h2>再検索</h2>
