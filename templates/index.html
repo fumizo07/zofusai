@@ -184,6 +184,38 @@
                             </div>
                         {% endfor %}
                     </div>
+                <div class="thread-header">
+                        <div>
+                            <div class="thread-title">{{ thread.thread_title }}</div>
+                            <div class="thread-url">{{ thread.thread_url }}</div>
+
+                            {% if store_title %}
+                            <div class="store-search" data-store-title="{{ store_title }}">
+                                <span class="store-search-label">店舗ページ検索：</span>
+                                <a href="#" class="btn-mini store-search-link" data-site="city">シティヘブン</a>
+                                <a href="#" class="btn-mini store-search-link" data-site="dto">デリヘルタウン</a>
+                                <a href="#" class="btn-mini store-search-link" data-site="google">Google</a>
+                            </div>
+                            {% endif %}
+                        </div>
+
+                        <div class="thread-actions">
+                            <form method="post" action="/admin/refetch" style="display:inline;">
+                                <input type="hidden" name="url" value="{{ thread.thread_url }}">
+                                <button type="submit">このスレだけ再取得</button>
+                            </form>
+                            &nbsp;
+                            <form method="post" action="/admin/fetch_next" style="display:inline;">
+                                <input type="hidden" name="url" value="{{ thread.thread_url }}">
+                                <button type="submit">次スレ取得</button>
+                            </form>
+                            &nbsp;
+                            <form method="post" action="/admin/delete_thread" style="display:inline;" onsubmit="return confirm('このスレの保存データをすべて削除します。よろしいですか？');">
+                                <input type="hidden" name="url" value="{{ thread.thread_url }}">
+                                <button type="submit">このスレだけ削除</button>
+                            </form>
+                        </div>
+                    </div>
                 </div>
             {% endfor %}
         {% else %}
@@ -194,6 +226,8 @@
     {% else %}
         <p class="no-result">上のフォームに条件を入力して検索してみてください。</p>
     {% endif %}
+
+    
 
     {% if (keyword or tags_input or thread_filter) and results %}
         <h2>再検索</h2>
