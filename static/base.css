@@ -344,6 +344,7 @@ mark {
 
 .inner-flex-box input{
     flex-grow: 1;/* 子要素の伸び率 子要素の縮み率はflex-shrink:1 */
+    width: auto;
 }
 
 /* label+input(text)を横並び画面いっぱいレスポンシブ */
