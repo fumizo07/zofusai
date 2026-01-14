@@ -1376,7 +1376,11 @@ input[type="time"] {
 }
 
 .kb-input-sm, .kb-input-xs {
-    min-width: 75px;
+    min-width: 105px;
+}
+
+.kb-select {
+    width: auto;
 }
 
 /* テキストボックス微調整 */
