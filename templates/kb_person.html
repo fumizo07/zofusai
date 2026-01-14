@@ -81,7 +81,7 @@
         <div class="inner-flex-box">
           <div class="kb-grid-label">カップ：</div>
           <div class="kb-grid-input">
-            <select class="kb-input-sm" name="cup">
+            <select class="kb-input-sm kb-select" name="cup">
               <option value="" {% if not person.cup %}selected{% endif %}>（未設定）</option>
               {% for c in "ABCDEFGHIJKLMNOPQRSTUVWXYZ" %}
                 <option value="{{ c }}" {% if person.cup == c %}selected{% endif %}>{{ c }}カップ</option>
@@ -116,7 +116,7 @@
 
         <div class="kb-grid-label">画像URL：</div>
         <div>
-          <textarea name="image_urls_text" rows="4"
+          <textarea name="image_urls_text" rows="6"
                     placeholder="1行に1つ、http(s)の直リンクURLを貼ってください（例：https://.../a.jpg）">{% if person.image_urls %}{{ person.image_urls|join('\n') }}{% endif %}</textarea>
           <div class="muted">※画像自体は保存せず、URLだけ保存します。表示はブラウザが外部から読み込みます。</div>
         </div>
