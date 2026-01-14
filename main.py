@@ -1,13 +1,14 @@
-# 001
+# 002
 # main.py
 import os
 import secrets
+import base64
 
-from fastapi import FastAPI, Depends, HTTPException
+from fastapi import FastAPI, Depends, HTTPException, Request
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import PlainTextResponse
-from fastapi.templating import Jinja2Templates
+from fastapi.responses import PlainTextResponse, Response
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from app_lifecycle import register_startup
 from routers.internal_search import router as internal_router
@@ -24,7 +25,6 @@ from post_edit import post_edit_router
 from routers.kb import router as kb_router
 
 
-
 # =========================
 # BASIC 認証
 # =========================
@@ -35,6 +35,9 @@ BASIC_ENABLED = bool(BASIC_AUTH_USER and BASIC_AUTH_PASS)
 
 
 def verify_basic(credentials: HTTPBasicCredentials = Depends(security)):
+    """
+    FastAPIの依存として使う版（通常ルート向け）
+    """
     if not BASIC_ENABLED:
         return
     correct_username = secrets.compare_digest(credentials.username, BASIC_AUTH_USER)
@@ -47,14 +50,64 @@ def verify_basic(credentials: HTTPBasicCredentials = Depends(security)):
         )
 
 
+def _basic_ok_from_header(request: Request) -> bool:
+    """
+    Middleware向け：Authorizationヘッダを自前で検証する
+    """
+    auth = request.headers.get("authorization") or ""
+    if not auth.lower().startswith("basic "):
+        return False
+
+    token = auth.split(" ", 1)[1].strip()
+    try:
+        decoded = base64.b64decode(token).decode("utf-8")
+    except Exception:
+        return False
+
+    username, sep, password = decoded.partition(":")
+    if not sep:
+        return False
+
+    return (
+        secrets.compare_digest(username, BASIC_AUTH_USER)
+        and secrets.compare_digest(password, BASIC_AUTH_PASS)
+    )
+
+
+class BasicAuthMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        if not BASIC_ENABLED:
+            return await call_next(request)
+
+        # もし将来ヘルスチェックを外に出したいならここで例外扱いにできる
+        # if request.url.path in ("/healthz",):
+        #     return await call_next(request)
+
+        if _basic_ok_from_header(request):
+            return await call_next(request)
+
+        return Response(
+            content="Unauthorized",
+            status_code=401,
+            headers={"WWW-Authenticate": "Basic"},
+        )
+
+
 # =========================
 # FastAPI 初期化
 # =========================
 app = FastAPI(
-    dependencies=[Depends(verify_basic)],
+    # docsは公開しない
     docs_url=None,
     redoc_url=None,
 )
+
+# ★最重要：StaticFiles含め「全部」にBasicを掛ける
+app.add_middleware(BasicAuthMiddleware)
+
+# （任意）通常ルートにも依存を掛けたいなら残してOKだが、
+# Middlewareで全体を守るので、二重にする必然は薄い。
+# app = FastAPI(dependencies=[Depends(verify_basic)], docs_url=None, redoc_url=None)
 
 # static / templates
 app.mount("/static", StaticFiles(directory="static"), name="static")
@@ -81,6 +134,3 @@ register_startup(app)
 @app.get("/robots.txt", response_class=PlainTextResponse)
 def robots_txt():
     return "User-agent: *\nDisallow: /\n"
-
-
-
