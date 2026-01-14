@@ -65,22 +65,22 @@
 
         <div class="inner-flex-box">
           <div class="kb-grid-label">名前：</div>
-          <div><input type="text" name="name" value="{{ person.name }}"></div>
+          <div class="kb-grid-input"><input type="text" name="name" value="{{ person.name }}"></div>
         </div>
 
         <div class="inner-flex-box">
           <div class="kb-grid-label">年齢：</div>
-          <div><input class="kb-input-sm" type="number" name="age" value="{{ person.age or '' }}" placeholder="例：24" min="18" max="99"></div>
+          <div class="kb-grid-input"><input class="kb-input-sm" type="number" name="age" value="{{ person.age or '' }}" placeholder="例：24" min="18" max="99"></div>
         </div>
 
         <div class="inner-flex-box">
           <div class="kb-grid-label">身長：</div>
-          <div><input class="kb-input-sm" type="number" name="height_cm" value="{{ person.height_cm or '' }}" placeholder="例：160" min="100" max="200"></div>
+          <div class="kb-grid-input"><input class="kb-input-sm" type="number" name="height_cm" value="{{ person.height_cm or '' }}" placeholder="例：160" min="100" max="200"></div>
         </div>
 
         <div class="inner-flex-box">
           <div class="kb-grid-label">カップ：</div>
-          <div>
+          <div class="kb-grid-input">
             <select class="kb-input-sm" name="cup">
               <option value="" {% if not person.cup %}selected{% endif %}>（未設定）</option>
               {% for c in "ABCDEFGHIJKLMNOPQRSTUVWXYZ" %}
@@ -101,17 +101,17 @@
 
         <div class="inner-flex-box">
           <div class="kb-grid-label">サービス：</div>
-          <div><input type="text" name="services" value="{{ person.services or '' }}" placeholder="例：○○, △△, ××（カンマ区切りで複数可）"></div>
+          <div class="kb-grid-input"><input type="text" name="services" value="{{ person.services or '' }}" placeholder="例：○○, △△, ××（カンマ区切りで複数可）"></div>
         </div>
 
         <div class="inner-flex-box">
           <div class="kb-grid-label">タグ：</div>
-          <div><input type="text" name="tags" value="{{ person.tags or '' }}" placeholder="カンマ区切り"></div>
+          <div class="kb-grid-input"><input type="text" name="tags" value="{{ person.tags or '' }}" placeholder="カンマ区切り"></div>
         </div>
 
         <div class="inner-flex-box">
           <div class="kb-grid-label">URL：</div>
-          <div><input type="text" name="url" value="{{ person.url or '' }}" placeholder="https://..."></div>
+          <div class="kb-grid-input"><input type="text" name="url" value="{{ person.url or '' }}" placeholder="https://..."></div>
         </div>
 
         <div class="kb-grid-label">画像URL：</div>
