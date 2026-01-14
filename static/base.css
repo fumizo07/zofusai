@@ -353,7 +353,9 @@ mark {
         flex-flow: column;
     }
     
-    .inner-flex-box input{
+    .inner-flex-box > input[type="text"],
+    .inner-flex-box .kb-grid-input,
+    .inner-flex-box .kb-grid-input input[type="text"]{
         width: 100%;
     }
 
@@ -1371,6 +1373,10 @@ input[type="time"] {
 .kb-person-result-text {
   flex: 1 1 auto;
   min-width: 0; /* 長い名前などの折返し安定用 */
+}
+
+.kb-input-sm, .kb-input-xs {
+    min-width: 75px;
 }
 
 /* テキストボックス微調整 */
