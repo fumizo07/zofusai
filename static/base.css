@@ -342,7 +342,7 @@ mark {
     align-items: baseline;
 }
 
-.inner-flex-box input{
+.inner-flex-box input, .inner-flex-box div{
     flex-grow: 1;/* 子要素の伸び率 子要素の縮み率はflex-shrink:1 */
     width: auto;
 }
