@@ -1326,3 +1326,15 @@ input[type="time"] {
   flex: 1 1 auto;
   min-width: 0; /* 長い名前などの折返し安定用 */
 }
+
+/* テキストボックス微調整 */
+.key_input_box{
+    max-width:300px;
+}
+
+/* レスポンシブ微調整 */
+@media (max-width: 768px) {
+    .key_input_box{
+        max-width:100%;
+    }
+}
