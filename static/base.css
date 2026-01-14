@@ -332,6 +332,31 @@ mark {
     margin-top: 6px;
 }
 
+/* label+input(text)を横並び画面いっぱい 用 */
+.inner-flex-box{
+    display:flex;
+    align-items: baseline;
+}
+
+.inner-flex-box input{
+    flex-grow: 1;//子要素の伸び率 子要素の縮み率はflex-shrink:1
+}
+
+/* label+input(text)を横並び画面いっぱいレスポンシブ */
+@media (max-width: 768px) {
+    .inner-flex-box{
+        flex-flow: column;
+    }
+    
+    .inner-flex-box input{
+        width: 100%;
+    }
+
+    .inner-flex-box .taglabel{
+        display:block;
+    }
+}
+
 /* fetch.html 用 */
 .status {
     margin-top: 12px;
