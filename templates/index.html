@@ -51,7 +51,7 @@
     </form>
 
     {% if keyword or tags_input or thread_filter %}
-        <h2>検索結果（{{ hit_count }}件）<small class="muted">／ {{ shown_count }}件表示 ／ page {{ page }} / {{ last_page }} ／ per_page {{ per_page }}</small></h2>
+        <h2>検索結果({{ hit_count }}件)<small class="muted">／{{ shown_count }}件表示／{{ page }}/{{ last_page }}ページ／最大表示件数{{ per_page }}</small></h2>
         {% set params = {
           "q": keyword,
           "thread_filter": thread_filter,
@@ -220,7 +220,7 @@
             {% endfor %}
 
             {# ▼追加：ページ下部（再検索の上）にもページネーションを表示 #}
-            <h2>検索結果（{{ hit_count }}件）<small class="muted">／ {{ shown_count }}件表示 ／ page {{ page }} / {{ last_page }} ／ per_page {{ per_page }}</small></h2>
+            <h2>検索結果({{ hit_count }}件)<small class="muted">／{{ shown_count }}件表示／{{ page }}/{{ last_page }}ページ／最大表示件数{{ per_page }}</small></h2>
             {% if hit_count > 0 and last_page > 1 %}
               <div class="pagination">
                 {% if page > 1 %}
@@ -251,14 +251,32 @@
         <form method="get" action="/">
             <input type="hidden" name="page" value="1">
             <input type="hidden" name="per_page" value="{{ per_page or 20 }}">
-            <label for="q_bottom">キーワード：</label><br>
-            <input type="text" id="q_bottom" name="q" value="{{ keyword or '' }}" placeholder="例：テスト, キーワード など">
+            
+            <div class="inner-flex-box">
+                <label for="q_bottom">キーワード：</label>
+                <input type="text" id="q_bottom" name="q" value="{{ keyword or '' }}" placeholder="例：テスト, キーワード など">
+            </div>
 
-            <label for="thread_filter_bottom">スレURL / タイトル（任意）：</label><br>
-            <input type="text" id="thread_filter_bottom" name="thread_filter" value="{{ thread_filter or '' }}" placeholder="空欄なら全スレ対象">
+            <div class="inner-flex-box">
+                <label for="thread_filter_bottom">スレURL / タイトル（任意）：</label><br>
+                <input type="text" id="thread_filter_bottom" name="thread_filter" value="{{ thread_filter or '' }}" placeholder="空欄なら全スレ対象">
+            </div>
 
-            <label for="tags_bottom">タグフィルタ（カンマ区切り）：</label><br>
-            <input type="text" id="tags_bottom" name="tags" value="{{ tags_input or '' }}" placeholder="例：重要, 要確認 など">
+            <div class="inner-flex-box">
+                <label for="per_page_top">1ページ表示件数：</label><br>
+                <select id="per_page_top" name="per_page">
+                  {% set pp = per_page or 20 %}
+                  <option value="10" {% if pp == 10 %}selected{% endif %}>10</option>
+                  <option value="20" {% if pp == 20 %}selected{% endif %}>20</option>
+                  <option value="50" {% if pp == 50 %}selected{% endif %}>50</option>
+                  <option value="100" {% if pp == 100 %}selected{% endif %}>100</option>
+                </select>
+            </div>
+
+            <div class="inner-flex-box">
+                <label for="tags_bottom">タグフィルタ（カンマ区切り）：</label><br>
+                <input type="text" id="tags_bottom" name="tags" value="{{ tags_input or '' }}" placeholder="例：重要, 要確認 など">
+            </div>
 
             <label>タグ条件：</label><br>
             <label>
