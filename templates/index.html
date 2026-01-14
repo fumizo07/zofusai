@@ -1,4 +1,4 @@
-{# 002 #}
+{# 003 #}
 {% set page_title_suffix = "内部検索" %}
 {% set body_class = "page-index" %}
 {% set active_page = "index" %}
@@ -59,7 +59,7 @@
     </form>
 
     {% if keyword or tags_input or thread_filter %}
-        <h2>検索結果({{ hit_count }}件)<small class="muted">／{{ shown_count }}件表示／{{ page }}/{{ last_page }}ページ／最大表示件数{{ per_page }}</small></h2>
+        <h2>検索結果({{ hit_count }}件)<small class="muted hit-result">／{{ shown_count }}件表示／{{ page }}/{{ last_page }}ページ／最大表示件数{{ per_page }}</small></h2>
         {% set params = {
           "q": keyword,
           "thread_filter": thread_filter,
@@ -228,7 +228,7 @@
             {% endfor %}
 
             {# ▼追加：ページ下部（再検索の上）にもページネーションを表示 #}
-            <h2>検索結果({{ hit_count }}件)<small class="muted">／{{ shown_count }}件表示／{{ page }}/{{ last_page }}ページ／最大表示件数{{ per_page }}</small></h2>
+            <h2>検索結果({{ hit_count }}件)<small class="muted hit-result">／{{ shown_count }}件表示／{{ page }}/{{ last_page }}ページ／最大表示件数{{ per_page }}</small></h2>
             {% if hit_count > 0 and last_page > 1 %}
               <div class="pagination">
                 {% if page > 1 %}
@@ -255,7 +255,7 @@
     
 
     {% if (keyword or tags_input or thread_filter) and results %}
-        <h2>再検索</h2>
+        <h2 class="title-adj">再検索</h2>
         <form method="get" action="/">
             <input type="hidden" name="page" value="1">
             <input type="hidden" name="per_page" value="{{ per_page or 20 }}">
