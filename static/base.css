@@ -1,4 +1,4 @@
-/* 001 */
+/* 002 */
 /* base.css */
 :root {
     --bg: #f5f5f7;
@@ -172,7 +172,6 @@ button:disabled {
 }
 
 .btn-mini {
-    padding: 2px 6px;
     font-size: 11px;
 }
 
@@ -333,6 +332,35 @@ mark {
     margin-top: 6px;
 }
 
+.title-adj{
+    margin-bottom: 0;
+}
+
+/* label+input(text)を横並び画面いっぱい 用 */
+.inner-flex-box{
+    display:flex;
+    align-items: baseline;
+}
+
+.inner-flex-box input{
+    flex-grow: 1;//子要素の伸び率 子要素の縮み率はflex-shrink:1
+}
+
+/* label+input(text)を横並び画面いっぱいレスポンシブ */
+@media (max-width: 768px) {
+    .inner-flex-box{
+        flex-flow: column;
+    }
+    
+    .inner-flex-box input{
+        width: 100%;
+    }
+
+    .inner-flex-box .taglabel, .hit-result{
+        display:block;
+    }
+}
+
 /* fetch.html 用 */
 .status {
     margin-top: 12px;
@@ -376,7 +404,7 @@ mark {
     display: flex;
     flex-wrap: wrap;
     gap: 8px;
-    align-items: center;
+    align-items: baseline;
     margin-bottom: 8px;
 }
 
@@ -521,6 +549,12 @@ mark {
     color: var(--text-sub);
 }
 
+.saved-threads-box {
+    margin-top:8px;
+    max-height: 70vh;
+    overflow:auto;
+}
+
 .threads-table {
     width: 100%;
     border-collapse: collapse;
@@ -547,12 +581,22 @@ mark {
     display: flex;
     gap: 4px;
     align-items: center;
+    flex-flow: column;
 }
 
-.label-input {
-    width: 90px;
-    font-size: 12px;
-    padding: 3px 4px;
+.saved-threads-box .threads-table .label-input {
+    margin-top:0;
+    margin-bottom:5px;
+}
+
+/* 保存スレ一覧レスポンシブ微調整 */
+@media (max-width: 768px) {
+    .saved-threads-box .threads-table {
+        min-width: 700px;
+    }
+    .saved-threads-box .label-form {
+        flex-flow: column;
+    }
 }
 
 .btn-sm {
@@ -701,7 +745,8 @@ mark {
 
     /* 名前検索欄はスマホでは幅優先 */
     .name-store-search {
-        align-items: flex-start;
+        align-items: baseline;
+        justify-content: space-between;
     }
 
     .name-store-search input[type="text"] {
@@ -1325,4 +1370,16 @@ input[type="time"] {
 .kb-person-result-text {
   flex: 1 1 auto;
   min-width: 0; /* 長い名前などの折返し安定用 */
+}
+
+/* テキストボックス微調整 */
+.key_input_box{
+    max-width:300px;
+}
+
+/* テキストボックスレスポンシブ微調整 */
+@media (max-width: 768px) {
+    .key_input_box{
+        max-width:100%;
+    }
 }

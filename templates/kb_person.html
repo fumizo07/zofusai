@@ -1,4 +1,4 @@
-{# 009 #}
+{# 010 #}
 {% set page_title_suffix = "KB - 人物" %}
 {% set body_class = "page-kb" %}
 {% set active_page = "kb" %}
@@ -62,40 +62,57 @@
 
     <form method="post" action="/kb/person/{{ person.id }}/update">
       <div class="kb-profile-grid">
-        <div class="kb-grid-label">名前：</div>
-        <div><input type="text" name="name" value="{{ person.name }}"></div>
 
-        <div class="kb-grid-label">年齢：</div>
-        <div><input class="kb-input-sm" type="number" name="age" value="{{ person.age or '' }}" placeholder="例：24" min="0" max="99"></div>
-
-        <div class="kb-grid-label">身長：</div>
-        <div><input class="kb-input-sm" type="number" name="height_cm" value="{{ person.height_cm or '' }}" placeholder="例：160" min="0" max="250"></div>
-
-        <div class="kb-grid-label">カップ：</div>
-        <div>
-          <select class="kb-input-sm" name="cup">
-            <option value="" {% if not person.cup %}selected{% endif %}>（未設定）</option>
-            {% for c in "ABCDEFGHIJKLMNOPQRSTUVWXYZ" %}
-              <option value="{{ c }}" {% if person.cup == c %}selected{% endif %}>{{ c }}カップ</option>
-            {% endfor %}
-          </select>
+        <div class="inner-flex-box">
+          <div class="kb-grid-label">名前：</div>
+          <div><input type="text" name="name" value="{{ person.name }}"></div>
         </div>
 
-        <div class="kb-grid-label">3サイズ：</div>
-        <div class="kb-sizes">
-          <input class="kb-input-xs" type="number" name="bust_cm" value="{{ person.bust_cm or '' }}" placeholder="B" min="0" max="200">
-          <input class="kb-input-xs" type="number" name="waist_cm" value="{{ person.waist_cm or '' }}" placeholder="W" min="0" max="200">
-          <input class="kb-input-xs" type="number" name="hip_cm" value="{{ person.hip_cm or '' }}" placeholder="H" min="0" max="200">
+        <div class="inner-flex-box">
+          <div class="kb-grid-label">年齢：</div>
+          <div><input class="kb-input-sm" type="number" name="age" value="{{ person.age or '' }}" placeholder="例：24" min="18" max="99"></div>
         </div>
 
-        <div class="kb-grid-label">サービス：</div>
-        <div><input type="text" name="services" value="{{ person.services or '' }}" placeholder="例：○○, △△, ××（カンマ区切りで複数可）"></div>
+        <div class="inner-flex-box">
+          <div class="kb-grid-label">身長：</div>
+          <div><input class="kb-input-sm" type="number" name="height_cm" value="{{ person.height_cm or '' }}" placeholder="例：160" min="100" max="200"></div>
+        </div>
 
-        <div class="kb-grid-label">タグ：</div>
-        <div><input type="text" name="tags" value="{{ person.tags or '' }}" placeholder="カンマ区切り"></div>
+        <div class="inner-flex-box">
+          <div class="kb-grid-label">カップ：</div>
+          <div>
+            <select class="kb-input-sm" name="cup">
+              <option value="" {% if not person.cup %}selected{% endif %}>（未設定）</option>
+              {% for c in "ABCDEFGHIJKLMNOPQRSTUVWXYZ" %}
+                <option value="{{ c }}" {% if person.cup == c %}selected{% endif %}>{{ c }}カップ</option>
+              {% endfor %}
+            </select>
+          </div>
+        </div>
 
-        <div class="kb-grid-label">URL：</div>
-        <div><input type="text" name="url" value="{{ person.url or '' }}" placeholder="https://..."></div>
+        <div class="inner-flex-box">
+          <div class="kb-grid-label">3サイズ：</div>
+          <div class="kb-sizes">
+            <input class="kb-input-xs" type="number" name="bust_cm" value="{{ person.bust_cm or '' }}" placeholder="B" min="0" max="200">
+            <input class="kb-input-xs" type="number" name="waist_cm" value="{{ person.waist_cm or '' }}" placeholder="W" min="0" max="200">
+            <input class="kb-input-xs" type="number" name="hip_cm" value="{{ person.hip_cm or '' }}" placeholder="H" min="0" max="200">
+          </div>
+        </div>
+
+        <div class="inner-flex-box">
+          <div class="kb-grid-label">サービス：</div>
+          <div><input type="text" name="services" value="{{ person.services or '' }}" placeholder="例：○○, △△, ××（カンマ区切りで複数可）"></div>
+        </div>
+
+        <div class="inner-flex-box">
+          <div class="kb-grid-label">タグ：</div>
+          <div><input type="text" name="tags" value="{{ person.tags or '' }}" placeholder="カンマ区切り"></div>
+        </div>
+
+        <div class="inner-flex-box">
+          <div class="kb-grid-label">URL：</div>
+          <div><input type="text" name="url" value="{{ person.url or '' }}" placeholder="https://..."></div>
+        </div>
 
         <div class="kb-grid-label">画像URL：</div>
         <div>

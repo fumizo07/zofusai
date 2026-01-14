@@ -51,7 +51,7 @@
 
             <div class="form-row">
                 <label for="keyword">タイトル検索：</label>
-                <input type="text" id="keyword" name="keyword" value="{{ keyword|e }}" />
+                <input type="text" class="key_input_box" id="keyword" name="keyword" value="{{ keyword|e }}" />
 
                 <button type="submit" class="btn-primary">
                     外部スレッド検索
@@ -102,6 +102,13 @@
                 {{ keyword }} の検索結果（{{ results|length }}件）
             </div>
 
+            <div class="section-title" style="margin-top: 12px;">選んだスレ内でキーワード検索</div>
+                <div class="form-row">
+                    <label for="post_keyword">本文キーワード：</label>
+                    <input type="text" class="key_input_box" id="post_keyword" name="post_keyword" value="" />
+                    <button type="submit" class="btn-primary">スレッド内検索</button>
+                </div>
+
             <div class="thread-actions-inline">
                 <form id="save-thread-form-top" method="post" action="/thread_search/save">
                     <input type="hidden" name="thread_url" id="save-thread-url-top" value="">
@@ -151,14 +158,10 @@
                 </div>
                 <div class="form-row">
                     <label for="post_keyword">本文キーワード：</label>
-                    <input type="text" id="post_keyword" name="post_keyword" value="" />
+                    <input type="text" class="key_input_box" id="post_keyword" name="post_keyword" value="" />
                     <button type="submit" class="btn-primary">
                         スレッド内検索
                     </button>
-                </div>
-                <div class="form-row">
-                    <label for="title_keyword">（メモ用）タイトル検索ワード：</label>
-                    <input type="text" id="title_keyword" name="title_keyword" value="{{ keyword|e }}" />
                 </div>
             </form>
 
