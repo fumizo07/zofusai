@@ -375,7 +375,7 @@ mark {
     display: flex;
     flex-wrap: wrap;
     gap: 8px;
-    align-items: center;
+    align-items: baseline;
     margin-bottom: 8px;
 }
 
@@ -700,7 +700,8 @@ mark {
 
     /* 名前検索欄はスマホでは幅優先 */
     .name-store-search {
-        align-items: flex-start;
+        align-items: baseline;
+        justify-content: space-between;
     }
 
     .name-store-search input[type="text"] {
@@ -1331,7 +1332,7 @@ input[type="time"] {
     max-width:300px;
 }
 
-/* レスポンシブ微調整 */
+/* テキストボックスレスポンシブ微調整 */
 @media (max-width: 768px) {
     .key_input_box{
         max-width:100%;
