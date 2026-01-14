@@ -332,6 +332,10 @@ mark {
     margin-top: 6px;
 }
 
+.title-adj{
+    margin-bottom: 0;
+}
+
 /* label+input(text)を横並び画面いっぱい 用 */
 .inner-flex-box{
     display:flex;
@@ -352,7 +356,7 @@ mark {
         width: 100%;
     }
 
-    .inner-flex-box .taglabel{
+    .inner-flex-box .taglabel, .hit-result{
         display:block;
     }
 }
