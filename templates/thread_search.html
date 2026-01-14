@@ -102,19 +102,6 @@
                 {{ keyword }} の検索結果（{{ results|length }}件）
             </div>
 
-            <form id="thread-post-search-form" method="post" action="/thread_search/posts">
-                <input type="hidden" name="area" value="{{ current_area|e }}">
-                <input type="hidden" name="period" value="{{ current_period|e }}">
-                <input type="hidden" name="board_category" value="{{ current_board_category|e }}">
-                <input type="hidden" name="board_id" value="{{ current_board_id|e }}">
-                <input type="hidden" name="back_url" value="{{ _back_url|e }}">
-                <div class="section-title" style="margin-top: 12px;">選んだスレ内でキーワード検索</div>
-                    <div class="form-row">
-                        <label for="post_keyword">本文キーワード：</label>
-                        <input type="text" class="key_input_box" id="post_keyword" name="post_keyword" value="" />
-                        <button type="submit" class="btn-primary">スレッド内検索</button>
-                    </div>
-            </form>
             <div class="thread-actions-inline">
                 <form id="save-thread-form-top" method="post" action="/thread_search/save">
                     <input type="hidden" name="thread_url" id="save-thread-url-top" value="">
@@ -132,6 +119,17 @@
                 <input type="hidden" name="board_id" value="{{ current_board_id|e }}">
                 <input type="hidden" name="back_url" value="{{ _back_url|e }}">
 
+                <div class="section-title" style="margin-top: 12px;">
+                    選んだスレ内でキーワード検索
+                </div>
+                <div class="form-row">
+                    <label for="post_keyword">本文キーワード：</label>
+                    <input type="text" class="key_input_box" id="post_keyword" name="post_keyword" value="" />
+                    <button type="submit" class="btn-primary">
+                        スレッド内検索
+                    </button>
+                </div>
+                
                 {% for t in results %}
                     <div class="thread-item">
                         <label style="display:flex; gap:8px; align-items:flex-start; cursor:pointer;">
