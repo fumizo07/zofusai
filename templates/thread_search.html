@@ -119,14 +119,15 @@
                 <input type="hidden" name="board_category" value="{{ current_board_category|e }}">
                 <input type="hidden" name="board_id" value="{{ current_board_id|e }}">
                 <input type="hidden" name="back_url" value="{{ _back_url|e }}">
+                <input type="hidden" id="post_keyword_hidden" name="post_keyword" value="">
 
                 <div class="section-title" style="margin-top: 12px;">
                     選んだスレ内でキーワード検索
                 </div>
                 
                 <div class="form-row">
-                    <label for="post_keyword">本文キーワード：</label>
-                    <input type="text" class="key_input_box" id="post_keyword" name="post_keyword" value="" />
+                    <label for="post_keyword_top">本文キーワード：</label>
+                    <input type="text" class="key_input_box" id="post_keyword_top" value="" />
                     <button type="submit" class="btn-primary">
                         スレッド内検索
                     </button>
@@ -168,8 +169,8 @@
                     選んだスレ内でキーワード検索
                 </div>
                 <div class="form-row">
-                    <label for="post_keyword">本文キーワード：</label>
-                    <input type="text" class="key_input_box" id="post_keyword" name="post_keyword" value="" />
+                    <label for="post_keyword_bottom">本文キーワード：</label>
+                    <input type="text" class="key_input_box" id="post_keyword_bottom" value="" />
                     <button type="submit" class="btn-primary">
                         スレッド内検索
                     </button>
@@ -320,6 +321,28 @@ document.addEventListener("DOMContentLoaded", function() {
 
     if (formTop) formTop.addEventListener("submit", guardSubmit);
     if (formBottom) formBottom.addEventListener("submit", guardSubmit);
+});
+
+// 選んだスレ内でキーワード検索「本文キーワードが入力されていません。」対策
+document.addEventListener("DOMContentLoaded", function() {
+  const form = document.getElementById("thread-post-search-form");
+  if (!form) return;
+
+  const top = document.getElementById("post_keyword_top");
+  const bottom = document.getElementById("post_keyword_bottom");
+  const hidden = document.getElementById("post_keyword_hidden");
+
+  form.addEventListener("submit", function(e) {
+    const vTop = (top?.value || "").trim();
+    const vBottom = (bottom?.value || "").trim();
+    const v = vTop || vBottom; // 上優先（好みで逆でもOK）
+    if (hidden) hidden.value = v;
+
+    if (!v) {
+      e.preventDefault();
+      alert("本文キーワードを入力してください。");
+    }
+  });
 });
 </script>
 
