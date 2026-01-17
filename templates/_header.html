@@ -1,4 +1,5 @@
-{# 001 #}
+{# 002 #}
+{% set show_quick_menu = show_quick_menu|default(false) %}
 <!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -35,7 +36,7 @@
        ハンバーガーは3ページだけ表示
        index / thread_search_posts / thread_showall
        ========================= #}
-    {% if active_page in ['index', 'thread_search'] %}
+    {% if active_page == 'index' or show_quick_menu %}
     <button class="hamburger-button" id="hamburgerButton" type="button">
         <span class="hamburger-button-inner">
             <span class="hamburger-line"></span>
@@ -46,7 +47,7 @@
     {% endif %}
 </header>
 
-{% if active_page in ['index', 'thread_search'] %}
+{% if active_page == 'index' or show_quick_menu %}
 <div class="quick-menu-overlay" id="quickMenuOverlay">
     <div class="quick-menu-panel">
         <div class="quick-menu-header">

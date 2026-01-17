@@ -1,4 +1,4 @@
-{# 001 #}
+{# 002 #}
 {% set page_title_suffix = "外部検索" %}
 {% set body_class = "page-thread-search" %}
 {% set active_page = "thread_search" %}
@@ -76,10 +76,10 @@
             {% for e in recent_external_searches %}
                 <li>
                     <a href="/thread_search?area={{ e.area|urlencode }}&period={{ e.period|urlencode }}&board_category={{ e.board_category|urlencode }}&board_id={{ e.board_id|urlencode }}&keyword={{ e.keyword|urlencode }}">
-                        [{{ e.period_label }}]
-                        {% if e.board_category_label %}{{ e.board_category_label }}{% endif %}
-                        {% if e.board_label %} / {{ e.board_label }}{% endif %}
-                        ：「{{ e.keyword }}」
+                        {{ e.period_label }}/
+                        {%- if e.board_category_label -%}{{ e.board_category_label }}{%- endif -%}
+                        {%- if e.board_label -%}/{{ e.board_label }}{%- endif -%}
+                        :「{{ e.keyword }}」
                     </a>
                     <form method="post" action="/thread_search/history/delete" style="display:inline; margin-left:4px;">
                         <input type="hidden" name="key" value="{{ e.key }}">
