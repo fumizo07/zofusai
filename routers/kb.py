@@ -1,4 +1,4 @@
-# 011
+# 012
 # routers/kb.py
 import json
 import re
@@ -6,8 +6,9 @@ import unicodedata
 from collections import defaultdict
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple
+from urllib.parse import urlencode
 
-from fastapi import APIRouter, Depends, Form, Query, Request
+from fastapi import APIRouter, Depends, Form, Query, Request, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy import and_, desc, exists, func, or_
 from sqlalchemy.orm import Session
@@ -574,6 +575,38 @@ def kb_person_page(request: Request, person_id: int, db: Session = Depends(get_d
             "body_class": "page-kb",
         },
     )
+
+
+# =========================
+# 人物→外部検索へ（専用リダイレクト）
+# =========================
+@router.get("/kb/person/{person_id}/external_search")
+def kb_person_external_search(person_id: int, db: Session = Depends(get_db)):
+    person = db.query(KBPerson).filter(KBPerson.id == int(person_id)).first()
+    if not person:
+        raise HTTPException(status_code=404, detail="Person not found")
+
+    store = db.query(KBStore).filter(KBStore.id == person.store_id).first()
+
+    store_name = (store.name or "").strip() if store else ""
+    person_name = (person.name or "").strip()
+    keyword = f"{store_name} {person_name}".strip()
+
+    params = {"keyword": keyword}
+
+    if store:
+        area = getattr(store, "area", None)
+        board_category = getattr(store, "board_category", None)
+        board_id = getattr(store, "board_id", None)
+        if area:
+            params["area"] = area
+        if board_category:
+            params["board_category"] = board_category
+        if board_id:
+            params["board_id"] = board_id
+
+    url = "/thread_search?" + urlencode(params)
+    return RedirectResponse(url=url, status_code=303)
 
 
 @router.post("/kb/person/{person_id}/update")
