@@ -1,4 +1,4 @@
-# 013
+# 014
 # routers/kb.py
 import json
 import re
@@ -40,6 +40,104 @@ def norm_text(s: str) -> str:
     s = s.lower()
     s = _kata_to_hira(s)
     return s
+
+
+# =========================
+# 外部検索用：店名→タイトル検索keyword生成（club等の一般語対策）
+# =========================
+_STORE_STOPWORDS = {
+    # 英語っぽい一般語
+    "club", "bar", "salon", "spa", "lounge", "room", "lady", "ladies",
+    "massage", "aroma", "esthetic", "esthe", "relax", "relaxation", "healing",
+    "the", "and",
+    # 日本語っぽい一般語
+    "クラブ", "くらぶ", "バー", "さろん", "サロン", "スパ", "ラウンジ", "ルーム",
+    "メンズ", "メンエス", "エステ", "マッサージ", "アロマ", "癒し", "本店", "駅前", 
+}
+
+# 区切り記号をスペース扱いにする（板のスレタイでよく混ざる系を広めに）
+_STORE_SEP_RE = re.compile(r"[ \t\r\n\u3000\(\)\[\]{}（）【】「」『』<>/\\|・\-–—_.,!?:;]+")
+_STORE_ALNUM_RE = re.compile(r"^[0-9a-z]+$", re.IGNORECASE)
+_STORE_DIGITS_RE = re.compile(r"^\d+$")
+
+
+def _tokenize_store_name(raw: str) -> List[str]:
+    """
+    店名を「それっぽい単語」に分割する
+    - NFKC + lower
+    - 記号類はスペース
+    - 連続スペースを潰す
+    """
+    s = norm_text(raw or "")
+    s = _STORE_SEP_RE.sub(" ", s)
+    s = re.sub(r"\s+", " ", s).strip()
+    if not s:
+        return []
+    return [t for t in s.split(" ") if t]
+
+
+def _make_store_keyword(store_name: str) -> str:
+    """
+    タイトル検索keywordを作る
+    優先：
+      1) stopword除外後の「最長トークン」
+      2) 先頭の一般語（club等）を剥がした残りの先頭6〜8文字
+      3) それでもダメなら、店名の先頭6文字
+    """
+    raw = (store_name or "").strip()
+    if not raw:
+        return ""
+
+    toks = _tokenize_store_name(raw)
+
+    # stopword除外＆弱いトークン除外
+    cand = []
+    for t in toks:
+        # t は norm_text 済み（=小文字/ひらがな寄せ）
+        # stopwordも norm_text に寄せて比較
+        if t in {norm_text(x) for x in _STORE_STOPWORDS}:
+            continue
+        if len(t) <= 1:
+            continue
+        if _STORE_DIGITS_RE.match(t):
+            continue
+        # 英数字だけの短いトークンはノイズになりがち（例: "a", "x", "cl"）
+        if _STORE_ALNUM_RE.match(t) and len(t) <= 2:
+            continue
+        cand.append(t)
+
+    if cand:
+        # 一番長いトークン（同長なら先に出た方）を採用
+        best = max(cand, key=lambda x: len(x))
+        return best
+
+    # フォールバック：先頭の一般語を剥がす（スペース無しの "clubxxxx" も想定）
+    s = norm_text(raw)
+    # 先頭に来がちな一般語を複数回剥がす
+    # 例: "club spa xxxx" みたいなのを2回くらい剥がせるようにする
+    for _ in range(2):
+        changed = False
+        for sw in {norm_text(x) for x in _STORE_STOPWORDS}:
+            if not sw:
+                continue
+            if s.startswith(sw):
+                s = s[len(sw):].lstrip()
+                changed = True
+        if not changed:
+            break
+
+    s = s.strip()
+    if s:
+        # 先頭6〜8：短すぎる4よりはノイズが減る。まず6、長ければ8まで。
+        if len(s) >= 8:
+            return s[:8]
+        if len(s) >= 6:
+            return s[:6]
+        return s
+
+    # 最後の保険：元店名の先頭6
+    s2 = norm_text(raw)
+    return s2[:6] if s2 else ""
 
 
 def _sanitize_image_urls(raw: str) -> list[str]:
@@ -591,8 +689,8 @@ def kb_person_external_search(person_id: int, db: Session = Depends(get_db)):
     store_name = (store.name or "").strip() if store else ""
     person_name = (person.name or "").strip()
 
-    # タイトル検索（keyword）は「店舗名の先頭4文字」だけにする（完全一致を避けるため）
-    store_kw = store_name[:4] if store_name else ""
+    # タイトル検索（keyword）は「店名から固有っぽい単語」を作る（club等の一般語対策）
+    store_kw = _make_store_keyword(store_name)
     params = {"keyword": store_kw}
 
     # 本文キーワード用（thread_search.html 側で post_kw を value に入れる前提）
