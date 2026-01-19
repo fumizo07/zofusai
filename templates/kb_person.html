@@ -1,7 +1,9 @@
-{# 010 #}
+{# 011 #}
 {% set page_title_suffix = "KB - 人物" %}
 {% set body_class = "page-kb" %}
 {% set active_page = "kb" %}
+{% set store_kw = (store.name[:4] if store and store.name else "") %}
+{% set post_kw  = (person.name or "") %}
 {% include "_header.html" %}
 
 <main>

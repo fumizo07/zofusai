@@ -127,7 +127,7 @@
                 
                 <div class="form-row">
                     <label for="post_keyword_top">本文キーワード：</label>
-                    <input type="text" class="key_input_box" id="post_keyword_top" value="" />
+                    <input type="text" class="key_input_box" id="post_keyword_top" value="{{ request.query_params.get('post_kw', '')|e }}" />
                     <button type="submit" class="btn-primary">
                         スレッド内検索
                     </button>
@@ -170,7 +170,7 @@
                 </div>
                 <div class="form-row">
                     <label for="post_keyword_bottom">本文キーワード：</label>
-                    <input type="text" class="key_input_box" id="post_keyword_bottom" value="" />
+                    <input type="text" class="key_input_box" id="post_keyword_bottom" value="{{ request.query_params.get('post_kw', '')|e }}" />
                     <button type="submit" class="btn-primary">
                         スレッド内検索
                     </button>
