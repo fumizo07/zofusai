@@ -1,4 +1,4 @@
-# 014
+# 015
 # routers/kb.py
 import json
 import re
@@ -43,22 +43,29 @@ def norm_text(s: str) -> str:
 
 
 # =========================
-# 外部検索用：店名→タイトル検索keyword生成（club等の一般語対策）
+# 外部検索用：店名→タイトル検索keyword生成（〇〇店/住所っぽい塊対策）
 # =========================
 _STORE_STOPWORDS = {
-    # 英語っぽい一般語
-    "club", "bar", "salon", "spa", "lounge", "room", "lady", "ladies",
-    "massage", "aroma", "esthetic", "esthe", "relax", "relaxation", "healing",
-    "the", "and",
+    # 英語っぽい一般語（先頭によく付く）
+    "club", "bar", "salon", "spa", "lounge", "room", "healing", "the", "and",
+    "massage", "aroma", "esthetic", "esthe", "relax", "relaxation",
     # 日本語っぽい一般語
     "クラブ", "くらぶ", "バー", "さろん", "サロン", "スパ", "ラウンジ", "ルーム",
-    "メンズ", "メンエス", "エステ", "マッサージ", "アロマ", "癒し", "本店", "駅前", 
+    "メンズ", "メンエス", "エステ", "マッサージ", "アロマ", "癒し",
+    # 店舗枝番・住所っぽい単語（単体でもノイズ）
+    "店", "本店", "支店", "別館", "新店",
+    "ビル", "ビルディング", "タワー", "プラザ", "センター",
 }
 
-# 区切り記号をスペース扱いにする（板のスレタイでよく混ざる系を広めに）
 _STORE_SEP_RE = re.compile(r"[ \t\r\n\u3000\(\)\[\]{}（）【】「」『』<>/\\|・\-–—_.,!?:;]+")
 _STORE_ALNUM_RE = re.compile(r"^[0-9a-z]+$", re.IGNORECASE)
+_STORE_ALPHA_RE = re.compile(r"^[a-z]+$", re.IGNORECASE)
 _STORE_DIGITS_RE = re.compile(r"^\d+$")
+
+# 末尾が「〜店」を “絶対に” keyword に入れないための判定用（よくある派生も含める）
+_STORE_BRANCH_TAIL_RE = re.compile(r"(本店|支店|別館|新店|[0-9]+号店|店)$")
+# 住所っぽい（ビル/階/号など）が混ざった塊を避ける（完全禁止ではなく減点）
+_STORE_ADDR_HINT_RE = re.compile(r"(ビル|びる|階|f|号|丁目|番地|通り|駅前|東口|西口|南口|北口)")
 
 
 def _tokenize_store_name(raw: str) -> List[str]:
@@ -76,68 +83,165 @@ def _tokenize_store_name(raw: str) -> List[str]:
     return [t for t in s.split(" ") if t]
 
 
+def _is_stopword(tok_norm: str) -> bool:
+    sw = {norm_text(x) for x in _STORE_STOPWORDS}
+    return tok_norm in sw
+
+
+def _variants(tok_norm: str) -> List[str]:
+    """
+    トークンから候補バリアントを作る
+    - ただし「〇〇店」を消したいので、末尾が店系のものは *そのままは使わない*
+    - 末尾の店系を剥がしたものは候補にする（ただしスコアは低めになりやすい）
+    """
+    out = []
+    t = (tok_norm or "").strip()
+    if not t:
+        return out
+
+    out.append(t)
+
+    # 末尾の「本店/支店/◯号店/店」を剥がす
+    t2 = _STORE_BRANCH_TAIL_RE.sub("", t).strip()
+    if t2 and t2 != t:
+        out.append(t2)
+
+    # 末尾の「ビル/ビルディング/タワー/プラザ/センター」を剥がす（住所塊の弱体化）
+    for suf in ["ビルディング", "ビル", "びる", "タワー", "プラザ", "センター"]:
+        if t2.endswith(norm_text(suf)):
+            t3 = t2[: -len(norm_text(suf))].strip()
+            if t3:
+                out.append(t3)
+
+    # 重複除去（順序維持）
+    seen = set()
+    uniq = []
+    for x in out:
+        if x in seen:
+            continue
+        seen.add(x)
+        uniq.append(x)
+    return uniq
+
+
+def _score_keyword_candidate(tok_norm: str) -> int:
+    """
+    大きいほど強い候補
+    基本方針：
+      - 英字ブランド（blenda など）を最優先
+      - 末尾が「〜店」は *絶対に採用しない*（ここに来る前に弾く想定だが保険で0点）
+      - 住所っぽい塊（ビル/階/号/丁目/番地…）は強く減点
+      - 数字混じりも減点（谷9 みたいなやつ）
+    """
+    t = (tok_norm or "").strip()
+    if not t:
+        return -10
+
+    # 「〇〇店」を完全排除
+    if _STORE_BRANCH_TAIL_RE.search(t):
+        return -999
+
+    # stopwordは基本捨てる
+    if _is_stopword(t):
+        return -500
+
+    # 英字だけ（ブランド想定）は最強
+    if _STORE_ALPHA_RE.match(t) and 3 <= len(t) <= 14:
+        return 1000 + len(t)
+
+    # 英数字混在（例: blenda2 など）は次点
+    if _STORE_ALNUM_RE.match(t):
+        if any("a" <= ch.lower() <= "z" for ch in t) and 3 <= len(t) <= 16:
+            # 数字だけは別扱い（弱い）
+            if _STORE_DIGITS_RE.match(t):
+                return -200
+            return 850 + len(t)
+        # 短い英数字はノイズ
+        return -50
+
+    # 日本語系：長すぎる塊はノイズになりがち
+    base = 300
+
+    # 住所ヒントがあるなら大減点
+    if _STORE_ADDR_HINT_RE.search(t):
+        base -= 180
+
+    # 数字が入るなら減点
+    if any("0" <= ch <= "9" for ch in t):
+        base -= 120
+
+    # 長さは 2〜6 が最も扱いやすい
+    L = len(t)
+    if 2 <= L <= 6:
+        base += 120 + L * 8
+    elif 7 <= L <= 10:
+        base += 40
+    else:
+        base -= 30  # 長すぎ
+
+    return base
+
+
 def _make_store_keyword(store_name: str) -> str:
     """
-    タイトル検索keywordを作る
+    タイトル検索keywordを作る（安定版）
     優先：
-      1) stopword除外後の「最長トークン」
-      2) 先頭の一般語（club等）を剥がした残りの先頭6〜8文字
-      3) それでもダメなら、店名の先頭6文字
+      1) 英字ブランド（例: blenda）
+      2) 英数字ブランド（例: blenda2）
+      3) 日本語の“地名/固有語っぽい短いトークン”（住所塊は避ける）
+    ※「〇〇店」は絶対に採用しない
     """
     raw = (store_name or "").strip()
     if not raw:
         return ""
 
     toks = _tokenize_store_name(raw)
+    if not toks:
+        return ""
 
-    # stopword除外＆弱いトークン除外
-    cand = []
+    candidates: List[str] = []
     for t in toks:
-        # t は norm_text 済み（=小文字/ひらがな寄せ）
-        # stopwordも norm_text に寄せて比較
-        if t in {norm_text(x) for x in _STORE_STOPWORDS}:
+        # まず stopword 自体は捨てる（club等）
+        if _is_stopword(t):
             continue
-        if len(t) <= 1:
-            continue
-        if _STORE_DIGITS_RE.match(t):
-            continue
-        # 英数字だけの短いトークンはノイズになりがち（例: "a", "x", "cl"）
-        if _STORE_ALNUM_RE.match(t) and len(t) <= 2:
-            continue
-        cand.append(t)
 
-    if cand:
-        # 一番長いトークン（同長なら先に出た方）を採用
-        best = max(cand, key=lambda x: len(x))
-        return best
-
-    # フォールバック：先頭の一般語を剥がす（スペース無しの "clubxxxx" も想定）
-    s = norm_text(raw)
-    # 先頭に来がちな一般語を複数回剥がす
-    # 例: "club spa xxxx" みたいなのを2回くらい剥がせるようにする
-    for _ in range(2):
-        changed = False
-        for sw in {norm_text(x) for x in _STORE_STOPWORDS}:
-            if not sw:
+        # バリアント生成（店/ビル等を剥がした候補も作る）
+        for v in _variants(t):
+            v = (v or "").strip()
+            if not v:
                 continue
-            if s.startswith(sw):
-                s = s[len(sw):].lstrip()
-                changed = True
-        if not changed:
-            break
+            # 「〇〇店」を完全排除
+            if _STORE_BRANCH_TAIL_RE.search(v):
+                continue
+            # stopwordは除外
+            if _is_stopword(v):
+                continue
+            candidates.append(v)
 
-    s = s.strip()
-    if s:
-        # 先頭6〜8：短すぎる4よりはノイズが減る。まず6、長ければ8まで。
-        if len(s) >= 8:
-            return s[:8]
-        if len(s) >= 6:
-            return s[:6]
+    if not candidates:
+        # 最後の保険：店名そのものから強引に（ただし店末尾は削る）
+        s = norm_text(raw)
+        s = _STORE_BRANCH_TAIL_RE.sub("", s).strip()
+        s = s[:8] if len(s) >= 8 else s
         return s
 
-    # 最後の保険：元店名の先頭6
-    s2 = norm_text(raw)
-    return s2[:6] if s2 else ""
+    # スコア最大を採用
+    best = None
+    best_score = -10**9
+    for c in candidates:
+        sc = _score_keyword_candidate(c)
+        if sc > best_score:
+            best_score = sc
+            best = c
+
+    # さらに保険：短すぎたら（1文字等）切り捨て
+    if not best or len(best) <= 1:
+        # ここに来るのは稀。無難に先頭6
+        s = norm_text(raw)
+        s = _STORE_BRANCH_TAIL_RE.sub("", s).strip()
+        return s[:6] if len(s) > 6 else s
+
+    return best
 
 
 def _sanitize_image_urls(raw: str) -> list[str]:
@@ -470,7 +574,6 @@ def kb_index(request: Request, db: Session = Depends(get_db)):
             "person_counts": counts,
             "panic": panic,
             "search_error": search_error,
-            # 検索フォーム保持用（デフォルト）
             "search_q": "",
             "search_region_id": "",
             "search_budget_min": "",
@@ -481,7 +584,6 @@ def kb_index(request: Request, db: Session = Depends(get_db)):
             "search_waist": [],
             "search_svc": [],
             "search_tag": [],
-            # 検索結果
             "search_results": None,
             "search_truncated": False,
             "search_total_count": 0,
@@ -489,7 +591,6 @@ def kb_index(request: Request, db: Session = Depends(get_db)):
             "regions_map": {},
             "rating_avg_map": {},
             "amount_avg_map": {},
-            # チェックボックス候補
             "svc_options": svc_options,
             "tag_options": tag_options,
             "active_page": "kb",
@@ -689,7 +790,7 @@ def kb_person_external_search(person_id: int, db: Session = Depends(get_db)):
     store_name = (store.name or "").strip() if store else ""
     person_name = (person.name or "").strip()
 
-    # タイトル検索（keyword）は「店名から固有っぽい単語」を作る（club等の一般語対策）
+    # タイトル検索（keyword）は「〇〇店」を排除し、ブランド優先で作る
     store_kw = _make_store_keyword(store_name)
     params = {"keyword": store_kw}
 
