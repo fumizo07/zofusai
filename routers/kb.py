@@ -1,4 +1,4 @@
-# 012
+# 013
 # routers/kb.py
 import json
 import re
@@ -590,9 +590,14 @@ def kb_person_external_search(person_id: int, db: Session = Depends(get_db)):
 
     store_name = (store.name or "").strip() if store else ""
     person_name = (person.name or "").strip()
-    keyword = f"{store_name} {person_name}".strip()
 
-    params = {"keyword": keyword}
+    # タイトル検索（keyword）は「店舗名の先頭4文字」だけにする（完全一致を避けるため）
+    store_kw = store_name[:4] if store_name else ""
+    params = {"keyword": store_kw}
+
+    # 本文キーワード用（thread_search.html 側で post_kw を value に入れる前提）
+    if person_name:
+        params["post_kw"] = person_name
 
     if store:
         area = getattr(store, "area", None)
