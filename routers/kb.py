@@ -649,6 +649,9 @@ def kb_index(request: Request, db: Session = Depends(get_db)):
     )
 
 
+
+
+
 @router.post("/kb/region")
 def kb_add_region(request: Request, name: str = Form(""), db: Session = Depends(get_db)):
     name = (name or "").strip()
@@ -843,9 +846,9 @@ def kb_person_external_search(person_id: int, db: Session = Depends(get_db)):
     store_kw = _make_store_keyword(store_name)
     params = {"keyword": store_kw}
 
-    # ★KB経由は履歴に積まない（外部検索ページからの検索だけ履歴に残す）
+    # KB経由は履歴に積まない（外部検索ページからの検索だけ履歴に残す）
     params["no_log"] = "1"
-    # ★KB経由フラグ（板フォールバック等をKB時だけに限定するため）
+    # KB経由フラグ（板フォールバック等をKB時だけに限定するため）
     params["kb"] = "1"
 
     # 本文キーワード用（thread_search.html 側で post_kw を value に入れる前提）
@@ -1014,6 +1017,9 @@ def kb_add_visit(
     return RedirectResponse(url=back_url, status_code=303)
 
 
+# =========================
+# 利用ログ編集（追加）
+# =========================
 @router.post("/kb/visit/{visit_id}/update")
 def kb_update_visit(
     request: Request,
@@ -1153,6 +1159,10 @@ def kb_panic_delete_all(
     return RedirectResponse(url="/kb?panic=done", status_code=303)
 
 
+# =========================
+# 人物検索（詳細検索 + フリーワード）
+#  - 何も指定せず検索 → 全員表示
+# =========================
 @router.get("/kb/search", response_class=HTMLResponse)
 def kb_search(
     request: Request,
