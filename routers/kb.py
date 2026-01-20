@@ -1,4 +1,4 @@
-# 015
+# 016
 # routers/kb.py
 import json
 import re
@@ -43,6 +43,16 @@ def norm_text(s: str) -> str:
 
 
 # =========================
+# 外部検索用の正規化（※カタカナ→ひらがなはしない）
+# =========================
+def norm_store_kw(s: str) -> str:
+    s = s or ""
+    s = unicodedata.normalize("NFKC", s)
+    s = s.lower()
+    return s
+
+
+# =========================
 # 外部検索用：店名→タイトル検索keyword生成（〇〇店/住所っぽい塊対策）
 # =========================
 _STORE_STOPWORDS = {
@@ -57,6 +67,9 @@ _STORE_STOPWORDS = {
     "ビル", "ビルディング", "タワー", "プラザ", "センター",
 }
 
+# stopwordの正規化済み集合（都度生成しない）
+_STORE_STOPWORDS_NORM = {norm_store_kw(x) for x in _STORE_STOPWORDS}
+
 _STORE_SEP_RE = re.compile(r"[ \t\r\n\u3000\(\)\[\]{}（）【】「」『』<>/\\|・\-–—_.,!?:;]+")
 _STORE_ALNUM_RE = re.compile(r"^[0-9a-z]+$", re.IGNORECASE)
 _STORE_ALPHA_RE = re.compile(r"^[a-z]+$", re.IGNORECASE)
@@ -67,15 +80,25 @@ _STORE_BRANCH_TAIL_RE = re.compile(r"(本店|支店|別館|新店|[0-9]+号店|�
 # 住所っぽい（ビル/階/号など）が混ざった塊を避ける（完全禁止ではなく減点）
 _STORE_ADDR_HINT_RE = re.compile(r"(ビル|びる|階|f|号|丁目|番地|通り|駅前|東口|西口|南口|北口)")
 
+# 「堺店」「梅田店」など “支店ブロックだけ” のトークンを捨てる
+# （※カタカナは含めない：サマンサ店 のようなブランドを誤って捨てないため）
+_STORE_PURE_BRANCH_RE = re.compile(r"^[\u3041-\u309f\u4e00-\u9fff]{1,8}(本店|支店|別館|新店|[0-9]+号店|店)$")
+
+# 「サマンサ堺店」など、連結トークンの末尾に「<地名><店/本店...>」が付く場合は
+# その “支店ブロック（地名+店）” を丸ごと落としてブランドだけ残す
+_STORE_BRANCH_LOC_TAIL_RE = re.compile(
+    r"^(.+?)([\u3041-\u309f\u4e00-\u9fff]{1,8})(本店|支店|別館|新店|[0-9]+号店|店)$"
+)
+
 
 def _tokenize_store_name(raw: str) -> List[str]:
     """
     店名を「それっぽい単語」に分割する
-    - NFKC + lower
+    - NFKC + lower（※カタ→ひらはしない）
     - 記号類はスペース
     - 連続スペースを潰す
     """
-    s = norm_text(raw or "")
+    s = norm_store_kw(raw or "")
     s = _STORE_SEP_RE.sub(" ", s)
     s = re.sub(r"\s+", " ", s).strip()
     if not s:
@@ -84,21 +107,42 @@ def _tokenize_store_name(raw: str) -> List[str]:
 
 
 def _is_stopword(tok_norm: str) -> bool:
-    sw = {norm_text(x) for x in _STORE_STOPWORDS}
-    return tok_norm in sw
+    return (tok_norm or "") in _STORE_STOPWORDS_NORM
 
 
 def _variants(tok_norm: str) -> List[str]:
     """
     トークンから候補バリアントを作る
-    - ただし「〇〇店」を消したいので、末尾が店系のものは *そのままは使わない*
-    - 末尾の店系を剥がしたものは候補にする（ただしスコアは低めになりやすい）
+
+    目的：
+    - 「〇〇店」だけでなく「堺店」「梅田店」など支店ブロックは丸ごと落としたい
+    - さらに外部検索keywordでは、カタ→ひら変換はしない
+
+    方針：
+    - トークン自体が「堺店」「梅田店」等（支店ブロックのみ）なら “捨てる”
+    - トークンが「サマンサ堺店」等（ブランド+支店ブロック連結）なら
+      “支店ブロック（堺店）” を丸ごと落として「サマンサ」だけ候補にする
+    - それ以外は従来通り末尾の「店系」を剥がす
     """
-    out = []
+    out: List[str] = []
     t = (tok_norm or "").strip()
     if not t:
         return out
 
+    # 支店ブロックだけのトークンは捨てる（例：堺店 / 梅田店）
+    if _STORE_PURE_BRANCH_RE.match(t):
+        return out
+
+    # 連結トークンの末尾が「<地名><店/本店...>」なら、そのブロックを丸ごと落としてブランドだけ
+    m = _STORE_BRANCH_LOC_TAIL_RE.match(t)
+    if m:
+        brand = (m.group(1) or "").strip()
+        if brand:
+            out.append(brand)
+        # ここで返す：わざと「サマンサ堺」など “地名だけ残る形” を作らない
+        return out
+
+    # 通常ケース：元トークンも候補に入れる
     out.append(t)
 
     # 末尾の「本店/支店/◯号店/店」を剥がす
@@ -108,8 +152,8 @@ def _variants(tok_norm: str) -> List[str]:
 
     # 末尾の「ビル/ビルディング/タワー/プラザ/センター」を剥がす（住所塊の弱体化）
     for suf in ["ビルディング", "ビル", "びる", "タワー", "プラザ", "センター"]:
-        if t2.endswith(norm_text(suf)):
-            t3 = t2[: -len(norm_text(suf))].strip()
+        if t2.endswith(norm_store_kw(suf)):
+            t3 = t2[: -len(norm_store_kw(suf))].strip()
             if t3:
                 out.append(t3)
 
@@ -188,8 +232,13 @@ def _make_store_keyword(store_name: str) -> str:
     優先：
       1) 英字ブランド（例: blenda）
       2) 英数字ブランド（例: blenda2）
-      3) 日本語の“地名/固有語っぽい短いトークン”（住所塊は避ける）
-    ※「〇〇店」は絶対に採用しない
+      3) 日本語の“固有語っぽい短いトークン”（住所塊は避ける）
+
+    重要：
+      - 「〇〇店」は絶対に採用しない
+      - 「堺店」「梅田店」など “支店ブロック” は丸ごと捨て、
+        「サマンサ堺店」→「サマンサ」のようにブランドだけ残す
+      - 外部検索keywordでは、カタ→ひら変換はしない
     """
     raw = (store_name or "").strip()
     if not raw:
@@ -220,7 +269,7 @@ def _make_store_keyword(store_name: str) -> str:
 
     if not candidates:
         # 最後の保険：店名そのものから強引に（ただし店末尾は削る）
-        s = norm_text(raw)
+        s = norm_store_kw(raw)
         s = _STORE_BRANCH_TAIL_RE.sub("", s).strip()
         s = s[:8] if len(s) >= 8 else s
         return s
@@ -237,7 +286,7 @@ def _make_store_keyword(store_name: str) -> str:
     # さらに保険：短すぎたら（1文字等）切り捨て
     if not best or len(best) <= 1:
         # ここに来るのは稀。無難に先頭6
-        s = norm_text(raw)
+        s = norm_store_kw(raw)
         s = _STORE_BRANCH_TAIL_RE.sub("", s).strip()
         return s[:6] if len(s) > 6 else s
 
@@ -598,6 +647,9 @@ def kb_index(request: Request, db: Session = Depends(get_db)):
             "body_class": "page-kb",
         },
     )
+
+
+
 
 
 @router.post("/kb/region")
