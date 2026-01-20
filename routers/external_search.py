@@ -1,4 +1,4 @@
-# 004
+# 005
 # routers/external_search.py
 from __future__ import annotations
 
@@ -307,6 +307,57 @@ def _get_thread_title_cached(db: Session, url: str) -> str:
     return title
 
 
+# =========================
+# ★追加：KB経由だけ「板ゆらぎ」フォールバック
+# =========================
+def _get_board_label(board_category: str, board_id: str) -> str:
+    board_category = (board_category or "").strip()
+    board_id = (board_id or "").strip()
+    if not board_category or not board_id:
+        return ""
+    for b in get_board_options_for_category(board_category):
+        if (b.get("id") or "") == board_id:
+            return (b.get("label") or "").strip()
+    return ""
+
+
+def _find_board_id_by_label(board_category: str, label: str) -> str:
+    board_category = (board_category or "").strip()
+    label = (label or "").strip()
+    if not board_category or not label:
+        return ""
+    for b in get_board_options_for_category(board_category):
+        if (b.get("label") or "").strip() == label:
+            return (b.get("id") or "").strip()
+    return ""
+
+
+def _fallback_board(board_category: str, board_id: str) -> tuple[str, str]:
+    """
+    現在の板ラベルから「風俗 ⇄ デリヘル」を入れ替えた板を探す。
+    例：
+      大阪デリヘル・お店 -> 大阪風俗・お店
+      東京風俗・お店     -> 東京デリヘル・お店
+    戻り値： (fallback_board_id, fallback_board_label)
+    """
+    cur_label = _get_board_label(board_category, board_id)
+    if not cur_label:
+        return "", ""
+
+    # 「風俗」と「デリヘル」のみを対象（それ以外は何もしない）
+    if "デリヘル" in cur_label:
+        fb_label = cur_label.replace("デリヘル", "風俗")
+    elif ("風俗" in cur_label) and ("デリヘル" not in cur_label):
+        fb_label = cur_label.replace("風俗", "デリヘル")
+    else:
+        return "", ""
+
+    fb_id = _find_board_id_by_label(board_category, fb_label)
+    if not fb_id:
+        return "", ""
+    return fb_id, fb_label
+
+
 @router.post("/thread_search/history/delete")
 def delete_external_search_history(
     key: str = Form(""),
@@ -352,6 +403,13 @@ def thread_search_page(
     # ★no_log はテンプレから隠蔽：戻りURLに勝手に付ける
     no_log_flag = _truthy(no_log) or _truthy(request.query_params.get("no_log"))
 
+    # ★KB経由フラグ（KBからだけ付ける想定）
+    kb_flag = _truthy(request.query_params.get("kb"))
+
+    # ★KB経由は「最近の外部検索」に残さない
+    if kb_flag:
+        no_log_flag = True
+
     results: List[dict] = []
     error_message = ""
 
@@ -360,15 +418,6 @@ def thread_search_page(
     ranking_source_url = ""
 
     board_options = get_board_options_for_category(board_category)
-
-    # この画面の「正しい戻り先URL」（条件一式 + no_log=1）
-    back_url = _build_thread_search_url(
-        area=area,
-        period=period,
-        board_category=board_category,
-        board_id=board_id,
-        keyword=keyword,
-    )
 
     if keyword and area:
         max_days = get_period_days(period)
@@ -383,7 +432,32 @@ def thread_search_page(
         except Exception as e:
             error_message = f"外部検索中にエラーが発生しました: {e}"
 
-        if not error_message and board_category and board_id:
+        # ★KB経由だけ：0件なら「風俗⇄デリヘル」をフォールバック
+        if (not error_message) and kb_flag and (not results):
+            fb_id, fb_label = _fallback_board(board_category, board_id)
+            if fb_id and fb_id != board_id:
+                cur_label = _get_board_label(board_category, board_id)
+                try:
+                    fb_results = search_threads_external(
+                        area_code=area,
+                        keyword=keyword,
+                        max_days=max_days,
+                        board_category=board_category,
+                        board_id=fb_id,
+                    )
+                    if fb_results:
+                        results = fb_results
+                        board_id = fb_id  # ★以後の表示/リンク/戻りURLもこの板に揃える
+                        # テンプレ追加なしで通知したいので error_message を流用（赤表示でも致命的ではない）
+                        if cur_label and fb_label:
+                            error_message = f"0件だったため、板を「{cur_label}」→「{fb_label}」に切り替えて再検索しました。"
+                        else:
+                            error_message = "0件だったため、板を切り替えて再検索しました。"
+                except Exception as e:
+                    # フォールバックが失敗しても、元の0件を維持して落とさない
+                    error_message = f"外部検索中にエラーが発生しました: {e}"
+
+        if (not error_message) and board_category and board_id:
             board_label = ""
             for b in board_options:
                 if b["id"] == board_id:
@@ -401,8 +475,18 @@ def thread_search_page(
                 )
 
         # ★履歴：no_log=1 のときは積まない（戻っただけで増えるのを防ぐ）
+        # ★KB経由も no_log 扱いで積まない
         if not error_message and not no_log_flag:
             _touch_external_history(db, area, period, board_category, board_id, keyword)
+
+    # この画面の「正しい戻り先URL」（条件一式 + no_log=1）
+    back_url = _build_thread_search_url(
+        area=area,
+        period=period,
+        board_category=board_category,
+        board_id=board_id,
+        keyword=keyword,
+    )
 
     recent_external_searches = _build_recent_external_searches(db, limit=15)
 

@@ -1,4 +1,4 @@
-# 016
+# 017
 # routers/kb.py
 import json
 import re
@@ -845,6 +845,11 @@ def kb_person_external_search(person_id: int, db: Session = Depends(get_db)):
     # タイトル検索（keyword）は「〇〇店」を排除し、ブランド優先で作る
     store_kw = _make_store_keyword(store_name)
     params = {"keyword": store_kw}
+
+    # KB経由は履歴に積まない（外部検索ページからの検索だけ履歴に残す）
+    params["no_log"] = "1"
+    # KB経由フラグ（板フォールバック等をKB時だけに限定するため）
+    params["kb"] = "1"
 
     # 本文キーワード用（thread_search.html 側で post_kw を value に入れる前提）
     if person_name:
