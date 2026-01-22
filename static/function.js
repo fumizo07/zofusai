@@ -1,4 +1,4 @@
-// 006
+// 007
 // static/function.js
 (() => {
   "use strict";
@@ -75,6 +75,47 @@
   function openGoogleSearch(query) {
     const url = "https://www.google.com/search?q=" + encodeURIComponent(query);
     window.open(url, "_blank", "noopener");
+  }
+
+  // ============================================================
+  // data-* 読み取りの“ゆるい互換”ヘルパ
+  // - data-person-id / data-person_id / dataset.personId など混在しても拾う
+  // ============================================================
+  function getDataAny(el, keys) {
+    if (!el) return "";
+    for (const k of keys) {
+      // 1) dataset（camel / snake を両方）
+      try {
+        if (el.dataset) {
+          if (el.dataset[k] != null && String(el.dataset[k]).trim() !== "") return String(el.dataset[k]).trim();
+        }
+      } catch (_) {}
+
+      // 2) data-camelCase -> data-camel-case
+      const kebab = "data-" + String(k).replace(/([A-Z])/g, "-$1").toLowerCase();
+      const v1 = el.getAttribute ? el.getAttribute(kebab) : null;
+      if (v1 != null && String(v1).trim() !== "") return String(v1).trim();
+
+      // 3) data-camelCase -> data_camel_case（underscore版）
+      const snake = "data-" + String(k).replace(/([A-Z])/g, "_$1").toLowerCase();
+      const v2 = el.getAttribute ? el.getAttribute(snake) : null;
+      if (v2 != null && String(v2).trim() !== "") return String(v2).trim();
+    }
+    return "";
+  }
+
+  function ensureDataset(el, key, val) {
+    if (!el || !key) return;
+    if (val == null) return;
+    const s = String(val).trim();
+    if (!s) return;
+    try {
+      if (!el.dataset[key]) el.dataset[key] = s;
+    } catch (_) {}
+  }
+
+  function normalizeName(s) {
+    return (s || "").replace(/\s+/g, "").toLowerCase();
   }
 
   // ============================================================
@@ -289,104 +330,225 @@
 
   // ============================================================
   // KB：料金項目（行追加＆合計＆hidden JSON）
+  // - テンプレが無くても personページの訪問フォームに自動挿入する
   // ============================================================
   function initKbPriceItems() {
+    // 1) “明細テンプレが無い”場合に自動生成（KB人物ページ想定）
+    ensureKbPriceItemsAutoInsert();
+
+    // 2) 通常の [data-price-items] を初期化
     const roots = document.querySelectorAll("[data-price-items]");
     if (!roots || !roots.length) return;
 
-    roots.forEach((root) => {
-      if (root.dataset.kbPriceApplied === "1") return;
-      root.dataset.kbPriceApplied = "1";
+    roots.forEach((root) => applyKbPriceItemsRoot(root));
+  }
 
-      const body = root.querySelector("[data-price-items-body]");
-      const elTotal = root.querySelector("[data-price-total]");
-      const hidden = root.querySelector('input[type="hidden"][name="price_items_json"]');
+  function ensureKbPriceItemsAutoInsert() {
+    // KB人物ページだけを対象にする（誤爆防止）
+    const path = String(location.pathname || "");
+    const isKbPerson = /^\/kb\/person\/\d+/.test(path);
+    if (!isKbPerson) return;
 
-      function collect() {
-        const rows = body ? Array.from(body.querySelectorAll("tr")) : [];
-        const items = [];
-        let total = 0;
+    const forms = Array.from(document.querySelectorAll("form"));
+    if (!forms.length) return;
 
-        rows.forEach((tr) => {
-          const label = (tr.querySelector("[data-price-label]")?.value || "").trim();
-          const amtRaw = tr.querySelector("[data-price-amount]")?.value || "";
-          const amt = parseYen(amtRaw);
+    forms.forEach((form) => {
+      if (!form || form.dataset.kbPriceAutoInserted === "1") return;
 
-          if (!label && amt === 0) return;
+      // 訪問ログっぽいフォーム判定
+      const hasVisited = !!form.querySelector('input[name="visited_at"]');
+      const hasStart = !!form.querySelector('input[name="start_time"]');
+      const hasEnd = !!form.querySelector('input[name="end_time"]');
+      const hasMemo = !!form.querySelector('textarea[name="memo"], input[name="memo"]');
+      if (!(hasVisited && hasStart && hasEnd && hasMemo)) return;
 
-          items.push({ label, amount: amt }); // 数値だけ保存（カンマなし）
-          total += amt;
-        });
+      // 既にUIがあれば何もしない
+      if (form.querySelector("[data-price-items]")) return;
 
-        if (elTotal) elTotal.textContent = formatYen(total); // 表示だけカンマ
-        if (hidden) hidden.value = JSON.stringify(items);
+      // action でさらに絞る（無くてもOK）
+      const action = String(form.getAttribute("action") || "").toLowerCase();
+      const looksVisit =
+        action.includes("/kb/person/") && action.endsWith("/visit");
+      const looksVisitUpdate =
+        action.includes("/kb/visit/") && action.endsWith("/update");
+      // actionが空なら“構造で判定”のみでOK
+      if (action && !(looksVisit || looksVisitUpdate)) return;
+
+      // 明細UIを作る
+      const wrap = document.createElement("div");
+      wrap.className = "kb-price-items";
+      wrap.setAttribute("data-price-items", "");
+      wrap.innerHTML = `
+        <div class="kb-price-items-head">明細</div>
+        <table class="kb-price-items-table">
+          <thead>
+            <tr>
+              <th>項目</th>
+              <th>金額</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody data-price-items-body></tbody>
+        </table>
+        <div class="kb-price-items-foot">
+          <button type="button" data-price-add>行追加</button>
+          <span class="muted">合計：<span data-price-total>0</span> 円</span>
+        </div>
+      `;
+
+      // hidden input を確実に用意（既存があれば移動）
+      let hidden = form.querySelector('input[type="hidden"][name="price_items_json"]');
+      if (!hidden) {
+        hidden = document.createElement("input");
+        hidden.type = "hidden";
+        hidden.name = "price_items_json";
+        hidden.value = "";
+      } else {
+        // 既存をwrap内で拾えるようにするため、後でwrapに移動する
+        try { hidden.parentElement && hidden.parentElement.removeChild(hidden); } catch (_) {}
+      }
+      wrap.appendChild(hidden);
+
+      // memo欄の少し手前に入れる（自然な位置）
+      const memoEl = form.querySelector('textarea[name="memo"], input[name="memo"]');
+      if (memoEl && memoEl.insertAdjacentElement) {
+        memoEl.insertAdjacentElement("beforebegin", wrap);
+      } else {
+        form.appendChild(wrap);
       }
 
-      function addRow() {
-        if (!body) return;
-        const tr = document.createElement("tr");
-        tr.innerHTML = `
-          <td><input type="text" data-price-label placeholder="例：オプション"></td>
-          <td><input type="text" data-price-amount placeholder="例：3,000"></td>
-          <td><button type="button" data-price-remove>削除</button></td>
-        `;
-        body.appendChild(tr);
-        collect();
-      }
+      form.dataset.kbPriceAutoInserted = "1";
 
-      // 入力変化で再計算（合計の表示更新）
-      root.addEventListener("input", (e) => {
-        const t = e.target;
-        if (!t) return;
-        if (t.matches("[data-price-label]") || t.matches("[data-price-amount]")) {
-          collect();
-        }
-      });
-
-      // 金額欄は「フォーカス外れたら」見た目だけカンマ整形（内部は常に数値でJSON化）
-      root.addEventListener("blur", (e) => {
-        const t = e.target;
-        if (!t || !t.matches || !t.matches("[data-price-amount]")) return;
-
-        const raw = (t.value || "").trim();
-        if (!raw) return;
-
-        const n = parseYen(raw);
-        // 0 でも表示を 0 に寄せる（空欄を保ちたいならここは return でもOK）
-        t.value = formatYen(n);
-        collect();
-      }, true);
-
-      root.addEventListener("click", (e) => {
-        const t = e.target;
-        if (!t) return;
-
-        if (t.matches("[data-price-remove]")) {
-          e.preventDefault();
-          const tr = t.closest("tr");
-          if (tr && body) tr.remove();
-          collect();
-          return;
-        }
-
-        if (t.matches("[data-price-add]")) {
-          e.preventDefault();
-          addRow();
-          return;
-        }
-      });
-
-      // 送信直前に確実にJSON化
-      const form = root.closest("form");
-      if (form) {
-        form.addEventListener("submit", () => {
-          collect();
-        });
-      }
-
-      // 初回
-      collect();
+      // 追加したwrapは直ちに初期化
+      applyKbPriceItemsRoot(wrap);
     });
+  }
+
+  function applyKbPriceItemsRoot(root) {
+    if (!root) return;
+    if (root.dataset.kbPriceApplied === "1") return;
+    root.dataset.kbPriceApplied = "1";
+
+    const body = root.querySelector("[data-price-items-body]");
+    const elTotal = root.querySelector("[data-price-total]");
+    const hidden = root.querySelector('input[type="hidden"][name="price_items_json"]');
+
+    function collect() {
+      const rows = body ? Array.from(body.querySelectorAll("tr")) : [];
+      const items = [];
+      let total = 0;
+
+      rows.forEach((tr) => {
+        const label = (tr.querySelector("[data-price-label]")?.value || "").trim();
+        const amtRaw = tr.querySelector("[data-price-amount]")?.value || "";
+        const amt = parseYen(amtRaw);
+
+        if (!label && amt === 0) return;
+
+        items.push({ label, amount: amt }); // 数値だけ保存（カンマなし）
+        total += amt;
+      });
+
+      if (elTotal) elTotal.textContent = formatYen(total); // 表示だけカンマ
+      if (hidden) hidden.value = JSON.stringify(items);
+    }
+
+    function addRow(presetLabel = "", presetAmount = "") {
+      if (!body) return;
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td><input type="text" data-price-label placeholder="例：オプション"></td>
+        <td><input type="text" data-price-amount placeholder="例：3,000"></td>
+        <td><button type="button" data-price-remove>削除</button></td>
+      `;
+      const inLabel = tr.querySelector("[data-price-label]");
+      const inAmt = tr.querySelector("[data-price-amount]");
+      if (inLabel) inLabel.value = String(presetLabel || "");
+      if (inAmt) inAmt.value = (presetAmount === 0 || presetAmount) ? String(presetAmount) : "";
+      body.appendChild(tr);
+      collect();
+    }
+
+    function hydrateFromHidden() {
+      if (!hidden) return;
+      const raw = String(hidden.value || "").trim();
+      if (!raw) {
+        collect();
+        return;
+      }
+      try {
+        const data = JSON.parse(raw);
+        if (!Array.isArray(data)) {
+          collect();
+          return;
+        }
+        // 既存行を消してから復元
+        try {
+          if (body) body.innerHTML = "";
+        } catch (_) {}
+        data.forEach((it) => {
+          if (!it || typeof it !== "object") return;
+          const label = String(it.label || "");
+          const amt = (it.amount == null) ? "" : String(it.amount);
+          addRow(label, amt);
+        });
+        collect();
+      } catch (_) {
+        collect();
+      }
+    }
+
+    // 入力変化で再計算（合計の表示更新）
+    root.addEventListener("input", (e) => {
+      const t = e.target;
+      if (!t) return;
+      if (t.matches("[data-price-label]") || t.matches("[data-price-amount]")) {
+        collect();
+      }
+    });
+
+    // 金額欄は「フォーカス外れたら」見た目だけカンマ整形（内部は常に数値でJSON化）
+    root.addEventListener("blur", (e) => {
+      const t = e.target;
+      if (!t || !t.matches || !t.matches("[data-price-amount]")) return;
+
+      const raw = (t.value || "").trim();
+      if (!raw) return;
+
+      const n = parseYen(raw);
+      t.value = formatYen(n);
+      collect();
+    }, true);
+
+    root.addEventListener("click", (e) => {
+      const t = e.target;
+      if (!t) return;
+
+      if (t.matches("[data-price-remove]")) {
+        e.preventDefault();
+        const tr = t.closest("tr");
+        if (tr && body) tr.remove();
+        collect();
+        return;
+      }
+
+      if (t.matches("[data-price-add]")) {
+        e.preventDefault();
+        addRow();
+        return;
+      }
+    });
+
+    // 送信直前に確実にJSON化
+    const form = root.closest("form");
+    if (form) {
+      form.addEventListener("submit", () => {
+        collect();
+      });
+    }
+
+    // 初回：hiddenが既に入っていれば復元
+    hydrateFromHidden();
   }
 
   // ============================================================
@@ -456,10 +618,79 @@
   }
 
   // ============================================================
+  // KB：バックアップ/インポート UI（テンプレに無くてもJSで挿入）
+  // ============================================================
+  function initKbBackupImportUi() {
+    const path = String(location.pathname || "");
+    const isKbIndexLike = (path === "/kb" || path === "/kb/search");
+    if (!isKbIndexLike) return;
+
+    // 既にあるなら何もしない
+    if (document.querySelector("[data-kb-backup-ui]")) return;
+
+    const main = document.querySelector("main");
+    if (!main) return;
+
+    const card = document.createElement("section");
+    card.className = "card";
+    card.setAttribute("data-kb-backup-ui", "1");
+    card.innerHTML = `
+      <div class="section-title">バックアップ / インポート</div>
+      <div class="kb-backup-actions" style="display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
+        <a class="btn" href="/kb/export" target="_blank" rel="noopener">バックアップ（JSON）</a>
+        <span class="muted">※別タブにJSONが出ます（保存してください）</span>
+      </div>
+
+      <div style="margin-top:14px;">
+        <form method="post" action="/kb/import">
+          <input type="hidden" name="mode" value="replace">
+          <div class="muted" style="margin-bottom:6px;">インポート（全置換）</div>
+          <textarea name="payload_json" rows="8" style="width:100%; box-sizing:border-box;" placeholder="ここに /kb/export のJSONを貼り付け"></textarea>
+          <div style="margin-top:8px; display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+            <label><input type="checkbox" name="confirm_check" value="1"> すべて置き換える（確認）</label>
+            <button type="submit" class="btn">インポート実行</button>
+          </div>
+          <div class="muted" style="margin-top:6px;">※確認チェックなしだとエラーになります</div>
+        </form>
+      </div>
+    `;
+
+    // mainの末尾に追加
+    main.appendChild(card);
+  }
+
+  // ============================================================
   // KB：重複検知 / 並び替え / 星フィルタ / 写メ日記NEWチェック（本物）
+  // - テンプレ不足があっても “可能な限り自己修復” する
   // ============================================================
   function initKbIndexEnhancements() {
-    const container = document.getElementById("kb_person_results");
+    // containerが無くても items から推定して動かす
+    let container = document.getElementById("kb_person_results");
+
+    // items候補（KB一覧の行）
+    let items = Array.from(document.querySelectorAll(".kb-person-result"));
+    if (!items.length) {
+      // fallback: data-person-id を持つ行を拾う
+      items = Array.from(document.querySelectorAll("[data-person-id],[data-person_id]"))
+        .filter((el) => {
+          const pid = getDataAny(el, ["personId", "person_id"]);
+          const name = getDataAny(el, ["name"]);
+          return !!pid && !!name;
+        });
+      // それっぽいならクラス付け（他の処理が動くように）
+      items.forEach((el) => {
+        try {
+          if (!el.classList.contains("kb-person-result")) el.classList.add("kb-person-result");
+        } catch (_) {}
+      });
+    }
+
+    if (!items.length) return;
+
+    if (!container) {
+      // 最初の行の親を仮コンテナにする（並び替え/クリック委譲用）
+      container = items[0].parentElement || null;
+    }
     if (!container) return;
 
     const sortKeyEl = document.getElementById("kb_sort_key");
@@ -493,14 +724,79 @@
       safeLsSet(LS_DIARY_SEEN_PREFIX + String(personId), String(Math.trunc(n)));
     }
 
-    const items = Array.from(container.querySelectorAll(".kb-person-result"));
-    if (!items.length) return;
+    // data属性の揺れを吸収しつつ、必要なら dataset に“正規キー”を補う
+    function normalizeRowData(el) {
+      const pid = getDataAny(el, ["personId", "person_id"]);
+      const sid = getDataAny(el, ["storeId", "store_id"]);
+      const nm = getDataAny(el, ["name"]);
+      const ar = getDataAny(el, ["avgRating", "avg_rating"]);
+      const aa = getDataAny(el, ["avgAmount", "avg_amount"]);
+      const ht = getDataAny(el, ["height", "heightCm", "height_cm"]);
+      const cp = getDataAny(el, ["cup"]);
+      const lv = getDataAny(el, ["lastVisit", "last_visit"]);
 
-    items.forEach((el, idx) => { el.dataset.origIndex = String(idx); });
-
-    function normalizeName(s) {
-      return (s || "").replace(/\s+/g, "").toLowerCase();
+      ensureDataset(el, "personId", pid);
+      ensureDataset(el, "storeId", sid);
+      ensureDataset(el, "name", nm);
+      ensureDataset(el, "avgRating", ar);
+      ensureDataset(el, "avgAmount", aa);
+      ensureDataset(el, "height", ht);
+      ensureDataset(el, "cup", cp);
+      ensureDataset(el, "lastVisit", lv);
     }
+
+    function findPersonLink(el) {
+      if (!el) return null;
+      // できれば人物ページへのリンクの直後にバッジを置く
+      const a1 = el.querySelector('a[href^="/kb/person/"],a[href*="/kb/person/"]');
+      if (a1) return a1;
+      const a2 = el.querySelector("a");
+      return a2 || null;
+    }
+
+    function ensureBadge(el, role, text, className) {
+      if (!el) return null;
+      let b =
+        el.querySelector(`[data-role="${role}"]`) ||
+        (className ? el.querySelector("." + className) : null) ||
+        null;
+
+      if (b && !b.getAttribute("data-role")) {
+        try { b.setAttribute("data-role", role); } catch (_) {}
+      }
+
+      if (!b) {
+        b = document.createElement("span");
+        b.className = className || "";
+        b.textContent = text;
+        b.setAttribute("data-role", role);
+        // JSが制御する前提：初期は隠しておく（テンプレが出しっぱなしでも後で矯正する）
+        b.hidden = true;
+
+        const a = findPersonLink(el);
+        if (a && a.insertAdjacentElement) {
+          a.insertAdjacentElement("afterend", b);
+        } else {
+          el.appendChild(b);
+        }
+      }
+
+      // “重複?”はまず必ず隠す（常時表示バグ潰し）
+      if (role === "dup") {
+        b.hidden = true;
+      }
+
+      return b;
+    }
+
+    items.forEach((el, idx) => {
+      normalizeRowData(el);
+      el.dataset.origIndex = String(idx);
+
+      // テンプレに無くてもバッジを作る（kb_store でも NEW を出すため）
+      ensureBadge(el, "diary-new", "NEW", "kb-diary-new");
+      ensureBadge(el, "dup", "重複?", "kb-dup");
+    });
 
     function cupRank(cup) {
       const c = (cup || "").toUpperCase().trim();
@@ -540,12 +836,17 @@
 
     // ② 重複検知（表示中の一覧だけ）
     function markDuplicates() {
+      // まず全部隠す（テンプレが出しっぱなしでも矯正）
+      items.forEach((el) => {
+        const badge = el.querySelector('[data-role="dup"]');
+        if (badge) badge.hidden = true;
+      });
+
       const map = new Map(); // key -> [elements]
       items.forEach((el) => {
-        const name = normalizeName(el.dataset.name);
+        const name = normalizeName(el.dataset.name || "");
         const storeId = String(el.dataset.storeId || "");
         if (!name) return;
-        // 「同一店舗×同名」を優先で重複扱い（ゆるい警告）
         const key = storeId + "|" + name;
         const arr = map.get(key) || [];
         arr.push(el);
@@ -595,7 +896,6 @@
         const va = valueOf(a);
         const vb = valueOf(b);
 
-        // 文字列（name）の場合
         if (typeof va === "string" || typeof vb === "string") {
           const sa = String(va ?? "");
           const sb = String(vb ?? "");
@@ -614,7 +914,6 @@
         return ia - ib;
       });
 
-      // 表示DOMを並び替え（hiddenは末尾にそのまま）
       const frag = document.createDocumentFragment();
       visible.forEach(el => frag.appendChild(el));
       hidden.forEach(el => frag.appendChild(el));
@@ -632,9 +931,15 @@
       }
     }
 
+    function isDiaryEnabled() {
+      // UIが無い場合でも「動く」ことを優先してON扱い
+      if (!diaryCheckEl) return true;
+      return !!diaryCheckEl.checked;
+    }
+
     function scheduleDiaryNext() {
       stopDiaryTimer();
-      if (!diaryCheckEl || !diaryCheckEl.checked) return;
+      if (!isDiaryEnabled()) return;
 
       // ブロック回避：15分 + ランダムゆらぎ（0〜120秒）
       const base = 15 * 60 * 1000;
@@ -652,7 +957,7 @@
     async function updateDiaryBadges() {
       const seq = ++diaryReqSeq;
 
-      if (!diaryCheckEl || !diaryCheckEl.checked) {
+      if (!isDiaryEnabled()) {
         // OFFなら全部隠す
         items.forEach((el) => {
           const b = el.querySelector('[data-role="diary-new"]');
@@ -708,7 +1013,7 @@
           const latestTs = mapLatest.get(pid) || 0;
           const seenTs = getSeenTsMs(pid);
 
-          const b = el.querySelector('[data-role="diary-new"]');
+          const b = el.querySelector('[data-role="diary-new"]') || ensureBadge(el, "diary-new", "NEW", "kb-diary-new");
           if (!b) return;
 
           // badgeに情報を埋める（クリック時に使う）
@@ -742,32 +1047,6 @@
       }
     }
 
-    // ★ NEWバッジクリック：日記へ飛ぶ + NEWを消す（localStorageに“見た”を保存）
-    container.addEventListener("click", (e) => {
-      const t = e.target;
-      const badge = t && t.closest ? t.closest('[data-role="diary-new"]') : null;
-      if (!badge || badge.hidden) return;
-
-      const item = badge.closest ? badge.closest(".kb-person-result") : null;
-      const pid = item?.dataset?.personId || "";
-      if (!pid) return;
-
-      e.preventDefault();
-      e.stopPropagation();
-
-      const latestTs = parseInt(badge.dataset.latestTs || "0", 10);
-      if (Number.isFinite(latestTs) && latestTs > 0) {
-        setSeenTsMs(pid, latestTs);
-      }
-
-      badge.hidden = true;
-
-      const openUrl = String(badge.dataset.openUrl || "");
-      if (openUrl) {
-        window.open(openUrl, "_blank", "noopener");
-      }
-    }, true);
-
     function syncSortDirButton() {
       if (!sortDirEl) return;
       const dir = sortDirEl.dataset.dir || "desc";
@@ -780,12 +1059,16 @@
       updateDiaryBadges();
     }
 
-    // 初期：復元
+    // 初期：復元（UIがある場合のみ）
     try {
       if (sortKeyEl) sortKeyEl.value = localStorage.getItem(LS_SORT_KEY) || "none";
       if (sortDirEl) sortDirEl.dataset.dir = localStorage.getItem(LS_SORT_DIR) || "desc";
       if (starOnlyEl) starOnlyEl.checked = (localStorage.getItem(LS_STAR_ONLY) === "1");
-      if (diaryCheckEl) diaryCheckEl.checked = (localStorage.getItem(LS_DIARY_CHECK) === "1");
+      if (diaryCheckEl) {
+        // 未保存なら「ON寄り」で起動（“動いてないように見える”対策）
+        const v = localStorage.getItem(LS_DIARY_CHECK);
+        diaryCheckEl.checked = (v == null) ? true : (v === "1");
+      }
     } catch (e) {}
 
     markDuplicates();
@@ -824,6 +1107,137 @@
         scheduleDiaryNext();
       }
     });
+  }
+
+  // ============================================================
+  // KB：NEWバッジクリック（テンプレが違っても動くように document で拾う）
+  // - クリックで “見た” を保存 → NEWを消す → 日記を開く
+  // ============================================================
+  function initKbDiaryNewClickGlobal() {
+    const LS_DIARY_SEEN_PREFIX = "kb_diary_seen_ts_";
+
+    function safeLsSet(key, val) {
+      try { localStorage.setItem(key, val); } catch (e) {}
+    }
+    function setSeenTsMs(personId, tsMs) {
+      const n = Number(tsMs || 0);
+      if (!Number.isFinite(n) || n <= 0) return;
+      safeLsSet(LS_DIARY_SEEN_PREFIX + String(personId), String(Math.trunc(n)));
+    }
+
+    function getPersonIdFromRow(row) {
+      if (!row) return "";
+      const pid = getDataAny(row, ["personId", "person_id"]);
+      if (pid) return pid;
+      // dataset正規化済みならこちら
+      return String(row.dataset?.personId || "").trim();
+    }
+
+    async function fetchDiaryLatestOne(pid) {
+      const url = "/kb/api/diary_latest?ids=" + encodeURIComponent(String(pid));
+      const res = await fetch(url, { method: "GET" });
+      if (!res.ok) throw new Error("status " + res.status);
+      const data = await res.json();
+      const it = (data.items && data.items[0]) ? data.items[0] : null;
+      if (!it) return { latestTs: 0, openUrl: "" };
+      const latestTs = Number(it.latest_ts || 0);
+      const openUrl = String(it.open_url || "");
+      return { latestTs: Number.isFinite(latestTs) ? latestTs : 0, openUrl };
+    }
+
+    document.addEventListener("click", (e) => {
+      const t = e.target;
+      if (!t || !t.closest) return;
+
+      // data-role="diary-new" が理想だが、classだけでも拾う（互換）
+      const badge =
+        t.closest('[data-role="diary-new"]') ||
+        t.closest(".kb-diary-new") ||
+        t.closest(".kb-new");
+      if (!badge) return;
+
+      // hidden属性が使われていれば “出てる時だけ” 反応
+      if (badge.hidden === true) return;
+
+      const row = badge.closest(".kb-person-result") || badge.closest("[data-person-id]") || badge.closest("[data-person_id]");
+      const pid = getPersonIdFromRow(row);
+      if (!pid) return;
+
+      e.preventDefault();
+      e.stopPropagation();
+      if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+
+      // まずは即座に消す（“クリックしても消えない”対策）
+      try { badge.hidden = true; } catch (_) {}
+
+      // タブをユーザー操作の瞬間に確保（後でURLを入れる）
+      let win = null;
+      try { win = window.open("about:blank", "_blank", "noopener"); } catch (_) { win = null; }
+
+      const latestTs = parseInt(String(badge.dataset?.latestTs || "0"), 10);
+      const openUrl = String(badge.dataset?.openUrl || "");
+
+      // latest/openが揃っていれば即処理
+      if (Number.isFinite(latestTs) && latestTs > 0) {
+        setSeenTsMs(pid, latestTs);
+      } else {
+        // 無ければサーバに単発問い合わせ（テンプレ/初期化不足でも成立させる）
+        fetchDiaryLatestOne(pid)
+          .then(({ latestTs: lt, openUrl: ou }) => {
+            if (lt > 0) setSeenTsMs(pid, lt);
+            const url2 = ou || openUrl || "";
+            if (url2) {
+              if (win && !win.closed) {
+                try { win.location.href = url2; } catch (_) {}
+              } else {
+                // ポップアップブロック時の保険：同一タブ遷移
+                try { window.location.href = url2; } catch (_) {}
+              }
+            } else {
+              // それでも無いなら google に逃がす（最後の保険）
+              const name = String(row?.dataset?.name || "").trim();
+              const q = (name ? (name + " 写メ日記") : "写メ日記");
+              const g = "https://www.google.com/search?q=" + encodeURIComponent(q);
+              if (win && !win.closed) {
+                try { win.location.href = g; } catch (_) {}
+              } else {
+                try { window.location.href = g; } catch (_) {}
+              }
+            }
+          })
+          .catch(() => {
+            // 失敗時も google へ（保険）
+            const name = String(row?.dataset?.name || "").trim();
+            const q = (name ? (name + " 写メ日記") : "写メ日記");
+            const g = "https://www.google.com/search?q=" + encodeURIComponent(q);
+            if (win && !win.closed) {
+              try { win.location.href = g; } catch (_) {}
+            } else {
+              try { window.location.href = g; } catch (_) {}
+            }
+          });
+        return;
+      }
+
+      // openUrl で開く（無いなら google）
+      const url = openUrl || "";
+      if (url) {
+        if (win && !win.closed) {
+          try { win.location.href = url; } catch (_) {}
+        } else {
+          try { window.location.href = url; } catch (_) {}
+        }
+      } else {
+        const name = String(row?.dataset?.name || "").trim();
+        const q = (name ? (name + " 写メ日記") : "写メ日記");
+        const g = "https://www.google.com/search?q=" + encodeURIComponent(q);
+        if (win && !win.closed) {
+          try { win.location.href = g; } catch (_) {}
+        } else {
+          try { window.location.href = g; } catch (_) {}
+        }
+      }
+    }, true);
   }
 
   // ============================================================
@@ -1191,6 +1605,8 @@
     initKbPriceItems();
     initKbDuration();
     initKbPanicButton();
+    initKbBackupImportUi();
     initKbIndexEnhancements();
+    initKbDiaryNewClickGlobal();
   });
 })();
