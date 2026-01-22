@@ -1,4 +1,4 @@
-# 005
+# 006
 # models.py
 from datetime import datetime
 
@@ -147,6 +147,22 @@ class KBPerson(Base):
 
     # フリーワード検索のためのまとめ列
     search_norm = Column(Text, nullable=True, index=True)
+
+    # ------------------------------------------------------------
+    # ★追加：写メ日記（外部日記）の更新検知用（⑦の中間版）
+    #
+    # diary_last_entry_* : 外部日記で検知できた最新エントリの情報
+    # diary_checked_at   : 外部をチェックした時刻（キャッシュ間隔制御に使う）
+    # diary_seen_*       : 「既読ベースライン」。初回チェックで自動で入れておくと、
+    #                      全員がいきなりNEWにならず、次回の差分からNEWになります。
+    # ------------------------------------------------------------
+    diary_last_entry_at = Column(DateTime, nullable=True, index=True)
+    diary_last_entry_key = Column(Text, nullable=True, index=True)
+
+    diary_checked_at = Column(DateTime, nullable=True, index=True)
+
+    diary_seen_at = Column(DateTime, nullable=True, index=True)
+    diary_seen_entry_key = Column(Text, nullable=True, index=True)
 
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
 

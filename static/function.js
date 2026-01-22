@@ -1,4 +1,4 @@
-// 002
+// 005
 // static/function.js
 (() => {
   "use strict";
@@ -441,6 +441,390 @@
   }
 
   // ============================================================
+  // KB：パニックボタン（チェックで有効化）
+  // ============================================================
+  function initKbPanicButton() {
+    const chk = document.getElementById("kb_panic_check");
+    const btn = document.getElementById("kb_panic_btn");
+    if (!chk || !btn) return;
+
+    const sync = () => { btn.disabled = !chk.checked; };
+    chk.addEventListener("change", sync);
+    sync();
+  }
+
+  // ============================================================
+  // KB：重複検知 / 並び替え / 星フィルタ / 写メ日記NEWチェック（本物）
+  // ============================================================
+  function initKbIndexEnhancements() {
+    const container = document.getElementById("kb_person_results");
+    if (!container) return;
+
+    const sortKeyEl = document.getElementById("kb_sort_key");
+    const sortDirEl = document.getElementById("kb_sort_dir");
+    const starOnlyEl = document.getElementById("kb_star_only");
+    const diaryCheckEl = document.getElementById("kb_diary_check");
+    const diaryNoteEl = document.getElementById("kb_diary_note");
+
+    const LS_SORT_KEY = "kb_sort_key";
+    const LS_SORT_DIR = "kb_sort_dir";
+    const LS_STAR_ONLY = "kb_star_only";
+    const LS_DIARY_CHECK = "kb_diary_check";
+
+    // ★ NEWの「消し込み」はブラウザに保存（DBいじらずに“本物”にする）
+    const LS_DIARY_SEEN_PREFIX = "kb_diary_seen_ts_"; // + person_id -> epoch(ms)
+
+    function safeLsGet(key) {
+      try { return localStorage.getItem(key); } catch (e) { return null; }
+    }
+    function safeLsSet(key, val) {
+      try { localStorage.setItem(key, val); } catch (e) {}
+    }
+    function getSeenTsMs(personId) {
+      const v = safeLsGet(LS_DIARY_SEEN_PREFIX + String(personId));
+      const n = parseInt(v || "0", 10);
+      return Number.isFinite(n) ? n : 0;
+    }
+    function setSeenTsMs(personId, tsMs) {
+      const n = Number(tsMs || 0);
+      if (!Number.isFinite(n) || n <= 0) return;
+      safeLsSet(LS_DIARY_SEEN_PREFIX + String(personId), String(Math.trunc(n)));
+    }
+
+    const items = Array.from(container.querySelectorAll(".kb-person-result"));
+    if (!items.length) return;
+
+    items.forEach((el, idx) => { el.dataset.origIndex = String(idx); });
+
+    function normalizeName(s) {
+      return (s || "").replace(/\s+/g, "").toLowerCase();
+    }
+
+    function cupRank(cup) {
+      const c = (cup || "").toUpperCase().trim();
+      if (!c) return null;
+      const m = c.match(/[A-Z]/);
+      if (!m) return null;
+      const code = m[0].charCodeAt(0);
+      if (code < 65 || code > 90) return null;
+      return (code - 64); // A=1
+    }
+
+    function parseNumOrNull(v) {
+      if (v === null || v === undefined) return null;
+      const s = String(v).trim();
+      if (!s) return null;
+      const n = Number(s.replace(/,/g, ""));
+      return Number.isFinite(n) ? n : null;
+    }
+
+    function parseTimeOrNull(v) {
+      const s = String(v || "").trim();
+      if (!s) return null;
+      const t = Date.parse(s);
+      return Number.isFinite(t) ? t : null;
+    }
+
+    function compareNullLast(va, vb, dir) {
+      const aNull = (va === null || va === undefined);
+      const bNull = (vb === null || vb === undefined);
+      if (aNull && bNull) return 0;
+      if (aNull) return 1;   // 常に最後
+      if (bNull) return -1;  // 常に最後
+      if (va < vb) return -1 * dir;
+      if (va > vb) return 1 * dir;
+      return 0;
+    }
+
+    // ② 重複検知（表示中の一覧だけ）
+    function markDuplicates() {
+      const map = new Map(); // key -> [elements]
+      items.forEach((el) => {
+        const name = normalizeName(el.dataset.name);
+        const storeId = String(el.dataset.storeId || "");
+        if (!name) return;
+        // 「同一店舗×同名」を優先で重複扱い（ゆるい警告）
+        const key = storeId + "|" + name;
+        const arr = map.get(key) || [];
+        arr.push(el);
+        map.set(key, arr);
+      });
+
+      map.forEach((arr) => {
+        if (arr.length <= 1) return;
+        const ids = arr.map(e => e.dataset.personId).join(", ");
+        arr.forEach((el) => {
+          const badge = el.querySelector('[data-role="dup"]');
+          if (!badge) return;
+          badge.hidden = false;
+          badge.title = "同一店舗内で同名が複数: " + ids;
+        });
+      });
+    }
+
+    function applyStarFilter() {
+      const only = !!starOnlyEl?.checked;
+      items.forEach((el) => {
+        const hasRating = String(el.dataset.avgRating || "").trim() !== "";
+        el.classList.toggle("kb-hidden", only && !hasRating);
+      });
+    }
+
+    function sortItems() {
+      if (!sortKeyEl) return;
+
+      const key = sortKeyEl.value || "none";
+      const dir = (sortDirEl?.dataset?.dir || "desc") === "asc" ? 1 : -1;
+
+      const visible = items.slice().filter(el => !el.classList.contains("kb-hidden"));
+      const hidden = items.slice().filter(el => el.classList.contains("kb-hidden"));
+
+      function valueOf(el) {
+        if (key === "avg_rating") return parseNumOrNull(el.dataset.avgRating);
+        if (key === "avg_amount") return parseNumOrNull(el.dataset.avgAmount);
+        if (key === "height") return parseNumOrNull(el.dataset.height);
+        if (key === "cup") return cupRank(el.dataset.cup);
+        if (key === "name") return normalizeName(el.dataset.name);
+        if (key === "last_visit") return parseTimeOrNull(el.dataset.lastVisit);
+        return parseNumOrNull(el.dataset.origIndex) ?? 0;
+      }
+
+      visible.sort((a, b) => {
+        const va = valueOf(a);
+        const vb = valueOf(b);
+
+        // 文字列（name）の場合
+        if (typeof va === "string" || typeof vb === "string") {
+          const sa = String(va ?? "");
+          const sb = String(vb ?? "");
+          const c = sa.localeCompare(sb, "ja");
+          if (c !== 0) return c * dir;
+          const ia = parseNumOrNull(a.dataset.origIndex) ?? 0;
+          const ib = parseNumOrNull(b.dataset.origIndex) ?? 0;
+          return ia - ib;
+        }
+
+        const c = compareNullLast(va, vb, dir);
+        if (c !== 0) return c;
+
+        const ia = parseNumOrNull(a.dataset.origIndex) ?? 0;
+        const ib = parseNumOrNull(b.dataset.origIndex) ?? 0;
+        return ia - ib;
+      });
+
+      // 表示DOMを並び替え（hiddenは末尾にそのまま）
+      const frag = document.createDocumentFragment();
+      visible.forEach(el => frag.appendChild(el));
+      hidden.forEach(el => frag.appendChild(el));
+      container.appendChild(frag);
+    }
+
+    let diaryReqSeq = 0;
+    let diaryBusy = false;
+    let diaryTimer = null;
+
+    function stopDiaryTimer() {
+      if (diaryTimer) {
+        clearTimeout(diaryTimer);
+        diaryTimer = null;
+      }
+    }
+
+    function scheduleDiaryNext() {
+      stopDiaryTimer();
+      if (!diaryCheckEl || !diaryCheckEl.checked) return;
+
+      // ブロック回避：15分 + ランダムゆらぎ（0〜120秒）
+      const base = 15 * 60 * 1000;
+      const jitter = Math.floor(Math.random() * 120 * 1000);
+      diaryTimer = setTimeout(() => {
+        if (document.visibilityState !== "visible") {
+          scheduleDiaryNext();
+          return;
+        }
+        updateDiaryBadges();
+        scheduleDiaryNext();
+      }, base + jitter);
+    }
+
+    async function updateDiaryBadges() {
+      const seq = ++diaryReqSeq;
+
+      if (!diaryCheckEl || !diaryCheckEl.checked) {
+        // OFFなら全部隠す
+        items.forEach((el) => {
+          const b = el.querySelector('[data-role="diary-new"]');
+          if (b) b.hidden = true;
+        });
+        if (diaryNoteEl) diaryNoteEl.hidden = true;
+        stopDiaryTimer();
+        return;
+      }
+
+      if (diaryBusy) return;
+      diaryBusy = true;
+
+      // 表示中のみ、最大30件だけチェック（ブロック対策）
+      const targets = items.filter(el => !el.classList.contains("kb-hidden")).slice(0, 30);
+      const ids = targets.map(el => el.dataset.personId).filter(Boolean);
+
+      if (!ids.length) {
+        diaryBusy = false;
+        return;
+      }
+
+      if (diaryNoteEl) {
+        diaryNoteEl.hidden = false;
+        diaryNoteEl.textContent = "写メ日記: 更新チェック中…（最大" + ids.length + "件）";
+      }
+
+      try {
+        const url = "/kb/api/diary_latest?ids=" + encodeURIComponent(ids.join(","));
+        const res = await fetch(url, { method: "GET" });
+        if (!res.ok) throw new Error("status " + res.status);
+
+        const data = await res.json();
+
+        // 古い応答は捨てる
+        if (seq !== diaryReqSeq) {
+          diaryBusy = false;
+          return;
+        }
+
+        const mapLatest = new Map();
+        const mapOpen = new Map();
+        (data.items || []).forEach((it) => {
+          const id = String(it.id || "");
+          const latest = Number(it.latest_ts || 0);
+          if (id) mapLatest.set(id, Number.isFinite(latest) ? latest : 0);
+          const ou = String(it.open_url || "");
+          if (id) mapOpen.set(id, ou);
+        });
+
+        targets.forEach((el) => {
+          const pid = String(el.dataset.personId || "");
+          const latestTs = mapLatest.get(pid) || 0;
+          const seenTs = getSeenTsMs(pid);
+
+          const b = el.querySelector('[data-role="diary-new"]');
+          if (!b) return;
+
+          // badgeに情報を埋める（クリック時に使う）
+          b.dataset.latestTs = latestTs ? String(Math.trunc(latestTs)) : "";
+          b.dataset.openUrl = mapOpen.get(pid) || "";
+
+          const isNew = (latestTs > 0 && latestTs > seenTs);
+          b.hidden = !isNew;
+
+          if (!b.hidden) {
+            b.title = "写メ日記: NEW（クリックで開いて消えます）";
+          }
+        });
+
+        if (diaryNoteEl) {
+          diaryNoteEl.textContent = "写メ日記: チェック完了（" + ids.length + "件）";
+          setTimeout(() => { diaryNoteEl.hidden = true; }, 2500);
+        }
+      } catch (e) {
+        // APIが未実装/停止でも静かに劣化
+        if (seq !== diaryReqSeq) {
+          diaryBusy = false;
+          return;
+        }
+        if (diaryNoteEl) {
+          diaryNoteEl.hidden = false;
+          diaryNoteEl.textContent = "写メ日記: 取得失敗（URL未設定/外部取得失敗の可能性）";
+        }
+      } finally {
+        diaryBusy = false;
+      }
+    }
+
+    // ★ NEWバッジクリック：日記へ飛ぶ + NEWを消す（localStorageに“見た”を保存）
+    container.addEventListener("click", (e) => {
+      const t = e.target;
+      const badge = t && t.closest ? t.closest('[data-role="diary-new"]') : null;
+      if (!badge || badge.hidden) return;
+
+      const item = badge.closest ? badge.closest(".kb-person-result") : null;
+      const pid = item?.dataset?.personId || "";
+      if (!pid) return;
+
+      e.preventDefault();
+      e.stopPropagation();
+
+      const latestTs = parseInt(badge.dataset.latestTs || "0", 10);
+      if (Number.isFinite(latestTs) && latestTs > 0) {
+        setSeenTsMs(pid, latestTs);
+      }
+
+      badge.hidden = true;
+
+      const openUrl = String(badge.dataset.openUrl || "");
+      if (openUrl) {
+        window.open(openUrl, "_blank", "noopener");
+      }
+    }, true);
+
+    function syncSortDirButton() {
+      if (!sortDirEl) return;
+      const dir = sortDirEl.dataset.dir || "desc";
+      sortDirEl.textContent = (dir === "asc") ? "▲" : "▼";
+    }
+
+    function applyAll() {
+      applyStarFilter();
+      sortItems();
+      updateDiaryBadges();
+    }
+
+    // 初期：復元
+    try {
+      if (sortKeyEl) sortKeyEl.value = localStorage.getItem(LS_SORT_KEY) || "none";
+      if (sortDirEl) sortDirEl.dataset.dir = localStorage.getItem(LS_SORT_DIR) || "desc";
+      if (starOnlyEl) starOnlyEl.checked = (localStorage.getItem(LS_STAR_ONLY) === "1");
+      if (diaryCheckEl) diaryCheckEl.checked = (localStorage.getItem(LS_DIARY_CHECK) === "1");
+    } catch (e) {}
+
+    markDuplicates();
+    syncSortDirButton();
+    applyAll();
+    scheduleDiaryNext();
+
+    sortKeyEl?.addEventListener("change", () => {
+      try { localStorage.setItem(LS_SORT_KEY, sortKeyEl.value); } catch (e) {}
+      applyAll();
+    });
+
+    sortDirEl?.addEventListener("click", () => {
+      if (!sortDirEl) return;
+      const cur = sortDirEl.dataset.dir || "desc";
+      sortDirEl.dataset.dir = (cur === "asc") ? "desc" : "asc";
+      try { localStorage.setItem(LS_SORT_DIR, sortDirEl.dataset.dir); } catch (e) {}
+      syncSortDirButton();
+      applyAll();
+    });
+
+    starOnlyEl?.addEventListener("change", () => {
+      try { localStorage.setItem(LS_STAR_ONLY, starOnlyEl.checked ? "1" : "0"); } catch (e) {}
+      applyAll();
+    });
+
+    diaryCheckEl?.addEventListener("change", () => {
+      try { localStorage.setItem(LS_DIARY_CHECK, diaryCheckEl.checked ? "1" : "0"); } catch (e) {}
+      updateDiaryBadges();
+      scheduleDiaryNext();
+    });
+
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "visible") {
+        updateDiaryBadges();
+        scheduleDiaryNext();
+      }
+    });
+  }
+
+  // ============================================================
   // アンカー先ツールチッププレビュー（手動クローズ + スタック）
   // （あなたの既存実装：そのまま）
   // ============================================================
@@ -804,5 +1188,7 @@
     initKbStarRating();
     initKbPriceItems();
     initKbDuration();
+    initKbPanicButton();
+    initKbIndexEnhancements();
   });
 })();

@@ -1,15 +1,21 @@
-# 017
+# 020
 # routers/kb.py
 import json
 import re
 import unicodedata
+import time
+import gzip
+from io import BytesIO
 from collections import defaultdict
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
+from difflib import SequenceMatcher
 from typing import Dict, List, Optional, Tuple
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlparse
+import urllib.request
+import urllib.error
 
 from fastapi import APIRouter, Depends, Form, Query, Request, HTTPException
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from sqlalchemy import and_, desc, exists, func, or_
 from sqlalchemy.orm import Session
 
@@ -18,6 +24,611 @@ from db import get_db
 from models import KBPerson, KBRegion, KBStore, KBVisit
 
 router = APIRouter()
+
+# =========================
+# 写メ日記 NEWチェック（本物）
+# - サーバ: 「最新日記の日時(epoch ms)」を返す
+# - フロント: localStorageで seen_ts を持ち、latest_ts > seen_ts なら NEW
+#   （DB改造なし / クリックで消える / インターバルOK）
+# =========================
+JST = timezone(timedelta(hours=9))
+
+_DIARY_HTTP_TIMEOUT_SEC = 8
+_DIARY_CACHE_TTL_SEC = 10 * 60  # 10分
+_DIARY_MAX_BYTES = 1024 * 1024  # 1MB
+_DIARY_UA = "Mozilla/5.0 (compatible; PersonalSearchKB/1.0; +https://example.invalid)"
+
+# ざっくり安全策（オープンプロキシ化を避ける）
+_DIARY_ALLOWED_HOST_SUFFIXES = (
+    "cityheaven.net",
+    "dto.jp",
+)
+
+# url -> (saved_monotonic, latest_ts_ms_or_None, err_str)
+_DIARY_CACHE: Dict[str, Tuple[float, Optional[int], str]] = {}
+
+
+def _parse_ids_csv(raw: str, limit: int = 30) -> List[int]:
+    out: List[int] = []
+    if not raw:
+        return out
+    for part in str(raw).split(","):
+        s = (part or "").strip()
+        if not s:
+            continue
+        if not re.fullmatch(r"\d+", s):
+            continue
+        try:
+            v = int(s)
+        except Exception:
+            continue
+        if v <= 0:
+            continue
+        out.append(v)
+        if len(out) >= int(limit):
+            break
+    return out
+
+
+def _is_allowed_diary_url(url: str) -> bool:
+    try:
+        u = urlparse(url)
+    except Exception:
+        return False
+    if u.scheme not in ("http", "https"):
+        return False
+    host = (u.hostname or "").lower().strip()
+    if not host:
+        return False
+    for suf in _DIARY_ALLOWED_HOST_SUFFIXES:
+        if host == suf or host.endswith("." + suf):
+            return True
+    return False
+
+
+def _http_get_text(url: str, timeout_sec: int = _DIARY_HTTP_TIMEOUT_SEC) -> str:
+    req = urllib.request.Request(
+        url,
+        headers={
+            "User-Agent": _DIARY_UA,
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept-Encoding": "gzip",
+        },
+        method="GET",
+    )
+    with urllib.request.urlopen(req, timeout=timeout_sec) as res:
+        raw = res.read(_DIARY_MAX_BYTES + 1)
+        if len(raw) > _DIARY_MAX_BYTES:
+            raw = raw[:_DIARY_MAX_BYTES]
+
+        enc = ""
+        try:
+            enc = (res.headers.get("Content-Encoding") or "").lower()
+        except Exception:
+            enc = ""
+
+        if "gzip" in enc:
+            try:
+                raw = gzip.decompress(raw)
+            except Exception:
+                # 壊れてても無理しない
+                pass
+
+        charset = "utf-8"
+        try:
+            ct = res.headers.get("Content-Type") or ""
+            m = re.search(r"charset=([a-zA-Z0-9_\-]+)", ct)
+            if m:
+                charset = m.group(1)
+        except Exception:
+            charset = "utf-8"
+
+        try:
+            return raw.decode(charset, errors="replace")
+        except Exception:
+            return raw.decode("utf-8", errors="replace")
+
+
+def _infer_year_for_md(month: int, day: int, now_jst: datetime) -> int:
+    """
+    年が無い "M/D" を現在年で補完しつつ、未来になりすぎる場合は前年扱いに寄せる。
+    """
+    y = now_jst.year
+    try:
+        dt = datetime(y, month, day, 0, 0, tzinfo=JST)
+    except Exception:
+        return y
+    # 未来に30日以上飛ぶのは前年の可能性が高い
+    if dt > now_jst + timedelta(days=30):
+        return y - 1
+    return y
+
+
+def _extract_latest_diary_dt(html: str) -> Optional[datetime]:
+    if not html:
+        return None
+
+    # 「写メ日記」周辺を優先して誤爆を減らす（無ければ先頭から）
+    scope = html
+    idx = scope.find("写メ日記")
+    if idx < 0:
+        idx = scope.find("日記")
+    if idx >= 0:
+        scope = scope[idx: idx + 200000]
+    else:
+        scope = scope[:200000]
+
+    now_jst = datetime.now(JST)
+    best: Optional[datetime] = None
+
+    # 1) YYYY/MM/DD HH:MM or YYYY-MM-DD HH:MM
+    re_ymd_hm = re.compile(r"(\d{4})[/-](\d{1,2})[/-](\d{1,2})(?:\s+|T)?(\d{1,2}):(\d{2})")
+    # 2) YYYY/MM/DD
+    re_ymd = re.compile(r"(\d{4})[/-](\d{1,2})[/-](\d{1,2})")
+    # 3) YYYY年M月D日 HH:MM
+    re_jp_hm = re.compile(r"(\d{4})年\s*(\d{1,2})月\s*(\d{1,2})日(?:\s*|　)*(\d{1,2}):(\d{2})")
+    # 4) M/D HH:MM
+    re_md_hm = re.compile(r"(\d{1,2})[/-](\d{1,2})(?:\s*|　)*(\d{1,2}):(\d{2})")
+    # 5) M/D
+    re_md = re.compile(r"(\d{1,2})[/-](\d{1,2})")
+
+    def upd(dt: Optional[datetime]):
+      nonlocal best
+      if dt is None:
+        return
+      if best is None or dt > best:
+        best = dt
+
+    # 1)
+    for m in re_ymd_hm.finditer(scope):
+        try:
+            y = int(m.group(1)); mo = int(m.group(2)); d = int(m.group(3))
+            hh = int(m.group(4)); mm = int(m.group(5))
+            upd(datetime(y, mo, d, hh, mm, tzinfo=JST))
+        except Exception:
+            continue
+
+    # 3)
+    for m in re_jp_hm.finditer(scope):
+        try:
+            y = int(m.group(1)); mo = int(m.group(2)); d = int(m.group(3))
+            hh = int(m.group(4)); mm = int(m.group(5))
+            upd(datetime(y, mo, d, hh, mm, tzinfo=JST))
+        except Exception:
+            continue
+
+    # 4)
+    for m in re_md_hm.finditer(scope):
+        try:
+            mo = int(m.group(1)); d = int(m.group(2))
+            hh = int(m.group(3)); mm = int(m.group(4))
+            y = _infer_year_for_md(mo, d, now_jst)
+            upd(datetime(y, mo, d, hh, mm, tzinfo=JST))
+        except Exception:
+            continue
+
+    # 2)
+    for m in re_ymd.finditer(scope):
+        try:
+            y = int(m.group(1)); mo = int(m.group(2)); d = int(m.group(3))
+            upd(datetime(y, mo, d, 0, 0, tzinfo=JST))
+        except Exception:
+            continue
+
+    # 5)
+    # ただし誤爆しやすいので、すでにbestがあるなら追加しない
+    if best is None:
+        for m in re_md.finditer(scope):
+            try:
+                mo = int(m.group(1)); d = int(m.group(2))
+                y = _infer_year_for_md(mo, d, now_jst)
+                upd(datetime(y, mo, d, 0, 0, tzinfo=JST))
+            except Exception:
+                continue
+
+    return best
+
+
+def _dt_to_epoch_ms(dt: datetime) -> int:
+    try:
+        return int(dt.timestamp() * 1000)
+    except Exception:
+        return 0
+
+
+def _get_latest_diary_ts_ms(person_url: str) -> Tuple[Optional[int], str]:
+    """
+    戻り: (latest_ts_ms or None, err)
+    - None の場合は取得不能
+    """
+    url = (person_url or "").strip()
+    if not url:
+        return None, "url_empty"
+    if not _is_allowed_diary_url(url):
+        return None, "unsupported_host"
+
+    now_m = time.monotonic()
+    cached = _DIARY_CACHE.get(url)
+    if cached:
+        saved_m, latest_ts, err = cached
+        if now_m - saved_m <= _DIARY_CACHE_TTL_SEC:
+            return latest_ts, err
+
+    try:
+        html = _http_get_text(url, timeout_sec=_DIARY_HTTP_TIMEOUT_SEC)
+        dt = _extract_latest_diary_dt(html)
+        if not dt:
+            _DIARY_CACHE[url] = (now_m, None, "no_datetime_found")
+            return None, "no_datetime_found"
+        ts = _dt_to_epoch_ms(dt)
+        if ts <= 0:
+            _DIARY_CACHE[url] = (now_m, None, "bad_datetime")
+            return None, "bad_datetime"
+        _DIARY_CACHE[url] = (now_m, ts, "")
+        return ts, ""
+    except urllib.error.HTTPError as e:
+        msg = f"http_error_{getattr(e, 'code', '')}"
+        _DIARY_CACHE[url] = (now_m, None, msg)
+        return None, msg
+    except Exception:
+        _DIARY_CACHE[url] = (now_m, None, "fetch_error")
+        return None, "fetch_error"
+
+
+def _build_google_search_url(query: str) -> str:
+    q = (query or "").strip()
+    if not q:
+        return ""
+    return "https://www.google.com/search?" + urlencode({"q": q})
+
+
+def _build_google_site_search_url(domain: str, query: str) -> str:
+    d = (domain or "").strip()
+    q = (query or "").strip()
+    if not d or not q:
+        return ""
+    return _build_google_search_url(f"site:{d} {q}")
+
+
+def _build_diary_open_url(db: Session, person: KBPerson) -> str:
+    """
+    NEWクリック時に飛ばす先。
+    - person.url があればそれを優先（“日記一覧”に行ける可能性が一番高い）
+    - 無ければ Google 検索（地域/店/名前 + 写メ日記）で代替
+    """
+    # person.url があるならそれを最優先
+    pu = ""
+    if hasattr(person, "url"):
+        pu = (getattr(person, "url", "") or "").strip()
+    if pu:
+        return pu
+
+    # 無い場合はGoogle
+    store = db.query(KBStore).filter(KBStore.id == person.store_id).first()
+    region = db.query(KBRegion).filter(KBRegion.id == store.region_id).first() if store else None
+
+    parts = []
+    if region and region.name:
+        parts.append(region.name)
+    if store and store.name:
+        parts.append(store.name)
+    if person and person.name:
+        parts.append(person.name)
+    parts.append("写メ日記")
+    q = " ".join([x for x in parts if x]).strip()
+
+    return _build_google_search_url(q)
+
+
+@router.get("/kb/api/diary_latest")
+def kb_api_diary_latest(
+    ids: str = Query(""),
+    db: Session = Depends(get_db),
+):
+    """
+    フロントが「最新日記の日時」を取得するAPI。
+    - NEW判定自体はフロント（localStorage）でやる
+    """
+    person_ids = _parse_ids_csv(ids, limit=30)
+    if not person_ids:
+        return JSONResponse({"ok": True, "items": []})
+
+    persons = (
+        db.query(KBPerson)
+        .filter(KBPerson.id.in_(person_ids))
+        .all()
+    )
+    pmap = {int(getattr(p, "id", 0)): p for p in persons if p and getattr(p, "id", None)}
+
+    items = []
+    for pid in person_ids:
+        p = pmap.get(int(pid))
+        if not p:
+            items.append({"id": int(pid), "latest_ts": None, "open_url": "", "error": "not_found"})
+            continue
+
+        open_url = _build_diary_open_url(db, p)
+
+        latest_ts = None
+        err = ""
+        pu = ""
+        if hasattr(p, "url"):
+            pu = (getattr(p, "url", "") or "").strip()
+        if pu:
+            latest_ts, err = _get_latest_diary_ts_ms(pu)
+        else:
+            latest_ts, err = None, "url_empty"
+
+        items.append(
+            {
+                "id": int(pid),
+                "latest_ts": latest_ts,
+                "open_url": open_url,
+                "error": err,
+            }
+        )
+
+    return JSONResponse({"ok": True, "items": items})
+
+
+@router.get("/kb/api/diary_status")
+def kb_api_diary_status(
+    ids: str = Query(""),
+    db: Session = Depends(get_db),
+):
+    """
+    旧フロント互換用（※今のfunction.jsは diary_latest を使う）
+    - is_new はサーバ側では厳密に出せないので「latest_tsが取れたらTrue」扱い
+    """
+    person_ids = _parse_ids_csv(ids, limit=30)
+    if not person_ids:
+        return JSONResponse({"ok": True, "items": []})
+
+    persons = (
+        db.query(KBPerson)
+        .filter(KBPerson.id.in_(person_ids))
+        .all()
+    )
+    pmap = {int(getattr(p, "id", 0)): p for p in persons if p and getattr(p, "id", None)}
+
+    out = []
+    for pid in person_ids:
+        p = pmap.get(int(pid))
+        if not p:
+            out.append({"id": int(pid), "is_new": False})
+            continue
+
+        pu = ""
+        if hasattr(p, "url"):
+            pu = (getattr(p, "url", "") or "").strip()
+
+        latest_ts, _err = (None, "")
+        if pu:
+            latest_ts, _err = _get_latest_diary_ts_ms(pu)
+
+        out.append({"id": int(pid), "is_new": bool(latest_ts)})
+
+    return JSONResponse({"ok": True, "items": out})
+
+
+# =========================
+# 並び替え・絞り込み（共通）
+# =========================
+SORT_OPTIONS: Dict[str, str] = {
+    "name": "名前",
+    "last_visit": "最近利用",
+    "avg_amount": "平均金額",
+    "avg_rating": "平均評価",
+    "height": "身長",
+    "cup": "カップ",
+}
+
+
+def _normalize_sort_params(sort_key: str, order: str) -> tuple[str, str]:
+    sk = (sort_key or "").strip()
+    od = (order or "").strip().lower()
+
+    if sk not in SORT_OPTIONS:
+        sk = "name"
+
+    if od not in ("asc", "desc"):
+        od = "asc" if sk == "name" else "desc"
+
+    return sk, od
+
+
+def _cup_rank(cup: Optional[str]) -> int:
+    if not cup:
+        return 0
+    s = unicodedata.normalize("NFKC", str(cup)).strip().upper()
+    if len(s) >= 1 and "A" <= s[0] <= "Z":
+        return ord(s[0]) - ord("A") + 1
+    return 0
+
+
+def _parse_rating_min(x: str) -> Optional[int]:
+    v = _parse_int(x)
+    if v is None:
+        return None
+    if 1 <= v <= 5:
+        return int(v)
+    return None
+
+
+def _last_visit_map_for_person_ids(db: Session, person_ids: list[int]) -> dict[int, datetime]:
+    """
+    person_id -> 最終 visited_at（visited_at が NULL のログは無視）
+    """
+    if not person_ids:
+        return {}
+    rows = (
+        db.query(KBVisit.person_id, func.max(KBVisit.visited_at))
+        .filter(
+            KBVisit.person_id.in_(person_ids),
+            KBVisit.visited_at.isnot(None),
+        )
+        .group_by(KBVisit.person_id)
+        .all()
+    )
+    out: dict[int, datetime] = {}
+    for pid, dt in rows:
+        if pid is None or dt is None:
+            continue
+        out[int(pid)] = dt
+    return out
+
+
+def _filter_persons_by_rating_min(
+    persons: List[KBPerson],
+    rating_min: Optional[int],
+    rating_avg_map: dict[int, float],
+) -> List[KBPerson]:
+    if rating_min is None:
+        return persons
+    out: List[KBPerson] = []
+    for p in persons:
+        avg = rating_avg_map.get(int(p.id))
+        if avg is None:
+            continue
+        try:
+            if float(avg) >= float(rating_min):
+                out.append(p)
+        except Exception:
+            continue
+    return out
+
+
+def _sort_persons(
+    persons: List[KBPerson],
+    sort_key: str,
+    order: str,
+    rating_avg_map: dict[int, float],
+    amount_avg_map: dict[int, int],
+    last_visit_map: dict[int, datetime],
+) -> List[KBPerson]:
+    sk = (sort_key or "").strip()
+    od = (order or "").strip().lower()
+
+    if sk not in SORT_OPTIONS:
+        sk = "name"
+
+    # name は基本 asc を推奨（desc も許可するが UI 的にはあまり使わない想定）
+    if od not in ("asc", "desc"):
+        od = "asc" if sk == "name" else "desc"
+
+    if sk == "name":
+        return sorted(
+            persons,
+            key=lambda p: norm_text(getattr(p, "name", "") or ""),
+            reverse=(od == "desc"),
+        )
+
+    # 数値/日時系は「欠損は常に最後」になるように missing フラグを先頭に置いて、
+    # order は値側に符号を掛けて “常に昇順ソート” で統一する。
+    direction = -1.0 if od == "desc" else 1.0
+
+    def metric_value(p: KBPerson) -> Optional[float]:
+        pid = int(getattr(p, "id", 0) or 0)
+
+        if sk == "avg_rating":
+            v = rating_avg_map.get(pid)
+            return float(v) if v is not None else None
+
+        if sk == "avg_amount":
+            v = amount_avg_map.get(pid)
+            return float(v) if v is not None else None
+
+        if sk == "height":
+            v = getattr(p, "height_cm", None)
+            try:
+                return float(v) if v is not None else None
+            except Exception:
+                return None
+
+        if sk == "cup":
+            v = _cup_rank(getattr(p, "cup", None))
+            return float(v) if v > 0 else None
+
+        if sk == "last_visit":
+            dt = last_visit_map.get(pid)
+            if dt is None:
+                return None
+            try:
+                return float(dt.timestamp())
+            except Exception:
+                return None
+
+        return None
+
+    def key_fn(p: KBPerson):
+        mv = metric_value(p)
+        missing = 1 if mv is None else 0
+        vv = (mv or 0.0) * direction
+        # 2nd tie-breaker: name
+        nm = norm_text(getattr(p, "name", "") or "")
+        return (missing, vv, nm)
+
+    return sorted(persons, key=key_fn)
+
+
+def _find_similar_persons_in_store(
+    db: Session,
+    store_id: int,
+    name: str,
+    exclude_person_id: Optional[int] = None,
+    limit: int = 5,
+) -> List[KBPerson]:
+    """
+    “ゆるく”重複っぽい人物を拾う（強制ブロックはしない）
+    - 同一店舗内で比較
+    - SequenceMatcher で類似度
+    - contains も保険で拾う
+    """
+    raw = (name or "").strip()
+    if not raw:
+        return []
+    n = norm_text(raw)
+    if not n:
+        return []
+
+    rows = (
+        db.query(KBPerson)
+        .filter(KBPerson.store_id == int(store_id))
+        .order_by(KBPerson.name.asc())
+        .all()
+    )
+
+    scored: List[tuple[float, KBPerson]] = []
+    for p in rows:
+        pid = int(getattr(p, "id", 0) or 0)
+        if exclude_person_id and pid == int(exclude_person_id):
+            continue
+
+        pn = getattr(p, "name_norm", None) or norm_text(getattr(p, "name", "") or "")
+        if not pn:
+            continue
+
+        # “完全一致”は通常は exists_p で処理されるが、念のため弾く
+        if pn == n:
+            continue
+
+        # contains 系
+        contains_hit = (n in pn) or (pn in n)
+
+        # 類似度
+        try:
+            ratio = SequenceMatcher(None, n, pn).ratio()
+        except Exception:
+            ratio = 0.0
+
+        if contains_hit:
+            ratio = max(ratio, 0.85)
+
+        if ratio >= 0.78:
+            scored.append((ratio, p))
+
+    scored.sort(key=lambda x: x[0], reverse=True)
+    return [p for _, p in scored[: max(1, int(limit))]]
 
 
 # =========================
@@ -67,7 +678,6 @@ _STORE_STOPWORDS = {
     "ビル", "ビルディング", "タワー", "プラザ", "センター",
 }
 
-# stopwordの正規化済み集合（都度生成しない）
 _STORE_STOPWORDS_NORM = {norm_store_kw(x) for x in _STORE_STOPWORDS}
 
 _STORE_SEP_RE = re.compile(r"[ \t\r\n\u3000\(\)\[\]{}（）【】「」『』<>/\\|・\-–—_.,!?:;]+")
@@ -75,29 +685,15 @@ _STORE_ALNUM_RE = re.compile(r"^[0-9a-z]+$", re.IGNORECASE)
 _STORE_ALPHA_RE = re.compile(r"^[a-z]+$", re.IGNORECASE)
 _STORE_DIGITS_RE = re.compile(r"^\d+$")
 
-# 末尾が「〜店」を “絶対に” keyword に入れないための判定用（よくある派生も含める）
 _STORE_BRANCH_TAIL_RE = re.compile(r"(本店|支店|別館|新店|[0-9]+号店|店)$")
-# 住所っぽい（ビル/階/号など）が混ざった塊を避ける（完全禁止ではなく減点）
 _STORE_ADDR_HINT_RE = re.compile(r"(ビル|びる|階|f|号|丁目|番地|通り|駅前|東口|西口|南口|北口)")
-
-# 「堺店」「梅田店」など “支店ブロックだけ” のトークンを捨てる
-# （※カタカナは含めない：サマンサ店 のようなブランドを誤って捨てないため）
 _STORE_PURE_BRANCH_RE = re.compile(r"^[\u3041-\u309f\u4e00-\u9fff]{1,8}(本店|支店|別館|新店|[0-9]+号店|店)$")
-
-# 「サマンサ堺店」など、連結トークンの末尾に「<地名><店/本店...>」が付く場合は
-# その “支店ブロック（地名+店）” を丸ごと落としてブランドだけ残す
 _STORE_BRANCH_LOC_TAIL_RE = re.compile(
     r"^(.+?)([\u3041-\u309f\u4e00-\u9fff]{1,8})(本店|支店|別館|新店|[0-9]+号店|店)$"
 )
 
 
 def _tokenize_store_name(raw: str) -> List[str]:
-    """
-    店名を「それっぽい単語」に分割する
-    - NFKC + lower（※カタ→ひらはしない）
-    - 記号類はスペース
-    - 連続スペースを潰す
-    """
     s = norm_store_kw(raw or "")
     s = _STORE_SEP_RE.sub(" ", s)
     s = re.sub(r"\s+", " ", s).strip()
@@ -111,53 +707,33 @@ def _is_stopword(tok_norm: str) -> bool:
 
 
 def _variants(tok_norm: str) -> List[str]:
-    """
-    トークンから候補バリアントを作る
-
-    目的：
-    - 「〇〇店」だけでなく「堺店」「梅田店」など支店ブロックは丸ごと落としたい
-    - さらに外部検索keywordでは、カタ→ひら変換はしない
-
-    方針：
-    - トークン自体が「堺店」「梅田店」等（支店ブロックのみ）なら “捨てる”
-    - トークンが「サマンサ堺店」等（ブランド+支店ブロック連結）なら
-      “支店ブロック（堺店）” を丸ごと落として「サマンサ」だけ候補にする
-    - それ以外は従来通り末尾の「店系」を剥がす
-    """
     out: List[str] = []
     t = (tok_norm or "").strip()
     if not t:
         return out
 
-    # 支店ブロックだけのトークンは捨てる（例：堺店 / 梅田店）
     if _STORE_PURE_BRANCH_RE.match(t):
         return out
 
-    # 連結トークンの末尾が「<地名><店/本店...>」なら、そのブロックを丸ごと落としてブランドだけ
     m = _STORE_BRANCH_LOC_TAIL_RE.match(t)
     if m:
         brand = (m.group(1) or "").strip()
         if brand:
             out.append(brand)
-        # ここで返す：わざと「サマンサ堺」など “地名だけ残る形” を作らない
         return out
 
-    # 通常ケース：元トークンも候補に入れる
     out.append(t)
 
-    # 末尾の「本店/支店/◯号店/店」を剥がす
     t2 = _STORE_BRANCH_TAIL_RE.sub("", t).strip()
     if t2 and t2 != t:
         out.append(t2)
 
-    # 末尾の「ビル/ビルディング/タワー/プラザ/センター」を剥がす（住所塊の弱体化）
     for suf in ["ビルディング", "ビル", "びる", "タワー", "プラザ", "センター"]:
         if t2.endswith(norm_store_kw(suf)):
             t3 = t2[: -len(norm_store_kw(suf))].strip()
             if t3:
                 out.append(t3)
 
-    # 重複除去（順序維持）
     seen = set()
     uniq = []
     for x in out:
@@ -169,77 +745,46 @@ def _variants(tok_norm: str) -> List[str]:
 
 
 def _score_keyword_candidate(tok_norm: str) -> int:
-    """
-    大きいほど強い候補
-    基本方針：
-      - 英字ブランド（blenda など）を最優先
-      - 末尾が「〜店」は *絶対に採用しない*（ここに来る前に弾く想定だが保険で0点）
-      - 住所っぽい塊（ビル/階/号/丁目/番地…）は強く減点
-      - 数字混じりも減点（谷9 みたいなやつ）
-    """
     t = (tok_norm or "").strip()
     if not t:
         return -10
 
-    # 「〇〇店」を完全排除
     if _STORE_BRANCH_TAIL_RE.search(t):
         return -999
 
-    # stopwordは基本捨てる
     if _is_stopword(t):
         return -500
 
-    # 英字だけ（ブランド想定）は最強
     if _STORE_ALPHA_RE.match(t) and 3 <= len(t) <= 14:
         return 1000 + len(t)
 
-    # 英数字混在（例: blenda2 など）は次点
     if _STORE_ALNUM_RE.match(t):
         if any("a" <= ch.lower() <= "z" for ch in t) and 3 <= len(t) <= 16:
-            # 数字だけは別扱い（弱い）
             if _STORE_DIGITS_RE.match(t):
                 return -200
             return 850 + len(t)
-        # 短い英数字はノイズ
         return -50
 
-    # 日本語系：長すぎる塊はノイズになりがち
     base = 300
 
-    # 住所ヒントがあるなら大減点
     if _STORE_ADDR_HINT_RE.search(t):
         base -= 180
 
-    # 数字が入るなら減点
     if any("0" <= ch <= "9" for ch in t):
         base -= 120
 
-    # 長さは 2〜6 が最も扱いやすい
     L = len(t)
     if 2 <= L <= 6:
         base += 120 + L * 8
     elif 7 <= L <= 10:
         base += 40
     else:
-        base -= 30  # 長すぎ
+        base -= 30
 
     return base
 
 
 def _make_store_keyword(store_name: str) -> str:
-    """
-    タイトル検索keywordを作る（安定版）
-    優先：
-      1) 英字ブランド（例: blenda）
-      2) 英数字ブランド（例: blenda2）
-      3) 日本語の“固有語っぽい短いトークン”（住所塊は避ける）
-
-    重要：
-      - 「〇〇店」は絶対に採用しない
-      - 「堺店」「梅田店」など “支店ブロック” は丸ごと捨て、
-        「サマンサ堺店」→「サマンサ」のようにブランドだけ残す
-      - 外部検索keywordでは、カタ→ひら変換はしない
-    """
     raw = (store_name or "").strip()
     if not raw:
         return ""
@@ -250,31 +795,24 @@ def _make_store_keyword(store_name: str) -> str:
 
     candidates: List[str] = []
     for t in toks:
-        # まず stopword 自体は捨てる（club等）
         if _is_stopword(t):
             continue
-
-        # バリアント生成（店/ビル等を剥がした候補も作る）
         for v in _variants(t):
             v = (v or "").strip()
             if not v:
                 continue
-            # 「〇〇店」を完全排除
             if _STORE_BRANCH_TAIL_RE.search(v):
                 continue
-            # stopwordは除外
             if _is_stopword(v):
                 continue
             candidates.append(v)
 
     if not candidates:
-        # 最後の保険：店名そのものから強引に（ただし店末尾は削る）
         s = norm_store_kw(raw)
         s = _STORE_BRANCH_TAIL_RE.sub("", s).strip()
         s = s[:8] if len(s) >= 8 else s
         return s
 
-    # スコア最大を採用
     best = None
     best_score = -10**9
     for c in candidates:
@@ -283,9 +821,7 @@ def _make_store_keyword(store_name: str) -> str:
             best_score = sc
             best = c
 
-    # さらに保険：短すぎたら（1文字等）切り捨て
     if not best or len(best) <= 1:
-        # ここに来るのは稀。無難に先頭6
         s = norm_store_kw(raw)
         s = _STORE_BRANCH_TAIL_RE.sub("", s).strip()
         return s[:6] if len(s) > 6 else s
@@ -294,13 +830,6 @@ def _make_store_keyword(store_name: str) -> str:
 
 
 def _sanitize_image_urls(raw: str) -> list[str]:
-    """
-    テキスト入力（複数行）→ URLリストへ
-    - http(s)以外は捨てる（javascript: 等を避ける）
-    - 空行除外
-    - 重複除外（順序維持）
-    - 件数上限（暴走防止）
-    """
     if not raw:
         return []
 
@@ -323,12 +852,6 @@ def _sanitize_image_urls(raw: str) -> list[str]:
 
 
 def _split_tokens(raw: Optional[str]) -> List[str]:
-    """
-    services/tags の「カンマ区切り想定」をトークン配列にする
-    - 区切り: , ， 、 / 改行 / タブ
-    - 前後空白除去
-    - 空要素除外
-    """
     if not raw:
         return []
     s = unicodedata.normalize("NFKC", raw)
@@ -343,19 +866,11 @@ def _split_tokens(raw: Optional[str]) -> List[str]:
 
 
 def _token_set_norm(raw: Optional[str]) -> set:
-    """
-    トークン集合（正規化済）を作る
-    """
     toks = _split_tokens(raw)
     return {norm_text(t) for t in toks if t}
 
 
 def _collect_service_tag_options(db: Session) -> Tuple[List[str], List[str]]:
-    """
-    全人物から services/tags を集計してチェックボックスの候補にする
-    - 表示文字列は「最初に見つかった表記」を採用
-    - 並びは表示文字列の昇順
-    """
     persons = db.query(KBPerson.services, KBPerson.tags).all()
 
     svc_map: Dict[str, str] = {}
@@ -377,11 +892,6 @@ def _collect_service_tag_options(db: Session) -> Tuple[List[str], List[str]]:
 
 
 def _cup_letter(raw: Optional[str]) -> str:
-    """
-    cup欄から A-Z の1文字を抜く
-    - NFKC + upper
-    - 先に出た英字を採用（例：'Ｄカップ'→'D'）
-    """
     if not raw:
         return ""
     s = unicodedata.normalize("NFKC", raw).upper()
@@ -390,12 +900,6 @@ def _cup_letter(raw: Optional[str]) -> str:
 
 
 def _cup_bucket_hit(bucket: str, cup_letter: str) -> bool:
-    """
-    cup_bucket:
-      - leD: A-D
-      - EF: E,F
-      - geG: G-Z
-    """
     if not cup_letter:
         return False
     c = cup_letter
@@ -455,19 +959,13 @@ def build_visit_search_blob(v: KBVisit) -> str:
 
 
 def _parse_int(x: str):
-    """
-    int化（ゆるめ）
-    - NFKC
-    - カンマ/空白/通貨記号/「円」などを除去
-    - 文字列中の最初の -?\d+ を採用
-    """
     s = unicodedata.normalize("NFKC", str(x or "")).strip()
     if not s:
         return None
 
     s = s.replace(",", "")
     s = s.replace("_", "")
-    s = re.sub(r"[ \t\u3000]", "", s)  # 半角/全角スペース
+    s = re.sub(r"[ \t\u3000]", "", s)
     s = s.replace("円", "")
     s = s.replace("￥", "").replace("¥", "")
 
@@ -481,11 +979,6 @@ def _parse_int(x: str):
 
 
 def _parse_amount_int(x) -> int:
-    """
-    金額用：カンマ有無などを許容して int にする
-    - 失敗は 0
-    - マイナスは 0 に丸め（防御）
-    """
     v = _parse_int(str(x))
     if v is None:
         return 0
@@ -539,12 +1032,6 @@ def _avg_rating_map_for_person_ids(db: Session, person_ids: list[int]) -> dict[i
 
 
 def _avg_amount_map_for_person_ids(db: Session, person_ids: list[int]) -> dict[int, int]:
-    """
-    person_id ごとの平均金額（total_yen の平均）を返す
-    - total_yen が None は除外
-    - total_yen <= 0 は除外（=0円ログが平均を汚染しない）
-    - 返り値は「円の整数」（四捨五入）
-    """
     if not person_ids:
         return {}
     rows = (
@@ -614,6 +1101,9 @@ def kb_index(request: Request, db: Session = Depends(get_db)):
 
     svc_options, tag_options = _collect_service_tag_options(db)
 
+    # UI上の初期値（テンプレ側でも使う）
+    sort_eff, order_eff = _normalize_sort_params("name", "asc")
+
     return templates.TemplateResponse(
         "kb_index.html",
         {
@@ -640,16 +1130,20 @@ def kb_index(request: Request, db: Session = Depends(get_db)):
             "regions_map": {},
             "rating_avg_map": {},
             "amount_avg_map": {},
+            "last_visit_map": {},
             "svc_options": svc_options,
             "tag_options": tag_options,
             "active_page": "kb",
             "page_title_suffix": "KB",
             "body_class": "page-kb",
+            # 並び替え/絞り込みUI用（kb_index.html 側で使う）
+            "sort_options": SORT_OPTIONS,
+            "sort": sort_eff,
+            "order": order_eff,
+            "rating_min": "",
+            "star_only": "",
         },
     )
-
-
-
 
 
 @router.post("/kb/region")
@@ -701,7 +1195,15 @@ def kb_add_store(
 # 店舗ページ
 # =========================
 @router.get("/kb/store/{store_id}", response_class=HTMLResponse)
-def kb_store_page(request: Request, store_id: int, db: Session = Depends(get_db)):
+def kb_store_page(
+    request: Request,
+    store_id: int,
+    sort: str = "name",
+    order: str = "",
+    rating_min: str = "",
+    star_only: str = "",
+    db: Session = Depends(get_db),
+):
     store = db.query(KBStore).filter(KBStore.id == int(store_id)).first()
     if not store:
         return RedirectResponse(url="/kb", status_code=303)
@@ -715,8 +1217,19 @@ def kb_store_page(request: Request, store_id: int, db: Session = Depends(get_db)
         .all()
     )
 
-    rating_avg_map = _avg_rating_map_for_person_ids(db, [p.id for p in persons])
-    amount_avg_map = _avg_amount_map_for_person_ids(db, [p.id for p in persons])
+    person_ids = [int(p.id) for p in persons]
+    rating_avg_map = _avg_rating_map_for_person_ids(db, person_ids)
+    amount_avg_map = _avg_amount_map_for_person_ids(db, person_ids)
+    last_visit_map = _last_visit_map_for_person_ids(db, person_ids)
+
+    sort_eff, order_eff = _normalize_sort_params(sort, order)
+
+    rmin = _parse_rating_min(rating_min or "")
+    if rmin is None and (star_only or "") == "1":
+        rmin = 1
+
+    persons = _filter_persons_by_rating_min(persons, rmin, rating_avg_map)
+    persons = _sort_persons(persons, sort_eff, order_eff, rating_avg_map, amount_avg_map, last_visit_map)
 
     return templates.TemplateResponse(
         "kb_store.html",
@@ -727,9 +1240,16 @@ def kb_store_page(request: Request, store_id: int, db: Session = Depends(get_db)
             "persons": persons,
             "rating_avg_map": rating_avg_map,
             "amount_avg_map": amount_avg_map,
+            "last_visit_map": last_visit_map,
             "active_page": "kb",
             "page_title_suffix": "KB",
             "body_class": "page-kb",
+            # UI用
+            "sort_options": SORT_OPTIONS,
+            "sort": sort_eff,
+            "order": order_eff,
+            "rating_min": str(rmin) if rmin is not None else "",
+            "star_only": "1" if (star_only or "") == "1" else "",
         },
     )
 
@@ -753,7 +1273,18 @@ def kb_add_person(
             .first()
         )
         if exists_p:
-            return RedirectResponse(url=f"/kb/person/{exists_p.id}", status_code=303)
+            # “ゆるく警告”用に類似候補を計算（自身は除外）
+            dup = _find_similar_persons_in_store(
+                db, int(store_id), name, exclude_person_id=int(exists_p.id)
+            )
+            dup_ids = ",".join([str(int(x.id)) for x in dup if x and getattr(x, "id", None)])
+            url = f"/kb/person/{exists_p.id}"
+            if dup_ids:
+                url += "?dup=" + dup_ids
+            return RedirectResponse(url=url, status_code=303)
+
+        # 作成前に候補を拾う（新規IDはまだないので除外なし）
+        dup = _find_similar_persons_in_store(db, int(store_id), name, exclude_person_id=None)
 
         p = KBPerson(store_id=int(store_id), name=name)
         p.name_norm = norm_text(name)
@@ -762,7 +1293,12 @@ def kb_add_person(
         db.add(p)
         db.commit()
         db.refresh(p)
-        return RedirectResponse(url=f"/kb/person/{p.id}", status_code=303)
+
+        dup_ids = ",".join([str(int(x.id)) for x in dup if x and getattr(x, "id", None)])
+        url = f"/kb/person/{p.id}"
+        if dup_ids:
+            url += "?dup=" + dup_ids
+        return RedirectResponse(url=url, status_code=303)
     except Exception:
         db.rollback()
 
@@ -773,7 +1309,12 @@ def kb_add_person(
 # 人物ページ
 # =========================
 @router.get("/kb/person/{person_id}", response_class=HTMLResponse)
-def kb_person_page(request: Request, person_id: int, db: Session = Depends(get_db)):
+def kb_person_page(
+    request: Request,
+    person_id: int,
+    dup: str = "",
+    db: Session = Depends(get_db),
+):
     person = db.query(KBPerson).filter(KBPerson.id == int(person_id)).first()
     if not person:
         return RedirectResponse(url="/kb", status_code=303)
@@ -811,6 +1352,53 @@ def kb_person_page(request: Request, person_id: int, db: Session = Depends(get_d
     except Exception:
         amount_avg_yen = None
 
+    # ---- 重複警告表示（dup クエリで指定された person_id 群）
+    dup_candidates: List[KBPerson] = []
+    if dup:
+        ids: List[int] = []
+        for x in str(dup).split(","):
+            x = (x or "").strip()
+            if not x:
+                continue
+            v = _parse_int(x)
+            if v is None:
+                continue
+            if int(v) == int(person.id):
+                continue
+            ids.append(int(v))
+            if len(ids) >= 10:
+                break
+        if ids:
+            try:
+                dup_candidates = (
+                    db.query(KBPerson)
+                    .filter(KBPerson.id.in_(ids))
+                    .order_by(KBPerson.name.asc())
+                    .all()
+                )
+            except Exception:
+                dup_candidates = []
+
+    # ---- 外部検索ワンクリック集（Google / site検索）
+    base_parts = []
+    if region and region.name:
+        base_parts.append(region.name)
+    if store and store.name:
+        base_parts.append(store.name)
+    if person and person.name:
+        base_parts.append(person.name)
+    base_q = " ".join([x for x in base_parts if x]).strip()
+
+    google_all_url = _build_google_search_url(base_q)
+    google_cityheaven_url = _build_google_site_search_url("cityheaven.net", base_q)
+    google_dto_url = _build_google_site_search_url("dto.jp", base_q)
+
+    # 「写メ日記」も検索に含めたバージョン（⑦の軽量版としても使える）
+    diary_q = (base_q + " 写メ日記").strip() if base_q else ""
+    google_all_diary_url = _build_google_search_url(diary_q)
+    google_cityheaven_diary_url = _build_google_site_search_url("cityheaven.net", diary_q)
+    google_dto_diary_url = _build_google_site_search_url("dto.jp", diary_q)
+
     return templates.TemplateResponse(
         "kb_person.html",
         {
@@ -821,6 +1409,13 @@ def kb_person_page(request: Request, person_id: int, db: Session = Depends(get_d
             "visits": visits,
             "rating_avg": rating_avg,
             "amount_avg_yen": amount_avg_yen,
+            "dup_candidates": dup_candidates,
+            "google_all_url": google_all_url,
+            "google_cityheaven_url": google_cityheaven_url,
+            "google_dto_url": google_dto_url,
+            "google_all_diary_url": google_all_diary_url,
+            "google_cityheaven_diary_url": google_cityheaven_diary_url,
+            "google_dto_diary_url": google_dto_diary_url,
             "active_page": "kb",
             "page_title_suffix": "KB",
             "body_class": "page-kb",
@@ -842,16 +1437,12 @@ def kb_person_external_search(person_id: int, db: Session = Depends(get_db)):
     store_name = (store.name or "").strip() if store else ""
     person_name = (person.name or "").strip()
 
-    # タイトル検索（keyword）は「〇〇店」を排除し、ブランド優先で作る
     store_kw = _make_store_keyword(store_name)
     params = {"keyword": store_kw}
 
-    # KB経由は履歴に積まない（外部検索ページからの検索だけ履歴に残す）
     params["no_log"] = "1"
-    # KB経由フラグ（板フォールバック等をKB時だけに限定するため）
     params["kb"] = "1"
 
-    # 本文キーワード用（thread_search.html 側で post_kw を value に入れる前提）
     if person_name:
         params["post_kw"] = person_name
 
@@ -909,14 +1500,12 @@ def kb_update_person(
         p.services = (services or "").strip() or None
         p.tags = (tags or "").strip() or None
 
-        # URL
         if hasattr(p, "url"):
             u = (url or "").strip()
             p.url = u or None
             if hasattr(p, "url_norm"):
                 p.url_norm = norm_text(p.url or "")
 
-        # 画像URL（複数）
         if hasattr(p, "image_urls"):
             urls = _sanitize_image_urls(image_urls_text or "")
             p.image_urls = urls or None
@@ -941,10 +1530,10 @@ def kb_update_person(
 def kb_add_visit(
     request: Request,
     person_id: int,
-    visited_at: str = Form(""),  # YYYY-MM-DD
-    start_time: str = Form(""),  # HH:MM
-    end_time: str = Form(""),  # HH:MM
-    rating: str = Form(""),  # 1-5
+    visited_at: str = Form(""),
+    start_time: str = Form(""),
+    end_time: str = Form(""),
+    rating: str = Form(""),
     memo: str = Form(""),
     price_items_json: str = Form(""),
     db: Session = Depends(get_db),
@@ -1017,19 +1606,16 @@ def kb_add_visit(
     return RedirectResponse(url=back_url, status_code=303)
 
 
-# =========================
-# 利用ログ編集（追加）
-# =========================
 @router.post("/kb/visit/{visit_id}/update")
 def kb_update_visit(
     request: Request,
     visit_id: int,
-    visited_at: str = Form(""),  # YYYY-MM-DD
-    start_time: str = Form(""),  # HH:MM
-    end_time: str = Form(""),  # HH:MM
-    rating: str = Form(""),  # 1-5
+    visited_at: str = Form(""),
+    start_time: str = Form(""),
+    end_time: str = Form(""),
+    rating: str = Form(""),
     memo: str = Form(""),
-    price_items_json: str = Form(""),  # 空=変更なし, "[]"=クリア, JSON=上書き
+    price_items_json: str = Form(""),
     db: Session = Depends(get_db),
 ):
     v = db.query(KBVisit).filter(KBVisit.id == int(visit_id)).first()
@@ -1161,7 +1747,6 @@ def kb_panic_delete_all(
 
 # =========================
 # 人物検索（詳細検索 + フリーワード）
-#  - 何も指定せず検索 → 全員表示
 # =========================
 @router.get("/kb/search", response_class=HTMLResponse)
 def kb_search(
@@ -1177,6 +1762,11 @@ def kb_search(
     waist: List[str] = Query(default=[]),
     svc: List[str] = Query(default=[]),
     tag: List[str] = Query(default=[]),
+    # ★追加：並び替え/★絞り込み（kb_index.html でUIを付ける）
+    sort: str = "name",
+    order: str = "",
+    rating_min: str = "",
+    star_only: str = "",
 ):
     regions, stores_by_region, counts = _build_tree_data(db)
     svc_options, tag_options = _collect_service_tag_options(db)
@@ -1297,6 +1887,16 @@ def kb_search(
     stores_map, regions_map = _build_store_region_maps(db, persons)
     rating_avg_map = _avg_rating_map_for_person_ids(db, [p.id for p in persons])
     amount_avg_map = _avg_amount_map_for_person_ids(db, [p.id for p in persons])
+    last_visit_map = _last_visit_map_for_person_ids(db, [p.id for p in persons])
+
+    sort_eff, order_eff = _normalize_sort_params(sort, order)
+
+    rmin = _parse_rating_min(rating_min or "")
+    if rmin is None and (star_only or "") == "1":
+        rmin = 1
+
+    persons = _filter_persons_by_rating_min(persons, rmin, rating_avg_map)
+    persons = _sort_persons(persons, sort_eff, order_eff, rating_avg_map, amount_avg_map, last_visit_map)
 
     return templates.TemplateResponse(
         "kb_index.html",
@@ -1324,10 +1924,266 @@ def kb_search(
             "regions_map": regions_map,
             "rating_avg_map": rating_avg_map,
             "amount_avg_map": amount_avg_map,
+            "last_visit_map": last_visit_map,
             "svc_options": svc_options,
             "tag_options": tag_options,
             "active_page": "kb",
             "page_title_suffix": "KB",
             "body_class": "page-kb",
+            # UI用
+            "sort_options": SORT_OPTIONS,
+            "sort": sort_eff,
+            "order": order_eff,
+            "rating_min": str(rmin) if rmin is not None else "",
+            "star_only": "1" if (star_only or "") == "1" else "",
         },
     )
+
+
+# =========================
+# ⑤ バックアップ（エンドポイント）
+# =========================
+@router.get("/kb/export")
+def kb_export(db: Session = Depends(get_db)):
+    """
+    全KBを JSON で吐き出す（移行/保険）
+    """
+    regions = db.query(KBRegion).order_by(KBRegion.id.asc()).all()
+    stores = db.query(KBStore).order_by(KBStore.id.asc()).all()
+    persons = db.query(KBPerson).order_by(KBPerson.id.asc()).all()
+    visits = db.query(KBVisit).order_by(KBVisit.id.asc()).all()
+
+    def region_to_dict(r: KBRegion) -> dict:
+        return {
+            "id": int(getattr(r, "id")),
+            "name": getattr(r, "name", None),
+        }
+
+    def store_to_dict(s: KBStore) -> dict:
+        d = {
+            "id": int(getattr(s, "id")),
+            "region_id": int(getattr(s, "region_id")),
+            "name": getattr(s, "name", None),
+        }
+        # あるなら一緒に吐く（なくてもOK）
+        for k in ["area", "board_category", "board_id"]:
+            if hasattr(s, k):
+                d[k] = getattr(s, k)
+        return d
+
+    def person_to_dict(p: KBPerson) -> dict:
+        d = {
+            "id": int(getattr(p, "id")),
+            "store_id": int(getattr(p, "store_id")),
+            "name": getattr(p, "name", None),
+            "age": getattr(p, "age", None),
+            "height_cm": getattr(p, "height_cm", None),
+            "cup": getattr(p, "cup", None),
+            "bust_cm": getattr(p, "bust_cm", None),
+            "waist_cm": getattr(p, "waist_cm", None),
+            "hip_cm": getattr(p, "hip_cm", None),
+            "services": getattr(p, "services", None),
+            "tags": getattr(p, "tags", None),
+            "memo": getattr(p, "memo", None),
+        }
+        if hasattr(p, "url"):
+            d["url"] = getattr(p, "url", None)
+        if hasattr(p, "image_urls"):
+            d["image_urls"] = getattr(p, "image_urls", None)
+        return d
+
+    def visit_to_dict(v: KBVisit) -> dict:
+        dt = getattr(v, "visited_at", None)
+        return {
+            "id": int(getattr(v, "id")),
+            "person_id": int(getattr(v, "person_id")),
+            "visited_at": dt.strftime("%Y-%m-%d") if dt else None,
+            "start_time": getattr(v, "start_time", None),
+            "end_time": getattr(v, "end_time", None),
+            "duration_min": getattr(v, "duration_min", None),
+            "rating": getattr(v, "rating", None),
+            "memo": getattr(v, "memo", None),
+            "price_items": getattr(v, "price_items", None),
+            "total_yen": getattr(v, "total_yen", None),
+        }
+
+    payload = {
+        "version": 1,
+        "exported_at_utc": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "regions": [region_to_dict(r) for r in regions],
+        "stores": [store_to_dict(s) for s in stores],
+        "persons": [person_to_dict(p) for p in persons],
+        "visits": [visit_to_dict(v) for v in visits],
+    }
+    return JSONResponse(payload)
+
+
+@router.post("/kb/import")
+def kb_import(
+    payload_json: str = Form(""),
+    confirm_check: str = Form(""),
+    mode: str = Form("replace"),  # replace のみ実装（安全寄り）
+    db: Session = Depends(get_db),
+):
+    """
+    JSONを取り込み。
+    - mode=replace: 全削除→流し込み（confirm_check=1 必須）
+    """
+    if (confirm_check or "") != "1":
+        raise HTTPException(status_code=400, detail="confirm_check=1 is required")
+
+    raw = (payload_json or "").strip()
+    if not raw:
+        raise HTTPException(status_code=400, detail="payload_json is empty")
+
+    try:
+        data = json.loads(raw)
+    except Exception:
+        raise HTTPException(status_code=400, detail="payload_json is not valid JSON")
+
+    if not isinstance(data, dict):
+        raise HTTPException(status_code=400, detail="payload_json must be an object")
+
+    regions = data.get("regions", [])
+    stores = data.get("stores", [])
+    persons = data.get("persons", [])
+    visits = data.get("visits", [])
+
+    if mode != "replace":
+        raise HTTPException(status_code=400, detail="only mode=replace is supported")
+
+    try:
+        # 全削除
+        db.query(KBVisit).delete(synchronize_session=False)
+        db.query(KBPerson).delete(synchronize_session=False)
+        db.query(KBStore).delete(synchronize_session=False)
+        db.query(KBRegion).delete(synchronize_session=False)
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise HTTPException(status_code=500, detail="failed to clear tables")
+
+    try:
+        # regions
+        for r in regions if isinstance(regions, list) else []:
+            if not isinstance(r, dict):
+                continue
+            rid = _parse_int(str(r.get("id", "")))
+            name = (r.get("name", "") or "").strip()
+            if rid is None or not name:
+                continue
+            obj = KBRegion(id=int(rid), name=name, name_norm=norm_text(name))
+            db.add(obj)
+        db.flush()
+
+        # stores
+        for s in stores if isinstance(stores, list) else []:
+            if not isinstance(s, dict):
+                continue
+            sid = _parse_int(str(s.get("id", "")))
+            rid = _parse_int(str(s.get("region_id", "")))
+            name = (s.get("name", "") or "").strip()
+            if sid is None or rid is None or not name:
+                continue
+            obj = KBStore(id=int(sid), region_id=int(rid), name=name, name_norm=norm_text(name))
+            for k in ["area", "board_category", "board_id"]:
+                if hasattr(obj, k) and k in s:
+                    setattr(obj, k, s.get(k))
+            db.add(obj)
+        db.flush()
+
+        # persons
+        person_objs: List[KBPerson] = []
+        for p in persons if isinstance(persons, list) else []:
+            if not isinstance(p, dict):
+                continue
+            pid = _parse_int(str(p.get("id", "")))
+            sid = _parse_int(str(p.get("store_id", "")))
+            name = (p.get("name", "") or "").strip()
+            if pid is None or sid is None or not name:
+                continue
+
+            obj = KBPerson(id=int(pid), store_id=int(sid), name=name)
+            obj.age = _parse_int(p.get("age", ""))
+            obj.height_cm = _parse_int(p.get("height_cm", ""))
+            cu = unicodedata.normalize("NFKC", str(p.get("cup", "") or "")).upper().strip()
+            obj.cup = (cu[:1] if cu and "A" <= cu[:1] <= "Z" else None)
+            obj.bust_cm = _parse_int(p.get("bust_cm", ""))
+            obj.waist_cm = _parse_int(p.get("waist_cm", ""))
+            obj.hip_cm = _parse_int(p.get("hip_cm", ""))
+            obj.services = (p.get("services", "") or "").strip() or None
+            obj.tags = (p.get("tags", "") or "").strip() or None
+            obj.memo = (p.get("memo", "") or "").strip() or None
+
+            if hasattr(obj, "url"):
+                u = (p.get("url", "") or "").strip()
+                obj.url = u or None
+                if hasattr(obj, "url_norm"):
+                    obj.url_norm = norm_text(obj.url or "")
+
+            if hasattr(obj, "image_urls"):
+                iu = p.get("image_urls", None)
+                if isinstance(iu, list):
+                    obj.image_urls = [str(x or "").strip() for x in iu if str(x or "").strip()] or None
+
+            obj.name_norm = norm_text(obj.name or "")
+            obj.services_norm = norm_text(obj.services or "")
+            obj.tags_norm = norm_text(obj.tags or "")
+            obj.memo_norm = norm_text(obj.memo or "")
+
+            db.add(obj)
+            person_objs.append(obj)
+
+        db.flush()
+
+        # search_norm 再生成（store/region が入った後に計算）
+        for obj in person_objs:
+            try:
+                obj.search_norm = build_person_search_blob(db, obj)
+            except Exception:
+                obj.search_norm = norm_text(obj.name or "")
+
+        # visits
+        for v in visits if isinstance(visits, list) else []:
+            if not isinstance(v, dict):
+                continue
+            vid = _parse_int(str(v.get("id", "")))
+            pid = _parse_int(str(v.get("person_id", "")))
+            if vid is None or pid is None:
+                continue
+
+            dt = None
+            vd = (v.get("visited_at", "") or "").strip()
+            if vd:
+                try:
+                    dt = datetime.strptime(vd, "%Y-%m-%d")
+                except Exception:
+                    dt = None
+
+            obj = KBVisit(
+                id=int(vid),
+                person_id=int(pid),
+                visited_at=dt,
+                start_time=_parse_int(v.get("start_time", "")),
+                end_time=_parse_int(v.get("end_time", "")),
+                duration_min=_parse_int(v.get("duration_min", "")),
+                rating=_parse_int(v.get("rating", "")),
+                memo=(v.get("memo", "") or "").strip() or None,
+                price_items=v.get("price_items", None),
+                total_yen=_parse_int(v.get("total_yen", "")) or 0,
+            )
+            try:
+                obj.search_norm = build_visit_search_blob(obj)
+            except Exception:
+                obj.search_norm = norm_text(obj.memo or "")
+
+            db.add(obj)
+
+        db.commit()
+    except HTTPException:
+        raise
+    except Exception:
+        db.rollback()
+        raise HTTPException(status_code=500, detail="import failed")
+
+    return JSONResponse({"ok": True})

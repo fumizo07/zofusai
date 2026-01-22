@@ -1,4 +1,4 @@
-/* 002 */
+/* 003 */
 /* base.css */
 :root {
     --bg: #f5f5f7;
@@ -1381,6 +1381,66 @@ input[type="time"] {
 
 .kb-select {
     width: auto;
+}
+
+/* 追加：KB 検索結果の並び替え/絞り込みUI */
+.kb-controls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    align-items: center;
+    margin: 6px 0 10px;
+}
+
+.kb-controls-group {
+    display: inline-flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    align-items: center;
+}
+
+.kb-controls-label {
+    font-size: 12px;
+    color: var(--text-sub);
+    white-space: nowrap;
+}
+
+.kb-controls-check {
+    display: inline-flex;
+    gap: 6px;
+    align-items: center;
+    font-size: 12px;
+    color: var(--text-sub);
+    white-space: nowrap;
+}
+
+.kb-hidden {
+    display: none !important;
+}
+
+/* 追加：NEW/重複バッジ */
+.kb-badge {
+    display: inline-flex;
+    align-items: center;
+    font-size: 10px;
+    padding: 1px 6px;
+    border-radius: 999px;
+    border: 1px solid #e5e7eb;
+    margin-left: 6px;
+    line-height: 1.5;
+    user-select: none;
+}
+
+.kb-badge-new {
+    background: #fffbeb;
+    border-color: #fcd34d;
+    color: #92400e;
+}
+
+.kb-badge-dup {
+    background: #fef2f2;
+    border-color: #fecaca;
+    color: #991b1b;
 }
 
 /* テキストボックス微調整 */
