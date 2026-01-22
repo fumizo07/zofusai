@@ -1,4 +1,4 @@
-# 018
+# 019
 # routers/kb.py
 import json
 import re
@@ -32,6 +32,19 @@ SORT_OPTIONS: Dict[str, str] = {
     "height": "身長",
     "cup": "カップ",
 }
+
+
+def _normalize_sort_params(sort_key: str, order: str) -> tuple[str, str]:
+    sk = (sort_key or "").strip()
+    od = (order or "").strip().lower()
+
+    if sk not in SORT_OPTIONS:
+        sk = "name"
+
+    if od not in ("asc", "desc"):
+        od = "asc" if sk == "name" else "desc"
+
+    return sk, od
 
 
 def _cup_rank(cup: Optional[str]) -> int:
@@ -713,6 +726,9 @@ def kb_index(request: Request, db: Session = Depends(get_db)):
 
     svc_options, tag_options = _collect_service_tag_options(db)
 
+    # UI上の初期値（テンプレ側でも使う）
+    sort_eff, order_eff = _normalize_sort_params("name", "asc")
+
     return templates.TemplateResponse(
         "kb_index.html",
         {
@@ -747,9 +763,10 @@ def kb_index(request: Request, db: Session = Depends(get_db)):
             "body_class": "page-kb",
             # 並び替え/絞り込みUI用（kb_index.html 側で使う）
             "sort_options": SORT_OPTIONS,
-            "sort": "name",
-            "order": "asc",
+            "sort": sort_eff,
+            "order": order_eff,
             "rating_min": "",
+            "star_only": "",
         },
     )
 
@@ -809,6 +826,7 @@ def kb_store_page(
     sort: str = "name",
     order: str = "",
     rating_min: str = "",
+    star_only: str = "",
     db: Session = Depends(get_db),
 ):
     store = db.query(KBStore).filter(KBStore.id == int(store_id)).first()
@@ -829,9 +847,14 @@ def kb_store_page(
     amount_avg_map = _avg_amount_map_for_person_ids(db, person_ids)
     last_visit_map = _last_visit_map_for_person_ids(db, person_ids)
 
+    sort_eff, order_eff = _normalize_sort_params(sort, order)
+
     rmin = _parse_rating_min(rating_min or "")
+    if rmin is None and (star_only or "") == "1":
+        rmin = 1
+
     persons = _filter_persons_by_rating_min(persons, rmin, rating_avg_map)
-    persons = _sort_persons(persons, sort, order, rating_avg_map, amount_avg_map, last_visit_map)
+    persons = _sort_persons(persons, sort_eff, order_eff, rating_avg_map, amount_avg_map, last_visit_map)
 
     return templates.TemplateResponse(
         "kb_store.html",
@@ -848,9 +871,10 @@ def kb_store_page(
             "body_class": "page-kb",
             # UI用
             "sort_options": SORT_OPTIONS,
-            "sort": sort,
-            "order": (order or "").lower(),
+            "sort": sort_eff,
+            "order": order_eff,
             "rating_min": str(rmin) if rmin is not None else "",
+            "star_only": "1" if (star_only or "") == "1" else "",
         },
     )
 
@@ -1367,6 +1391,7 @@ def kb_search(
     sort: str = "name",
     order: str = "",
     rating_min: str = "",
+    star_only: str = "",
 ):
     regions, stores_by_region, counts = _build_tree_data(db)
     svc_options, tag_options = _collect_service_tag_options(db)
@@ -1489,9 +1514,14 @@ def kb_search(
     amount_avg_map = _avg_amount_map_for_person_ids(db, [p.id for p in persons])
     last_visit_map = _last_visit_map_for_person_ids(db, [p.id for p in persons])
 
+    sort_eff, order_eff = _normalize_sort_params(sort, order)
+
     rmin = _parse_rating_min(rating_min or "")
+    if rmin is None and (star_only or "") == "1":
+        rmin = 1
+
     persons = _filter_persons_by_rating_min(persons, rmin, rating_avg_map)
-    persons = _sort_persons(persons, sort, order, rating_avg_map, amount_avg_map, last_visit_map)
+    persons = _sort_persons(persons, sort_eff, order_eff, rating_avg_map, amount_avg_map, last_visit_map)
 
     return templates.TemplateResponse(
         "kb_index.html",
@@ -1527,9 +1557,10 @@ def kb_search(
             "body_class": "page-kb",
             # UI用
             "sort_options": SORT_OPTIONS,
-            "sort": sort,
-            "order": (order or "").lower(),
+            "sort": sort_eff,
+            "order": order_eff,
             "rating_min": str(rmin) if rmin is not None else "",
+            "star_only": "1" if (star_only or "") == "1" else "",
         },
     )
 
