@@ -1,4 +1,4 @@
-{# 007 #}
+{# 008 #}
 {% set page_title_suffix = "KB" %}
 {% set body_class = "page-kb" %}
 {% set active_page = "kb" %}
@@ -18,6 +18,9 @@
 {% set search_q = search_q|default('') %}
 {% set search_total_count = search_total_count|default(None) %}
 {% set search_truncated = search_truncated|default(False) %}
+
+{# 追加：将来「最近利用」などを渡せるように（未提供でも壊れない） #}
+{% set last_visit_map = last_visit_map|default({}) %}
 
 <main>
   <section class="card">
@@ -161,13 +164,54 @@
       {% if search_truncated %}
         <p class="muted">表示件数が多いため先頭500件のみ表示しています。条件を絞ってください。</p>
       {% endif %}
-      <div class="thread-results">
+
+      <!-- 追加：並び替え／絞り込み（クライアント側） -->
+      <div class="kb-controls">
+        <div class="kb-controls-group">
+          <label class="kb-controls-label" for="kb_sort_key">並び替え：</label>
+          <select id="kb_sort_key" class="kb-select">
+            <option value="none">（なし）</option>
+            <option value="avg_rating">平均評価</option>
+            <option value="avg_amount">平均金額</option>
+            <option value="height">身長</option>
+            <option value="cup">カップ</option>
+            <option value="name">名前</option>
+            <option value="last_visit">最近利用（※対応データがある時のみ）</option>
+          </select>
+          <button type="button" id="kb_sort_dir" class="btn-sm" aria-label="sort direction" data-dir="desc">▼</button>
+        </div>
+
+        <label class="kb-controls-check">
+          <input type="checkbox" id="kb_star_only">
+          スター（平均評価あり）だけ
+        </label>
+
+        <label class="kb-controls-check">
+          <input type="checkbox" id="kb_diary_check">
+          写メ日記NEW
+        </label>
+
+        <span class="muted" id="kb_diary_note" hidden></span>
+      </div>
+
+      <div class="thread-results" id="kb_person_results">
         {% for p in search_results %}
           {% set st = (stores_map or {}).get(p.store_id) %}
           {% set rg = (regions_map or {}).get(st.region_id) if st else None %}
           {% set avg = (rating_avg_map or {}).get(p.id) %}
           {% set avg_amt = (amount_avg_map or {}).get(p.id) %}
-          <div class="result kb-person-result">
+          {% set lastv = (last_visit_map or {}).get(p.id) %}
+          <div
+            class="result kb-person-result"
+            data-person-id="{{ p.id }}"
+            data-store-id="{{ p.store_id }}"
+            data-name="{{ p.name|e }}"
+            data-height="{{ p.height_cm if p.height_cm is not none else '' }}"
+            data-cup="{{ p.cup if p.cup else '' }}"
+            data-avg-rating="{{ avg if avg is not none else '' }}"
+            data-avg-amount="{{ avg_amt if avg_amt is not none else '' }}"
+            data-last-visit="{{ lastv if lastv is not none else '' }}"
+          >
             {%- set thumb = (p.image_urls[0] if p.image_urls and (p.image_urls|length) > 0 else "") -%}
             {%- if thumb -%}
             <a href="/kb/person/{{ p.id }}">
@@ -178,6 +222,9 @@
             <!-- ここに「名前／サービス／年齢／身長…」の行 -->
               <div class="result-id">
                 <a href="/kb/person/{{ p.id }}">{{ p.name }}</a>
+                <span class="kb-badge kb-badge-new" data-role="diary-new" hidden>NEW</span>
+                <span class="kb-badge kb-badge-dup" data-role="dup" hidden>重複?</span>
+
                 {%- if p.services -%}/{{ p.services }}{%- endif -%}
                 {% if p.age %}/{{ p.age }}歳{% endif %}
                 {%- if p.height_cm -%}/T{{ p.height_cm }}{%- endif -%}
@@ -201,6 +248,232 @@
           </div>
         {% endfor %}
       </div>
+
+      <script>
+        (function () {
+          const container = document.getElementById("kb_person_results");
+          if (!container) return;
+
+          const sortKeyEl = document.getElementById("kb_sort_key");
+          const sortDirEl = document.getElementById("kb_sort_dir");
+          const starOnlyEl = document.getElementById("kb_star_only");
+          const diaryCheckEl = document.getElementById("kb_diary_check");
+          const diaryNoteEl = document.getElementById("kb_diary_note");
+
+          const LS_SORT_KEY = "kb_sort_key";
+          const LS_SORT_DIR = "kb_sort_dir";
+          const LS_STAR_ONLY = "kb_star_only";
+          const LS_DIARY_CHECK = "kb_diary_check";
+
+          const items = Array.from(container.querySelectorAll(".kb-person-result"));
+          items.forEach((el, idx) => { el.dataset.origIndex = String(idx); });
+
+          function normalizeName(s) {
+            return (s || "").replace(/\s+/g, "").toLowerCase();
+          }
+
+          function cupRank(cup) {
+            const c = (cup || "").toUpperCase().trim();
+            if (!c) return 0;
+            const m = c.match(/[A-Z]/);
+            if (!m) return 0;
+            const code = m[0].charCodeAt(0);
+            if (code < 65 || code > 90) return 0;
+            return (code - 64); // A=1
+          }
+
+          function parseNum(v) {
+            if (v === null || v === undefined) return 0;
+            const s = String(v).trim();
+            if (!s) return 0;
+            const n = Number(s.replace(/,/g, ""));
+            return Number.isFinite(n) ? n : 0;
+          }
+
+          function parseTime(v) {
+            if (!v) return 0;
+            const t = Date.parse(String(v));
+            return Number.isFinite(t) ? t : 0;
+          }
+
+          // ② 重複検知（表示中の一覧だけ）
+          function markDuplicates() {
+            const map = new Map(); // key -> [elements]
+            items.forEach((el) => {
+              const name = normalizeName(el.dataset.name);
+              const storeId = String(el.dataset.storeId || "");
+              if (!name) return;
+              // 「同一店舗×同名」を優先で重複扱い（ゆるい警告）
+              const key = storeId + "|" + name;
+              const arr = map.get(key) || [];
+              arr.push(el);
+              map.set(key, arr);
+            });
+
+            map.forEach((arr) => {
+              if (arr.length <= 1) return;
+              const ids = arr.map(e => e.dataset.personId).join(", ");
+              arr.forEach((el) => {
+                const badge = el.querySelector('[data-role="dup"]');
+                if (!badge) return;
+                badge.hidden = false;
+                badge.title = "同一店舗内で同名が複数: " + ids;
+              });
+            });
+          }
+
+          function applyStarFilter() {
+            const only = !!starOnlyEl?.checked;
+            items.forEach((el) => {
+              const hasRating = String(el.dataset.avgRating || "").trim() !== "";
+              el.classList.toggle("kb-hidden", only && !hasRating);
+            });
+          }
+
+          function sortItems() {
+            if (!sortKeyEl) return;
+
+            const key = sortKeyEl.value || "none";
+            const dir = (sortDirEl?.dataset?.dir || "desc") === "asc" ? 1 : -1;
+
+            const visible = items.slice().filter(el => !el.classList.contains("kb-hidden"));
+            const hidden = items.slice().filter(el => el.classList.contains("kb-hidden"));
+
+            function valueOf(el) {
+              if (key === "avg_rating") return parseNum(el.dataset.avgRating);
+              if (key === "avg_amount") return parseNum(el.dataset.avgAmount);
+              if (key === "height") return parseNum(el.dataset.height);
+              if (key === "cup") return cupRank(el.dataset.cup);
+              if (key === "name") return normalizeName(el.dataset.name);
+              if (key === "last_visit") return parseTime(el.dataset.lastVisit);
+              return parseNum(el.dataset.origIndex);
+            }
+
+            visible.sort((a, b) => {
+              const va = valueOf(a);
+              const vb = valueOf(b);
+
+              // 文字列（name）の場合
+              if (typeof va === "string" || typeof vb === "string") {
+                const sa = String(va), sb = String(vb);
+                if (sa < sb) return -1 * dir;
+                if (sa > sb) return 1 * dir;
+                return parseNum(a.dataset.origIndex) - parseNum(b.dataset.origIndex);
+              }
+
+              if (va < vb) return -1 * dir;
+              if (va > vb) return 1 * dir;
+              return parseNum(a.dataset.origIndex) - parseNum(b.dataset.origIndex);
+            });
+
+            // 表示DOMを並び替え（hiddenは末尾にそのまま）
+            const frag = document.createDocumentFragment();
+            visible.forEach(el => frag.appendChild(el));
+            hidden.forEach(el => frag.appendChild(el));
+            container.appendChild(frag);
+          }
+
+          async function updateDiaryBadges() {
+            if (!diaryCheckEl || !diaryCheckEl.checked) {
+              // OFFなら全部隠す
+              items.forEach((el) => {
+                const b = el.querySelector('[data-role="diary-new"]');
+                if (b) b.hidden = true;
+              });
+              if (diaryNoteEl) diaryNoteEl.hidden = true;
+              return;
+            }
+
+            // 表示中のみ、最大30件だけチェック（ブロック対策）
+            const targets = items.filter(el => !el.classList.contains("kb-hidden")).slice(0, 30);
+            const ids = targets.map(el => el.dataset.personId).filter(Boolean);
+
+            if (!ids.length) return;
+
+            if (diaryNoteEl) {
+              diaryNoteEl.hidden = false;
+              diaryNoteEl.textContent = "写メ日記: 更新チェック中…（最大" + ids.length + "件）";
+            }
+
+            try {
+              const url = "/kb/api/diary_status?ids=" + encodeURIComponent(ids.join(","));
+              const res = await fetch(url, { method: "GET" });
+              if (!res.ok) throw new Error("status " + res.status);
+
+              const data = await res.json();
+              const map = new Map();
+              (data.items || []).forEach((it) => {
+                map.set(String(it.id), !!it.is_new);
+              });
+
+              targets.forEach((el) => {
+                const isNew = map.get(String(el.dataset.personId)) === true;
+                const b = el.querySelector('[data-role="diary-new"]');
+                if (b) b.hidden = !isNew;
+              });
+
+              if (diaryNoteEl) {
+                diaryNoteEl.textContent = "写メ日記: チェック完了（" + ids.length + "件）";
+                setTimeout(() => { diaryNoteEl.hidden = true; }, 2500);
+              }
+            } catch (e) {
+              // APIが未実装/停止でも静かに劣化
+              if (diaryNoteEl) {
+                diaryNoteEl.hidden = false;
+                diaryNoteEl.textContent = "写メ日記: サーバ側APIが未実装/取得失敗（必要なら実装します）";
+              }
+            }
+          }
+
+          function syncSortDirButton() {
+            if (!sortDirEl) return;
+            const dir = sortDirEl.dataset.dir || "desc";
+            sortDirEl.textContent = (dir === "asc") ? "▲" : "▼";
+          }
+
+          function applyAll() {
+            applyStarFilter();
+            sortItems();
+            updateDiaryBadges();
+          }
+
+          // 初期：復元
+          try {
+            if (sortKeyEl) sortKeyEl.value = localStorage.getItem(LS_SORT_KEY) || "none";
+            if (sortDirEl) sortDirEl.dataset.dir = localStorage.getItem(LS_SORT_DIR) || "desc";
+            if (starOnlyEl) starOnlyEl.checked = (localStorage.getItem(LS_STAR_ONLY) === "1");
+            if (diaryCheckEl) diaryCheckEl.checked = (localStorage.getItem(LS_DIARY_CHECK) === "1");
+          } catch (e) {}
+
+          markDuplicates();
+          syncSortDirButton();
+          applyAll();
+
+          sortKeyEl?.addEventListener("change", () => {
+            try { localStorage.setItem(LS_SORT_KEY, sortKeyEl.value); } catch (e) {}
+            applyAll();
+          });
+
+          sortDirEl?.addEventListener("click", () => {
+            if (!sortDirEl) return;
+            const cur = sortDirEl.dataset.dir || "desc";
+            sortDirEl.dataset.dir = (cur === "asc") ? "desc" : "asc";
+            try { localStorage.setItem(LS_SORT_DIR, sortDirEl.dataset.dir); } catch (e) {}
+            syncSortDirButton();
+            applyAll();
+          });
+
+          starOnlyEl?.addEventListener("change", () => {
+            try { localStorage.setItem(LS_STAR_ONLY, starOnlyEl.checked ? "1" : "0"); } catch (e) {}
+            applyAll();
+          });
+
+          diaryCheckEl?.addEventListener("change", () => {
+            try { localStorage.setItem(LS_DIARY_CHECK, diaryCheckEl.checked ? "1" : "0"); } catch (e) {}
+            updateDiaryBadges();
+          });
+        })();
+      </script>
     {% endif %}
   </section>
 
