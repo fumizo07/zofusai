@@ -32,6 +32,26 @@
     return hh * 60 + mm;
   }
 
+    // 金額：入力は「1,234円」「¥1,234」「１２３４」などを許容 → 0以上の整数にする
+  function parseYen(v) {
+    const s = String(v ?? "").trim();
+    if (!s) return 0;
+    // 数字とマイナス以外を捨てる（カンマ、円、空白など）
+    const cleaned = s.replace(/[^\d-]/g, "");
+    if (!cleaned) return 0;
+    const n = parseInt(cleaned, 10);
+    if (!Number.isFinite(n) || n < 0) return 0;
+    return n;
+  }
+
+  // 金額：表示用（カンマ付け）
+  function formatYen(n) {
+    const x = Number(n || 0);
+    if (!Number.isFinite(x)) return "0";
+    return Math.trunc(x).toLocaleString("ja-JP");
+  }
+
+
   // 店舗名末尾の「数字」「丸数字①②③…」「絵文字」などを落とす
   function normalizeStoreTitle(raw) {
     let s = (raw || "").trim();
