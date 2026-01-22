@@ -1,13 +1,18 @@
-# 019
+# 020
 # routers/kb.py
 import json
 import re
 import unicodedata
+import time
+import gzip
+from io import BytesIO
 from collections import defaultdict
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from difflib import SequenceMatcher
 from typing import Dict, List, Optional, Tuple
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlparse
+import urllib.request
+import urllib.error
 
 from fastapi import APIRouter, Depends, Form, Query, Request, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
@@ -19,6 +24,391 @@ from db import get_db
 from models import KBPerson, KBRegion, KBStore, KBVisit
 
 router = APIRouter()
+
+# =========================
+# 写メ日記 NEWチェック（本物）
+# - サーバ: 「最新日記の日時(epoch ms)」を返す
+# - フロント: localStorageで seen_ts を持ち、latest_ts > seen_ts なら NEW
+#   （DB改造なし / クリックで消える / インターバルOK）
+# =========================
+JST = timezone(timedelta(hours=9))
+
+_DIARY_HTTP_TIMEOUT_SEC = 8
+_DIARY_CACHE_TTL_SEC = 10 * 60  # 10分
+_DIARY_MAX_BYTES = 1024 * 1024  # 1MB
+_DIARY_UA = "Mozilla/5.0 (compatible; PersonalSearchKB/1.0; +https://example.invalid)"
+
+# ざっくり安全策（オープンプロキシ化を避ける）
+_DIARY_ALLOWED_HOST_SUFFIXES = (
+    "cityheaven.net",
+    "dto.jp",
+)
+
+# url -> (saved_monotonic, latest_ts_ms_or_None, err_str)
+_DIARY_CACHE: Dict[str, Tuple[float, Optional[int], str]] = {}
+
+
+def _parse_ids_csv(raw: str, limit: int = 30) -> List[int]:
+    out: List[int] = []
+    if not raw:
+        return out
+    for part in str(raw).split(","):
+        s = (part or "").strip()
+        if not s:
+            continue
+        if not re.fullmatch(r"\d+", s):
+            continue
+        try:
+            v = int(s)
+        except Exception:
+            continue
+        if v <= 0:
+            continue
+        out.append(v)
+        if len(out) >= int(limit):
+            break
+    return out
+
+
+def _is_allowed_diary_url(url: str) -> bool:
+    try:
+        u = urlparse(url)
+    except Exception:
+        return False
+    if u.scheme not in ("http", "https"):
+        return False
+    host = (u.hostname or "").lower().strip()
+    if not host:
+        return False
+    for suf in _DIARY_ALLOWED_HOST_SUFFIXES:
+        if host == suf or host.endswith("." + suf):
+            return True
+    return False
+
+
+def _http_get_text(url: str, timeout_sec: int = _DIARY_HTTP_TIMEOUT_SEC) -> str:
+    req = urllib.request.Request(
+        url,
+        headers={
+            "User-Agent": _DIARY_UA,
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept-Encoding": "gzip",
+        },
+        method="GET",
+    )
+    with urllib.request.urlopen(req, timeout=timeout_sec) as res:
+        raw = res.read(_DIARY_MAX_BYTES + 1)
+        if len(raw) > _DIARY_MAX_BYTES:
+            raw = raw[:_DIARY_MAX_BYTES]
+
+        enc = ""
+        try:
+            enc = (res.headers.get("Content-Encoding") or "").lower()
+        except Exception:
+            enc = ""
+
+        if "gzip" in enc:
+            try:
+                raw = gzip.decompress(raw)
+            except Exception:
+                # 壊れてても無理しない
+                pass
+
+        charset = "utf-8"
+        try:
+            ct = res.headers.get("Content-Type") or ""
+            m = re.search(r"charset=([a-zA-Z0-9_\-]+)", ct)
+            if m:
+                charset = m.group(1)
+        except Exception:
+            charset = "utf-8"
+
+        try:
+            return raw.decode(charset, errors="replace")
+        except Exception:
+            return raw.decode("utf-8", errors="replace")
+
+
+def _infer_year_for_md(month: int, day: int, now_jst: datetime) -> int:
+    """
+    年が無い "M/D" を現在年で補完しつつ、未来になりすぎる場合は前年扱いに寄せる。
+    """
+    y = now_jst.year
+    try:
+        dt = datetime(y, month, day, 0, 0, tzinfo=JST)
+    except Exception:
+        return y
+    # 未来に30日以上飛ぶのは前年の可能性が高い
+    if dt > now_jst + timedelta(days=30):
+        return y - 1
+    return y
+
+
+def _extract_latest_diary_dt(html: str) -> Optional[datetime]:
+    if not html:
+        return None
+
+    # 「写メ日記」周辺を優先して誤爆を減らす（無ければ先頭から）
+    scope = html
+    idx = scope.find("写メ日記")
+    if idx < 0:
+        idx = scope.find("日記")
+    if idx >= 0:
+        scope = scope[idx: idx + 200000]
+    else:
+        scope = scope[:200000]
+
+    now_jst = datetime.now(JST)
+    best: Optional[datetime] = None
+
+    # 1) YYYY/MM/DD HH:MM or YYYY-MM-DD HH:MM
+    re_ymd_hm = re.compile(r"(\d{4})[/-](\d{1,2})[/-](\d{1,2})(?:\s+|T)?(\d{1,2}):(\d{2})")
+    # 2) YYYY/MM/DD
+    re_ymd = re.compile(r"(\d{4})[/-](\d{1,2})[/-](\d{1,2})")
+    # 3) YYYY年M月D日 HH:MM
+    re_jp_hm = re.compile(r"(\d{4})年\s*(\d{1,2})月\s*(\d{1,2})日(?:\s*|　)*(\d{1,2}):(\d{2})")
+    # 4) M/D HH:MM
+    re_md_hm = re.compile(r"(\d{1,2})[/-](\d{1,2})(?:\s*|　)*(\d{1,2}):(\d{2})")
+    # 5) M/D
+    re_md = re.compile(r"(\d{1,2})[/-](\d{1,2})")
+
+    def upd(dt: Optional[datetime]):
+      nonlocal best
+      if dt is None:
+        return
+      if best is None or dt > best:
+        best = dt
+
+    # 1)
+    for m in re_ymd_hm.finditer(scope):
+        try:
+            y = int(m.group(1)); mo = int(m.group(2)); d = int(m.group(3))
+            hh = int(m.group(4)); mm = int(m.group(5))
+            upd(datetime(y, mo, d, hh, mm, tzinfo=JST))
+        except Exception:
+            continue
+
+    # 3)
+    for m in re_jp_hm.finditer(scope):
+        try:
+            y = int(m.group(1)); mo = int(m.group(2)); d = int(m.group(3))
+            hh = int(m.group(4)); mm = int(m.group(5))
+            upd(datetime(y, mo, d, hh, mm, tzinfo=JST))
+        except Exception:
+            continue
+
+    # 4)
+    for m in re_md_hm.finditer(scope):
+        try:
+            mo = int(m.group(1)); d = int(m.group(2))
+            hh = int(m.group(3)); mm = int(m.group(4))
+            y = _infer_year_for_md(mo, d, now_jst)
+            upd(datetime(y, mo, d, hh, mm, tzinfo=JST))
+        except Exception:
+            continue
+
+    # 2)
+    for m in re_ymd.finditer(scope):
+        try:
+            y = int(m.group(1)); mo = int(m.group(2)); d = int(m.group(3))
+            upd(datetime(y, mo, d, 0, 0, tzinfo=JST))
+        except Exception:
+            continue
+
+    # 5)
+    # ただし誤爆しやすいので、すでにbestがあるなら追加しない
+    if best is None:
+        for m in re_md.finditer(scope):
+            try:
+                mo = int(m.group(1)); d = int(m.group(2))
+                y = _infer_year_for_md(mo, d, now_jst)
+                upd(datetime(y, mo, d, 0, 0, tzinfo=JST))
+            except Exception:
+                continue
+
+    return best
+
+
+def _dt_to_epoch_ms(dt: datetime) -> int:
+    try:
+        return int(dt.timestamp() * 1000)
+    except Exception:
+        return 0
+
+
+def _get_latest_diary_ts_ms(person_url: str) -> Tuple[Optional[int], str]:
+    """
+    戻り: (latest_ts_ms or None, err)
+    - None の場合は取得不能
+    """
+    url = (person_url or "").strip()
+    if not url:
+        return None, "url_empty"
+    if not _is_allowed_diary_url(url):
+        return None, "unsupported_host"
+
+    now_m = time.monotonic()
+    cached = _DIARY_CACHE.get(url)
+    if cached:
+        saved_m, latest_ts, err = cached
+        if now_m - saved_m <= _DIARY_CACHE_TTL_SEC:
+            return latest_ts, err
+
+    try:
+        html = _http_get_text(url, timeout_sec=_DIARY_HTTP_TIMEOUT_SEC)
+        dt = _extract_latest_diary_dt(html)
+        if not dt:
+            _DIARY_CACHE[url] = (now_m, None, "no_datetime_found")
+            return None, "no_datetime_found"
+        ts = _dt_to_epoch_ms(dt)
+        if ts <= 0:
+            _DIARY_CACHE[url] = (now_m, None, "bad_datetime")
+            return None, "bad_datetime"
+        _DIARY_CACHE[url] = (now_m, ts, "")
+        return ts, ""
+    except urllib.error.HTTPError as e:
+        msg = f"http_error_{getattr(e, 'code', '')}"
+        _DIARY_CACHE[url] = (now_m, None, msg)
+        return None, msg
+    except Exception:
+        _DIARY_CACHE[url] = (now_m, None, "fetch_error")
+        return None, "fetch_error"
+
+
+def _build_google_search_url(query: str) -> str:
+    q = (query or "").strip()
+    if not q:
+        return ""
+    return "https://www.google.com/search?" + urlencode({"q": q})
+
+
+def _build_google_site_search_url(domain: str, query: str) -> str:
+    d = (domain or "").strip()
+    q = (query or "").strip()
+    if not d or not q:
+        return ""
+    return _build_google_search_url(f"site:{d} {q}")
+
+
+def _build_diary_open_url(db: Session, person: KBPerson) -> str:
+    """
+    NEWクリック時に飛ばす先。
+    - person.url があればそれを優先（“日記一覧”に行ける可能性が一番高い）
+    - 無ければ Google 検索（地域/店/名前 + 写メ日記）で代替
+    """
+    # person.url があるならそれを最優先
+    pu = ""
+    if hasattr(person, "url"):
+        pu = (getattr(person, "url", "") or "").strip()
+    if pu:
+        return pu
+
+    # 無い場合はGoogle
+    store = db.query(KBStore).filter(KBStore.id == person.store_id).first()
+    region = db.query(KBRegion).filter(KBRegion.id == store.region_id).first() if store else None
+
+    parts = []
+    if region and region.name:
+        parts.append(region.name)
+    if store and store.name:
+        parts.append(store.name)
+    if person and person.name:
+        parts.append(person.name)
+    parts.append("写メ日記")
+    q = " ".join([x for x in parts if x]).strip()
+
+    return _build_google_search_url(q)
+
+
+@router.get("/kb/api/diary_latest")
+def kb_api_diary_latest(
+    ids: str = Query(""),
+    db: Session = Depends(get_db),
+):
+    """
+    フロントが「最新日記の日時」を取得するAPI。
+    - NEW判定自体はフロント（localStorage）でやる
+    """
+    person_ids = _parse_ids_csv(ids, limit=30)
+    if not person_ids:
+        return JSONResponse({"ok": True, "items": []})
+
+    persons = (
+        db.query(KBPerson)
+        .filter(KBPerson.id.in_(person_ids))
+        .all()
+    )
+    pmap = {int(getattr(p, "id", 0)): p for p in persons if p and getattr(p, "id", None)}
+
+    items = []
+    for pid in person_ids:
+        p = pmap.get(int(pid))
+        if not p:
+            items.append({"id": int(pid), "latest_ts": None, "open_url": "", "error": "not_found"})
+            continue
+
+        open_url = _build_diary_open_url(db, p)
+
+        latest_ts = None
+        err = ""
+        pu = ""
+        if hasattr(p, "url"):
+            pu = (getattr(p, "url", "") or "").strip()
+        if pu:
+            latest_ts, err = _get_latest_diary_ts_ms(pu)
+        else:
+            latest_ts, err = None, "url_empty"
+
+        items.append(
+            {
+                "id": int(pid),
+                "latest_ts": latest_ts,
+                "open_url": open_url,
+                "error": err,
+            }
+        )
+
+    return JSONResponse({"ok": True, "items": items})
+
+
+@router.get("/kb/api/diary_status")
+def kb_api_diary_status(
+    ids: str = Query(""),
+    db: Session = Depends(get_db),
+):
+    """
+    旧フロント互換用（※今のfunction.jsは diary_latest を使う）
+    - is_new はサーバ側では厳密に出せないので「latest_tsが取れたらTrue」扱い
+    """
+    person_ids = _parse_ids_csv(ids, limit=30)
+    if not person_ids:
+        return JSONResponse({"ok": True, "items": []})
+
+    persons = (
+        db.query(KBPerson)
+        .filter(KBPerson.id.in_(person_ids))
+        .all()
+    )
+    pmap = {int(getattr(p, "id", 0)): p for p in persons if p and getattr(p, "id", None)}
+
+    out = []
+    for pid in person_ids:
+        p = pmap.get(int(pid))
+        if not p:
+            out.append({"id": int(pid), "is_new": False})
+            continue
+
+        pu = ""
+        if hasattr(p, "url"):
+            pu = (getattr(p, "url", "") or "").strip()
+
+        latest_ts, _err = (None, "")
+        if pu:
+            latest_ts, _err = _get_latest_diary_ts_ms(pu)
+
+        out.append({"id": int(pid), "is_new": bool(latest_ts)})
+
+    return JSONResponse({"ok": True, "items": out})
 
 
 # =========================
@@ -179,21 +569,6 @@ def _sort_persons(
         return (missing, vv, nm)
 
     return sorted(persons, key=key_fn)
-
-
-def _build_google_search_url(query: str) -> str:
-    q = (query or "").strip()
-    if not q:
-        return ""
-    return "https://www.google.com/search?" + urlencode({"q": q})
-
-
-def _build_google_site_search_url(domain: str, query: str) -> str:
-    d = (domain or "").strip()
-    q = (query or "").strip()
-    if not d or not q:
-        return ""
-    return _build_google_search_url(f"site:{d} {q}")
 
 
 def _find_similar_persons_in_store(
