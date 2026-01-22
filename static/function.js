@@ -1,4 +1,4 @@
-// 003
+// 004
 // static/function.js
 (() => {
   "use strict";
@@ -32,45 +32,11 @@
     return hh * 60 + mm;
   }
 
-  function parseFloatOrNull(v) {
-    const s = String(v ?? "").trim();
-    if (!s) return null;
-    const n = parseFloat(s);
-    return Number.isFinite(n) ? n : null;
-  }
-
-  function parseIntOrNull(v) {
-    const s = String(v ?? "").trim();
-    if (!s) return null;
-    const n = parseInt(s, 10);
-    return Number.isFinite(n) ? n : null;
-  }
-
-  function parseDateToTs(v) {
-    const s = String(v ?? "").trim();
-    if (!s) return null;
-    // 期待は YYYY-MM-DD。ズレても Date.parse に投げる。
-    const t = Date.parse(s);
-    return Number.isFinite(t) ? t : null;
-  }
-
-  function cupToRank(v) {
-    const s = String(v ?? "").trim().toUpperCase();
-    if (!s) return null;
-    // "E", "F", "G" のような単文字前提。変な文字が混じっても先頭英字だけ拾う。
-    const m = s.match(/[A-Z]/);
-    if (!m) return null;
-    const c = m[0];
-    const table = {
-      A: 1, B: 2, C: 3, D: 4, E: 5, F: 6, G: 7, H: 8, I: 9, J: 10,
-    };
-    return table[c] ?? null;
-  }
-
   // 金額：入力は「1,234円」「¥1,234」「１２３４」などを許容 → 0以上の整数にする
   function parseYen(v) {
     const s = String(v ?? "").trim();
     if (!s) return 0;
+    // 数字とマイナス以外を捨てる（カンマ、円、空白など）
     const cleaned = s.replace(/[^\d-]/g, "");
     if (!cleaned) return 0;
     const n = parseInt(cleaned, 10);
@@ -90,13 +56,18 @@
     let s = (raw || "").trim();
     if (!s) return s;
 
+    // 通常の数字末尾
     s = s.replace(/\s*\d+\s*$/g, "");
 
+    // 丸数字などの数字記号末尾（①〜⑳、⓪、㉑〜㉟、㊱〜㊿ なども含めて広めに）
     s = s.replace(/[\s\u2460-\u2473\u24EA\u3251-\u325F\u32B1-\u32BF]+$/gu, "");
 
+    // 絵文字末尾（対応ブラウザのみ）
     try {
       s = s.replace(/[\s\p{Extended_Pictographic}\uFE0F\u200D]+$/gu, "");
-    } catch (e) {}
+    } catch (e) {
+      // 古い環境では無視
+    }
 
     return s.trim();
   }
@@ -110,9 +81,13 @@
   // 店舗ページ検索 / 名前で店舗ページ検索
   // ============================================================
   function initStoreSearchHandlers() {
+    // クリック委譲で十分（各ページで要素があれば動く）
     document.addEventListener("click", (e) => {
       const target = e.target;
 
+      // ----------------------------
+      // 1) スレタイ近くの「店舗ページ検索」
+      // ----------------------------
       const storeBox = target.closest ? target.closest(".store-search") : null;
       if (storeBox) {
         const clickable =
@@ -150,6 +125,9 @@
         return;
       }
 
+      // ----------------------------
+      // 2) 各レスの「名前で店舗ページ検索」
+      // ----------------------------
       const nameBox = target.closest ? target.closest(".name-store-search") : null;
       if (nameBox) {
         const btn = target.closest
@@ -303,6 +281,7 @@
         });
       });
 
+      // 初期値があれば反映
       const initVal = input ? parseInt(input.value || "0", 10) : 0;
       render((1 <= initVal && initVal <= 5) ? initVal : 0);
     });
@@ -335,11 +314,11 @@
 
           if (!label && amt === 0) return;
 
-          items.push({ label, amount: amt });
+          items.push({ label, amount: amt }); // 数値だけ保存（カンマなし）
           total += amt;
         });
 
-        if (elTotal) elTotal.textContent = formatYen(total);
+        if (elTotal) elTotal.textContent = formatYen(total); // 表示だけカンマ
         if (hidden) hidden.value = JSON.stringify(items);
       }
 
@@ -355,6 +334,7 @@
         collect();
       }
 
+      // 入力変化で再計算（合計の表示更新）
       root.addEventListener("input", (e) => {
         const t = e.target;
         if (!t) return;
@@ -363,6 +343,7 @@
         }
       });
 
+      // 金額欄は「フォーカス外れたら」見た目だけカンマ整形（内部は常に数値でJSON化）
       root.addEventListener("blur", (e) => {
         const t = e.target;
         if (!t || !t.matches || !t.matches("[data-price-amount]")) return;
@@ -371,6 +352,7 @@
         if (!raw) return;
 
         const n = parseYen(raw);
+        // 0 でも表示を 0 に寄せる（空欄を保ちたいならここは return でもOK）
         t.value = formatYen(n);
         collect();
       }, true);
@@ -394,6 +376,7 @@
         }
       });
 
+      // 送信直前に確実にJSON化
       const form = root.closest("form");
       if (form) {
         form.addEventListener("submit", () => {
@@ -401,6 +384,7 @@
         });
       }
 
+      // 初回
       collect();
     });
   }
@@ -409,10 +393,12 @@
   // KB：利用時間（開始/終了 → ○○分）
   // ============================================================
   function initKbDuration() {
+    // KBページ以外でも安全に動くように「要素があれば」方式
     const forms = document.querySelectorAll("form");
     if (!forms || !forms.length) return;
 
     forms.forEach((form) => {
+      // 同一フォームに start/end が無ければ無視
       const start = form.querySelector('input[name="start_time"]');
       const end = form.querySelector('input[name="end_time"]');
       if (!start || !end) return;
@@ -430,6 +416,7 @@
         let dur = null;
         if (sMin != null && eMin != null) {
           dur = eMin - sMin;
+          // 日跨ぎは今は未対応（必要ならここで +24h などにできます）
           if (dur < 0) dur = null;
           if (dur != null) dur = clamp(dur, 0, 24 * 60);
         }
@@ -444,151 +431,13 @@
 
       start.addEventListener("input", render);
       end.addEventListener("input", render);
+
+      // submit前にも確実に反映
       form.addEventListener("submit", render);
+
+      // 初期表示
       render();
     });
-  }
-
-  // ============================================================
-  // KBトップ：並び替え／絞り込み（クライアント側）
-  // ============================================================
-  function initKbIndexControls() {
-    const container = document.getElementById("kb_person_results");
-    if (!container) return;
-
-    const selKey = document.getElementById("kb_sort_key");
-    const btnDir = document.getElementById("kb_sort_dir");
-    const chkStar = document.getElementById("kb_star_only");
-    const chkDiary = document.getElementById("kb_diary_check");
-    const diaryNote = document.getElementById("kb_diary_note");
-
-    const items = Array.from(container.querySelectorAll(".kb-person-result"));
-    if (!items.length) return;
-
-    items.forEach((el, idx) => {
-      if (!el.dataset.origIndex) el.dataset.origIndex = String(idx);
-    });
-
-    function getCmpValue(el, key) {
-      const d = el.dataset || {};
-      if (key === "avg_rating") return parseFloatOrNull(d.avgRating);
-      if (key === "avg_amount") return parseIntOrNull(d.avgAmount);
-      if (key === "height") return parseIntOrNull(d.height);
-      if (key === "cup") return cupToRank(d.cup);
-      if (key === "name") return String(d.name ?? "");
-      if (key === "last_visit") return parseDateToTs(d.lastVisit);
-      return parseIntOrNull(d.origIndex);
-    }
-
-    function compareNullableNumber(a, b) {
-      // null は常に最後
-      const an = (a == null) ? null : Number(a);
-      const bn = (b == null) ? null : Number(b);
-      if (an == null && bn == null) return 0;
-      if (an == null) return 1;
-      if (bn == null) return -1;
-      if (an < bn) return -1;
-      if (an > bn) return 1;
-      return 0;
-    }
-
-    function applySort() {
-      if (!selKey || !btnDir) return;
-
-      const key = selKey.value || "none";
-      const dir = (btnDir.dataset.dir === "asc") ? "asc" : "desc";
-      const mul = (dir === "asc") ? 1 : -1;
-
-      const sorted = items.slice();
-
-      sorted.sort((ea, eb) => {
-        if (key === "none") {
-          const ia = parseIntOrNull(ea.dataset.origIndex) ?? 0;
-          const ib = parseIntOrNull(eb.dataset.origIndex) ?? 0;
-          return (ia - ib);
-        }
-
-        const va = getCmpValue(ea, key);
-        const vb = getCmpValue(eb, key);
-
-        if (key === "name") {
-          const sa = String(va ?? "");
-          const sb = String(vb ?? "");
-          return mul * sa.localeCompare(sb, "ja");
-        }
-
-        return mul * compareNullableNumber(va, vb);
-      });
-
-      // DOMに並べ替え反映
-      sorted.forEach((el) => container.appendChild(el));
-    }
-
-    function applyFilter() {
-      const starOnly = !!(chkStar && chkStar.checked);
-      const diaryOnly = !!(chkDiary && chkDiary.checked);
-
-      // 現状テンプレに判定データが無いので、将来 data-diary-new="1" を付けたら効く設計にしておく
-      const hasDiaryData = items.some((el) => String(el.dataset.diaryNew || "") === "1");
-
-      if (diaryNote) {
-        if (diaryOnly && !hasDiaryData) {
-          diaryNote.hidden = false;
-          diaryNote.textContent = "※写メ日記NEWの判定データがありません（現在は未対応）";
-        } else {
-          diaryNote.hidden = true;
-          diaryNote.textContent = "";
-        }
-      }
-
-      items.forEach((el) => {
-        let ok = true;
-
-        if (starOnly) {
-          const r = String(el.dataset.avgRating || "").trim();
-          if (!r) ok = false;
-        }
-
-        if (diaryOnly && hasDiaryData) {
-          const dn = String(el.dataset.diaryNew || "") === "1";
-          if (!dn) ok = false;
-
-          // 表示用バッジを出す（テンプレ側の span[data-role="diary-new"] を想定）
-          const badge = el.querySelector('[data-role="diary-new"]');
-          if (badge) badge.hidden = !dn;
-        }
-
-        el.style.display = ok ? "" : "none";
-      });
-    }
-
-    function syncDirButton() {
-      if (!btnDir) return;
-      const dir = (btnDir.dataset.dir === "asc") ? "asc" : "desc";
-      btnDir.textContent = (dir === "asc") ? "▲" : "▼";
-    }
-
-    function onChangeAny() {
-      applySort();
-      applyFilter();
-    }
-
-    if (selKey) selKey.addEventListener("change", onChangeAny);
-
-    if (btnDir) {
-      btnDir.addEventListener("click", () => {
-        const cur = (btnDir.dataset.dir === "asc") ? "asc" : "desc";
-        btnDir.dataset.dir = (cur === "asc") ? "desc" : "asc";
-        syncDirButton();
-        onChangeAny();
-      });
-    }
-
-    if (chkStar) chkStar.addEventListener("change", onChangeAny);
-    if (chkDiary) chkDiary.addEventListener("change", onChangeAny);
-
-    syncDirButton();
-    onChangeAny();
   }
 
   // ============================================================
@@ -599,12 +448,264 @@
     const btn = document.getElementById("kb_panic_btn");
     if (!chk || !btn) return;
 
-    function sync() {
-      btn.disabled = !chk.checked;
-    }
-
+    const sync = () => { btn.disabled = !chk.checked; };
     chk.addEventListener("change", sync);
     sync();
+  }
+
+  // ============================================================
+  // KB：重複検知 / 並び替え / 星フィルタ / 写メ日記NEWチェック
+  // ============================================================
+  function initKbIndexEnhancements() {
+    const container = document.getElementById("kb_person_results");
+    if (!container) return;
+
+    const sortKeyEl = document.getElementById("kb_sort_key");
+    const sortDirEl = document.getElementById("kb_sort_dir");
+    const starOnlyEl = document.getElementById("kb_star_only");
+    const diaryCheckEl = document.getElementById("kb_diary_check");
+    const diaryNoteEl = document.getElementById("kb_diary_note");
+
+    const LS_SORT_KEY = "kb_sort_key";
+    const LS_SORT_DIR = "kb_sort_dir";
+    const LS_STAR_ONLY = "kb_star_only";
+    const LS_DIARY_CHECK = "kb_diary_check";
+
+    const items = Array.from(container.querySelectorAll(".kb-person-result"));
+    if (!items.length) return;
+
+    items.forEach((el, idx) => { el.dataset.origIndex = String(idx); });
+
+    function normalizeName(s) {
+      return (s || "").replace(/\s+/g, "").toLowerCase();
+    }
+
+    function cupRank(cup) {
+      const c = (cup || "").toUpperCase().trim();
+      if (!c) return null;
+      const m = c.match(/[A-Z]/);
+      if (!m) return null;
+      const code = m[0].charCodeAt(0);
+      if (code < 65 || code > 90) return null;
+      return (code - 64); // A=1
+    }
+
+    function parseNumOrNull(v) {
+      if (v === null || v === undefined) return null;
+      const s = String(v).trim();
+      if (!s) return null;
+      const n = Number(s.replace(/,/g, ""));
+      return Number.isFinite(n) ? n : null;
+    }
+
+    function parseTimeOrNull(v) {
+      const s = String(v || "").trim();
+      if (!s) return null;
+      const t = Date.parse(s);
+      return Number.isFinite(t) ? t : null;
+    }
+
+    function compareNullLast(va, vb, dir) {
+      const aNull = (va === null || va === undefined);
+      const bNull = (vb === null || vb === undefined);
+      if (aNull && bNull) return 0;
+      if (aNull) return 1;   // 常に最後
+      if (bNull) return -1;  // 常に最後
+      if (va < vb) return -1 * dir;
+      if (va > vb) return 1 * dir;
+      return 0;
+    }
+
+    // ② 重複検知（表示中の一覧だけ）
+    function markDuplicates() {
+      const map = new Map(); // key -> [elements]
+      items.forEach((el) => {
+        const name = normalizeName(el.dataset.name);
+        const storeId = String(el.dataset.storeId || "");
+        if (!name) return;
+        // 「同一店舗×同名」を優先で重複扱い（ゆるい警告）
+        const key = storeId + "|" + name;
+        const arr = map.get(key) || [];
+        arr.push(el);
+        map.set(key, arr);
+      });
+
+      map.forEach((arr) => {
+        if (arr.length <= 1) return;
+        const ids = arr.map(e => e.dataset.personId).join(", ");
+        arr.forEach((el) => {
+          const badge = el.querySelector('[data-role="dup"]');
+          if (!badge) return;
+          badge.hidden = false;
+          badge.title = "同一店舗内で同名が複数: " + ids;
+        });
+      });
+    }
+
+    function applyStarFilter() {
+      const only = !!starOnlyEl?.checked;
+      items.forEach((el) => {
+        const hasRating = String(el.dataset.avgRating || "").trim() !== "";
+        el.classList.toggle("kb-hidden", only && !hasRating);
+      });
+    }
+
+    function sortItems() {
+      if (!sortKeyEl) return;
+
+      const key = sortKeyEl.value || "none";
+      const dir = (sortDirEl?.dataset?.dir || "desc") === "asc" ? 1 : -1;
+
+      const visible = items.slice().filter(el => !el.classList.contains("kb-hidden"));
+      const hidden = items.slice().filter(el => el.classList.contains("kb-hidden"));
+
+      function valueOf(el) {
+        if (key === "avg_rating") return parseNumOrNull(el.dataset.avgRating);
+        if (key === "avg_amount") return parseNumOrNull(el.dataset.avgAmount);
+        if (key === "height") return parseNumOrNull(el.dataset.height);
+        if (key === "cup") return cupRank(el.dataset.cup);
+        if (key === "name") return normalizeName(el.dataset.name);
+        if (key === "last_visit") return parseTimeOrNull(el.dataset.lastVisit);
+        return parseNumOrNull(el.dataset.origIndex) ?? 0;
+      }
+
+      visible.sort((a, b) => {
+        const va = valueOf(a);
+        const vb = valueOf(b);
+
+        // 文字列（name）の場合
+        if (typeof va === "string" || typeof vb === "string") {
+          const sa = String(va ?? "");
+          const sb = String(vb ?? "");
+          const c = sa.localeCompare(sb, "ja");
+          if (c !== 0) return c * dir;
+          const ia = parseNumOrNull(a.dataset.origIndex) ?? 0;
+          const ib = parseNumOrNull(b.dataset.origIndex) ?? 0;
+          return ia - ib;
+        }
+
+        const c = compareNullLast(va, vb, dir);
+        if (c !== 0) return c;
+
+        const ia = parseNumOrNull(a.dataset.origIndex) ?? 0;
+        const ib = parseNumOrNull(b.dataset.origIndex) ?? 0;
+        return ia - ib;
+      });
+
+      // 表示DOMを並び替え（hiddenは末尾にそのまま）
+      const frag = document.createDocumentFragment();
+      visible.forEach(el => frag.appendChild(el));
+      hidden.forEach(el => frag.appendChild(el));
+      container.appendChild(frag);
+    }
+
+    let diaryReqSeq = 0;
+
+    async function updateDiaryBadges() {
+      const seq = ++diaryReqSeq;
+
+      if (!diaryCheckEl || !diaryCheckEl.checked) {
+        // OFFなら全部隠す
+        items.forEach((el) => {
+          const b = el.querySelector('[data-role="diary-new"]');
+          if (b) b.hidden = true;
+        });
+        if (diaryNoteEl) diaryNoteEl.hidden = true;
+        return;
+      }
+
+      // 表示中のみ、最大30件だけチェック（ブロック対策）
+      const targets = items.filter(el => !el.classList.contains("kb-hidden")).slice(0, 30);
+      const ids = targets.map(el => el.dataset.personId).filter(Boolean);
+
+      if (!ids.length) return;
+
+      if (diaryNoteEl) {
+        diaryNoteEl.hidden = false;
+        diaryNoteEl.textContent = "写メ日記: 更新チェック中…（最大" + ids.length + "件）";
+      }
+
+      try {
+        const url = "/kb/api/diary_status?ids=" + encodeURIComponent(ids.join(","));
+        const res = await fetch(url, { method: "GET" });
+        if (!res.ok) throw new Error("status " + res.status);
+
+        const data = await res.json();
+        const map = new Map();
+        (data.items || []).forEach((it) => {
+          map.set(String(it.id), !!it.is_new);
+        });
+
+        // 古い応答は捨てる
+        if (seq !== diaryReqSeq) return;
+
+        targets.forEach((el) => {
+          const isNew = map.get(String(el.dataset.personId)) === true;
+          const b = el.querySelector('[data-role="diary-new"]');
+          if (b) b.hidden = !isNew;
+        });
+
+        if (diaryNoteEl) {
+          diaryNoteEl.textContent = "写メ日記: チェック完了（" + ids.length + "件）";
+          setTimeout(() => { diaryNoteEl.hidden = true; }, 2500);
+        }
+      } catch (e) {
+        // APIが未実装/停止でも静かに劣化
+        if (seq !== diaryReqSeq) return;
+        if (diaryNoteEl) {
+          diaryNoteEl.hidden = false;
+          diaryNoteEl.textContent = "写メ日記: サーバ側APIが未実装/取得失敗（必要なら実装します）";
+        }
+      }
+    }
+
+    function syncSortDirButton() {
+      if (!sortDirEl) return;
+      const dir = sortDirEl.dataset.dir || "desc";
+      sortDirEl.textContent = (dir === "asc") ? "▲" : "▼";
+    }
+
+    function applyAll() {
+      applyStarFilter();
+      sortItems();
+      updateDiaryBadges();
+    }
+
+    // 初期：復元
+    try {
+      if (sortKeyEl) sortKeyEl.value = localStorage.getItem(LS_SORT_KEY) || "none";
+      if (sortDirEl) sortDirEl.dataset.dir = localStorage.getItem(LS_SORT_DIR) || "desc";
+      if (starOnlyEl) starOnlyEl.checked = (localStorage.getItem(LS_STAR_ONLY) === "1");
+      if (diaryCheckEl) diaryCheckEl.checked = (localStorage.getItem(LS_DIARY_CHECK) === "1");
+    } catch (e) {}
+
+    markDuplicates();
+    syncSortDirButton();
+    applyAll();
+
+    sortKeyEl?.addEventListener("change", () => {
+      try { localStorage.setItem(LS_SORT_KEY, sortKeyEl.value); } catch (e) {}
+      applyAll();
+    });
+
+    sortDirEl?.addEventListener("click", () => {
+      if (!sortDirEl) return;
+      const cur = sortDirEl.dataset.dir || "desc";
+      sortDirEl.dataset.dir = (cur === "asc") ? "desc" : "asc";
+      try { localStorage.setItem(LS_SORT_DIR, sortDirEl.dataset.dir); } catch (e) {}
+      syncSortDirButton();
+      applyAll();
+    });
+
+    starOnlyEl?.addEventListener("change", () => {
+      try { localStorage.setItem(LS_STAR_ONLY, starOnlyEl.checked ? "1" : "0"); } catch (e) {}
+      applyAll();
+    });
+
+    diaryCheckEl?.addEventListener("change", () => {
+      try { localStorage.setItem(LS_DIARY_CHECK, diaryCheckEl.checked ? "1" : "0"); } catch (e) {}
+      updateDiaryBadges();
+    });
   }
 
   // ============================================================
@@ -614,7 +715,7 @@
   const API_ENDPOINT = "/api/post_preview";
   const MAX_RANGE_EXPAND = 30;
 
-  const cache = new Map();
+  const cache = new Map(); // key -> { ok, posted_at, body } or { ok:false, message }
 
   const tooltipStack = [];
   const BASE_Z_INDEX = 2000;
@@ -971,7 +1072,7 @@
     initKbStarRating();
     initKbPriceItems();
     initKbDuration();
-    initKbIndexControls();
     initKbPanicButton();
+    initKbIndexEnhancements();
   });
 })();
