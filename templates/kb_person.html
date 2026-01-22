@@ -46,20 +46,6 @@
         <div>プロフ：<a href="{{ person.url|e }}" target="_blank" rel="noopener noreferrer">{{ person.url }}</a></div>
       {% endif %}
 
-      <div class="muted">
-        外部検索（Google）：
-        {% if google_all_url %}<a href="{{ google_all_url|e }}" target="_blank" rel="noopener noreferrer">全体</a>{% endif %}
-        {% if google_cityheaven_url %} / <a href="{{ google_cityheaven_url|e }}" target="_blank" rel="noopener noreferrer">cityheaven</a>{% endif %}
-        {% if google_dto_url %} / <a href="{{ google_dto_url|e }}" target="_blank" rel="noopener noreferrer">dto</a>{% endif %}
-      </div>
-
-      <div class="muted">
-        写メ日記（検索）：
-        {% if google_all_diary_url %}<a href="{{ google_all_diary_url|e }}" target="_blank" rel="noopener noreferrer">全体</a>{% endif %}
-        {% if google_cityheaven_diary_url %} / <a href="{{ google_cityheaven_diary_url|e }}" target="_blank" rel="noopener noreferrer">cityheaven</a>{% endif %}
-        {% if google_dto_diary_url %} / <a href="{{ google_dto_diary_url|e }}" target="_blank" rel="noopener noreferrer">dto</a>{% endif %}
-      </div>
-
       {% if person.image_urls %}
         <div>画像：</div>
         <div class="kb-person-images">
