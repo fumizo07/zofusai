@@ -1,4 +1,4 @@
-/* 003 */
+/* 004 */
 /* base.css */
 :root {
     --bg: #f5f5f7;
@@ -1285,6 +1285,12 @@ input[type="time"] {
     border-radius: 999px;
 }
 
+.kb-star.is-on {
+    background: #111827;
+    color: #f9fafb;
+    border-color: #111827;
+}
+
 /* 料金明細 */
 .kb-price-box {
     margin-top: 6px;
@@ -1362,9 +1368,8 @@ input[type="time"] {
 }
 
 .kb-person-thumb {
-    width: auto;
-    min-width: 46.0833px;
-    height: 61.4333px;
+    width: 46px;
+    height: 61px;
     object-fit: cover;
     border-radius: 8px;
     display: block;
@@ -1454,3 +1459,4 @@ input[type="time"] {
         max-width:100%;
     }
 }
+
