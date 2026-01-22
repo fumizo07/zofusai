@@ -1,4 +1,4 @@
-# 020
+# 021
 # routers/kb.py
 import json
 import re
@@ -86,6 +86,24 @@ def _is_allowed_diary_url(url: str) -> bool:
     return False
 
 
+def _gzip_decompress_limited(raw: bytes, limit: int) -> bytes:
+    """
+    gzip 展開時の“膨張”に上限をかける（zip爆弾対策）。
+    - 展開後 limit bytes までしか読まない
+    """
+    if not raw:
+        return b""
+    try:
+        with gzip.GzipFile(fileobj=BytesIO(raw), mode="rb") as gf:
+            out = gf.read(int(limit) + 1)
+            if len(out) > int(limit):
+                return out[: int(limit)]
+            return out
+    except Exception:
+        # 壊れてても無理しない
+        return raw
+
+
 def _http_get_text(url: str, timeout_sec: int = _DIARY_HTTP_TIMEOUT_SEC) -> str:
     req = urllib.request.Request(
         url,
@@ -108,11 +126,7 @@ def _http_get_text(url: str, timeout_sec: int = _DIARY_HTTP_TIMEOUT_SEC) -> str:
             enc = ""
 
         if "gzip" in enc:
-            try:
-                raw = gzip.decompress(raw)
-            except Exception:
-                # 壊れてても無理しない
-                pass
+            raw = _gzip_decompress_limited(raw, _DIARY_MAX_BYTES)
 
         charset = "utf-8"
         try:
@@ -131,7 +145,8 @@ def _http_get_text(url: str, timeout_sec: int = _DIARY_HTTP_TIMEOUT_SEC) -> str:
 
 def _infer_year_for_md(month: int, day: int, now_jst: datetime) -> int:
     """
-    年が無い "M/D" を現在年で補完しつつ、未来になりすぎる場合は前年扱いに寄せる。
+    年が無い "M/D" や "M月D日" を現在年で補完しつつ、
+    未来になりすぎる場合は前年扱いに寄せる。
     """
     y = now_jst.year
     try:
@@ -161,29 +176,42 @@ def _extract_latest_diary_dt(html: str) -> Optional[datetime]:
     now_jst = datetime.now(JST)
     best: Optional[datetime] = None
 
-    # 1) YYYY/MM/DD HH:MM or YYYY-MM-DD HH:MM
-    re_ymd_hm = re.compile(r"(\d{4})[/-](\d{1,2})[/-](\d{1,2})(?:\s+|T)?(\d{1,2}):(\d{2})")
-    # 2) YYYY/MM/DD
-    re_ymd = re.compile(r"(\d{4})[/-](\d{1,2})[/-](\d{1,2})")
+    # 1) YYYY/MM/DD HH:MM or YYYY-MM-DD HH:MM or YYYY.MM.DD HH:MM
+    re_ymd_hm = re.compile(
+        r"(\d{4})[/\-\.](\d{1,2})[/\-\.](\d{1,2})(?:\s+|T)?(\d{1,2}):(\d{2})"
+    )
+    # 2) YYYY/MM/DD (or - or .)
+    re_ymd = re.compile(r"(\d{4})[/\-\.](\d{1,2})[/\-\.](\d{1,2})")
     # 3) YYYY年M月D日 HH:MM
-    re_jp_hm = re.compile(r"(\d{4})年\s*(\d{1,2})月\s*(\d{1,2})日(?:\s*|　)*(\d{1,2}):(\d{2})")
+    re_jp_hm = re.compile(
+        r"(\d{4})年\s*(\d{1,2})月\s*(\d{1,2})日(?:\s*|　)*(\d{1,2}):(\d{2})"
+    )
+    # 3b) YYYY年M月D日（時刻なし）
+    re_jp = re.compile(r"(\d{4})年\s*(\d{1,2})月\s*(\d{1,2})日")
     # 4) M/D HH:MM
-    re_md_hm = re.compile(r"(\d{1,2})[/-](\d{1,2})(?:\s*|　)*(\d{1,2}):(\d{2})")
+    re_md_hm = re.compile(r"(\d{1,2})[/\-](\d{1,2})(?:\s*|　)*(\d{1,2}):(\d{2})")
+    # 4b) M月D日 HH:MM（年なし）
+    re_md_jp_hm = re.compile(r"(\d{1,2})月\s*(\d{1,2})日(?:\s*|　)*(\d{1,2}):(\d{2})")
     # 5) M/D
-    re_md = re.compile(r"(\d{1,2})[/-](\d{1,2})")
+    re_md = re.compile(r"(\d{1,2})[/\-](\d{1,2})")
+    # 5b) M月D日（年なし）
+    re_md_jp = re.compile(r"(\d{1,2})月\s*(\d{1,2})日")
 
     def upd(dt: Optional[datetime]):
-      nonlocal best
-      if dt is None:
-        return
-      if best is None or dt > best:
-        best = dt
+        nonlocal best
+        if dt is None:
+            return
+        if best is None or dt > best:
+            best = dt
 
     # 1)
     for m in re_ymd_hm.finditer(scope):
         try:
-            y = int(m.group(1)); mo = int(m.group(2)); d = int(m.group(3))
-            hh = int(m.group(4)); mm = int(m.group(5))
+            y = int(m.group(1))
+            mo = int(m.group(2))
+            d = int(m.group(3))
+            hh = int(m.group(4))
+            mm = int(m.group(5))
             upd(datetime(y, mo, d, hh, mm, tzinfo=JST))
         except Exception:
             continue
@@ -191,8 +219,11 @@ def _extract_latest_diary_dt(html: str) -> Optional[datetime]:
     # 3)
     for m in re_jp_hm.finditer(scope):
         try:
-            y = int(m.group(1)); mo = int(m.group(2)); d = int(m.group(3))
-            hh = int(m.group(4)); mm = int(m.group(5))
+            y = int(m.group(1))
+            mo = int(m.group(2))
+            d = int(m.group(3))
+            hh = int(m.group(4))
+            mm = int(m.group(5))
             upd(datetime(y, mo, d, hh, mm, tzinfo=JST))
         except Exception:
             continue
@@ -200,8 +231,22 @@ def _extract_latest_diary_dt(html: str) -> Optional[datetime]:
     # 4)
     for m in re_md_hm.finditer(scope):
         try:
-            mo = int(m.group(1)); d = int(m.group(2))
-            hh = int(m.group(3)); mm = int(m.group(4))
+            mo = int(m.group(1))
+            d = int(m.group(2))
+            hh = int(m.group(3))
+            mm = int(m.group(4))
+            y = _infer_year_for_md(mo, d, now_jst)
+            upd(datetime(y, mo, d, hh, mm, tzinfo=JST))
+        except Exception:
+            continue
+
+    # 4b)
+    for m in re_md_jp_hm.finditer(scope):
+        try:
+            mo = int(m.group(1))
+            d = int(m.group(2))
+            hh = int(m.group(3))
+            mm = int(m.group(4))
             y = _infer_year_for_md(mo, d, now_jst)
             upd(datetime(y, mo, d, hh, mm, tzinfo=JST))
         except Exception:
@@ -210,17 +255,38 @@ def _extract_latest_diary_dt(html: str) -> Optional[datetime]:
     # 2)
     for m in re_ymd.finditer(scope):
         try:
-            y = int(m.group(1)); mo = int(m.group(2)); d = int(m.group(3))
+            y = int(m.group(1))
+            mo = int(m.group(2))
+            d = int(m.group(3))
             upd(datetime(y, mo, d, 0, 0, tzinfo=JST))
         except Exception:
             continue
 
-    # 5)
-    # ただし誤爆しやすいので、すでにbestがあるなら追加しない
+    # 3b)（時刻なし）
+    for m in re_jp.finditer(scope):
+        try:
+            y = int(m.group(1))
+            mo = int(m.group(2))
+            d = int(m.group(3))
+            upd(datetime(y, mo, d, 0, 0, tzinfo=JST))
+        except Exception:
+            continue
+
+    # 5/5b は誤爆しやすいので、すでにbestがあるなら追加しない
     if best is None:
         for m in re_md.finditer(scope):
             try:
-                mo = int(m.group(1)); d = int(m.group(2))
+                mo = int(m.group(1))
+                d = int(m.group(2))
+                y = _infer_year_for_md(mo, d, now_jst)
+                upd(datetime(y, mo, d, 0, 0, tzinfo=JST))
+            except Exception:
+                continue
+
+        for m in re_md_jp.finditer(scope):
+            try:
+                mo = int(m.group(1))
+                d = int(m.group(2))
                 y = _infer_year_for_md(mo, d, now_jst)
                 upd(datetime(y, mo, d, 0, 0, tzinfo=JST))
             except Exception:
@@ -290,33 +356,31 @@ def _build_google_site_search_url(domain: str, query: str) -> str:
     return _build_google_search_url(f"site:{d} {q}")
 
 
-def _build_diary_open_url(db: Session, person: KBPerson) -> str:
+def _build_diary_open_url_from_maps(
+    person: KBPerson,
+    store: Optional[KBStore],
+    region: Optional[KBRegion],
+) -> str:
     """
-    NEWクリック時に飛ばす先。
+    NEWクリック時に飛ばす先（DB問い合わせしない版）。
     - person.url があればそれを優先（“日記一覧”に行ける可能性が一番高い）
     - 無ければ Google 検索（地域/店/名前 + 写メ日記）で代替
     """
-    # person.url があるならそれを最優先
     pu = ""
     if hasattr(person, "url"):
         pu = (getattr(person, "url", "") or "").strip()
     if pu:
         return pu
 
-    # 無い場合はGoogle
-    store = db.query(KBStore).filter(KBStore.id == person.store_id).first()
-    region = db.query(KBRegion).filter(KBRegion.id == store.region_id).first() if store else None
-
     parts = []
-    if region and region.name:
+    if region and getattr(region, "name", None):
         parts.append(region.name)
-    if store and store.name:
+    if store and getattr(store, "name", None):
         parts.append(store.name)
-    if person and person.name:
+    if person and getattr(person, "name", None):
         parts.append(person.name)
     parts.append("写メ日記")
     q = " ".join([x for x in parts if x]).strip()
-
     return _build_google_search_url(q)
 
 
@@ -333,12 +397,21 @@ def kb_api_diary_latest(
     if not person_ids:
         return JSONResponse({"ok": True, "items": []})
 
-    persons = (
-        db.query(KBPerson)
-        .filter(KBPerson.id.in_(person_ids))
-        .all()
-    )
+    persons = db.query(KBPerson).filter(KBPerson.id.in_(person_ids)).all()
     pmap = {int(getattr(p, "id", 0)): p for p in persons if p and getattr(p, "id", None)}
+
+    # open_url 生成のために store/region をまとめて引く（N+1回避）
+    store_ids = list({int(getattr(p, "store_id", 0) or 0) for p in persons if p and getattr(p, "store_id", None)})
+    store_map: dict[int, KBStore] = {}
+    region_map: dict[int, KBRegion] = {}
+
+    if store_ids:
+        stores = db.query(KBStore).filter(KBStore.id.in_(store_ids)).all()
+        store_map = {int(s.id): s for s in stores if s and getattr(s, "id", None)}
+        region_ids = list({int(getattr(s, "region_id", 0) or 0) for s in stores if s and getattr(s, "region_id", None)})
+        if region_ids:
+            regions = db.query(KBRegion).filter(KBRegion.id.in_(region_ids)).all()
+            region_map = {int(r.id): r for r in regions if r and getattr(r, "id", None)}
 
     items = []
     for pid in person_ids:
@@ -347,7 +420,9 @@ def kb_api_diary_latest(
             items.append({"id": int(pid), "latest_ts": None, "open_url": "", "error": "not_found"})
             continue
 
-        open_url = _build_diary_open_url(db, p)
+        st = store_map.get(int(getattr(p, "store_id", 0) or 0))
+        rg = region_map.get(int(getattr(st, "region_id", 0) or 0)) if st else None
+        open_url = _build_diary_open_url_from_maps(p, st, rg)
 
         latest_ts = None
         err = ""
@@ -1000,6 +1075,32 @@ def _parse_time_hhmm_to_min(x: str):
         return h * 60 + m
     except Exception:
         return None
+
+
+def _parse_minutes_or_hhmm(x) -> Optional[int]:
+    """
+    インポート互換用：
+    - "540" などの分（int/str）
+    - "09:00" などの時刻（HH:MM）→ 分に変換
+    - "2:30" のような duration っぽい表現も分にする（2*60+30）
+    """
+    if x is None:
+        return None
+    s = unicodedata.normalize("NFKC", str(x)).strip()
+    if not s:
+        return None
+    if ":" in s:
+        # HH:MM（時刻/時間長）として扱う
+        v = _parse_time_hhmm_to_min(s)
+        if v is None:
+            return None
+        return int(v)
+    v = _parse_int(s)
+    if v is None:
+        return None
+    if v < 0:
+        return None
+    return int(v)
 
 
 def _calc_duration(start_min, end_min):
@@ -2160,17 +2261,53 @@ def kb_import(
                 except Exception:
                     dt = None
 
+            # 互換：start/end は「分」でも「HH:MM」でもOKにする
+            st = _parse_minutes_or_hhmm(v.get("start_time", None))
+            en = _parse_minutes_or_hhmm(v.get("end_time", None))
+            dur = _parse_minutes_or_hhmm(v.get("duration_min", None))
+            if dur is None:
+                dur = _calc_duration(st, en)
+
+            # rating は 1..5 のみ採用
+            rt = _parse_int(v.get("rating", ""))
+            if rt is not None and not (1 <= int(rt) <= 5):
+                rt = None
+
+            # price_items を軽く整形（amount を整数に寄せる）
+            price_items_raw = v.get("price_items", None)
+            price_items_norm = None
+            if isinstance(price_items_raw, list):
+                items_tmp = []
+                for it in price_items_raw:
+                    if not isinstance(it, dict):
+                        continue
+                    label = str(it.get("label", "") or "").strip()
+                    amt_i = _parse_amount_int(it.get("amount", 0))
+                    if not label and amt_i == 0:
+                        continue
+                    items_tmp.append({"label": label, "amount": amt_i})
+                price_items_norm = items_tmp or None
+
+            total_yen = _parse_int(v.get("total_yen", "")) or 0
+            if total_yen < 0:
+                total_yen = 0
+            if total_yen == 0 and isinstance(price_items_norm, list):
+                try:
+                    total_yen = int(sum([int(it.get("amount", 0) or 0) for it in price_items_norm]))
+                except Exception:
+                    total_yen = 0
+
             obj = KBVisit(
                 id=int(vid),
                 person_id=int(pid),
                 visited_at=dt,
-                start_time=_parse_int(v.get("start_time", "")),
-                end_time=_parse_int(v.get("end_time", "")),
-                duration_min=_parse_int(v.get("duration_min", "")),
-                rating=_parse_int(v.get("rating", "")),
+                start_time=st,
+                end_time=en,
+                duration_min=dur,
+                rating=rt,
                 memo=(v.get("memo", "") or "").strip() or None,
-                price_items=v.get("price_items", None),
-                total_yen=_parse_int(v.get("total_yen", "")) or 0,
+                price_items=price_items_norm if price_items_norm is not None else v.get("price_items", None),
+                total_yen=int(total_yen),
             )
             try:
                 obj.search_norm = build_visit_search_blob(obj)

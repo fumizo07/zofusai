@@ -1,4 +1,4 @@
-// 005
+// 006
 // static/function.js
 (() => {
   "use strict";
@@ -416,9 +416,11 @@
         let dur = null;
         if (sMin != null && eMin != null) {
           dur = eMin - sMin;
-          // 日跨ぎは今は未対応（必要ならここで +24h などにできます）
-          if (dur < 0) dur = null;
-          if (dur != null) dur = clamp(dur, 0, 24 * 60);
+
+          // ★日跨ぎ対応（バックエンド _calc_duration と合わせる）
+          if (dur < 0) dur += 24 * 60;
+
+          dur = clamp(dur, 0, 24 * 60);
         }
 
         if (label) {
