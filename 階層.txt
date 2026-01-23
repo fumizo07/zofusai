@@ -6,6 +6,7 @@ routers/kb.py
 routers/kb_templates.py
 routers/threads.py
 static/base.css
+static/favicon.ico
 static/function.js
 templates/_footer.html
 templates/_header.html
