@@ -1,4 +1,4 @@
-{# 009 #}
+{# 010 #}
 {% set page_title_suffix = "KB" %}
 {% set body_class = "page-kb" %}
 {% set active_page = "kb" %}
@@ -88,7 +88,7 @@
           <label><input type="checkbox" name="height" value="150_158" {% if "150_158" in search_height %}checked{% endif %}> 150～158cm</label>
           <label><input type="checkbox" name="height" value="ge159" {% if "ge159" in search_height %}checked{% endif %}> 159cm以上</label>
 
-          <div class="muted">カップ</div>
+          <div class="muted">胸</div>
           <label><input type="checkbox" name="cup" value="leD" {% if "leD" in search_cup %}checked{% endif %}> Dカップ以下</label>
           <label><input type="checkbox" name="cup" value="EF" {% if "EF" in search_cup %}checked{% endif %}> E～Fカップ</label>
           <label><input type="checkbox" name="cup" value="geG" {% if "geG" in search_cup %}checked{% endif %}> Gカップ以上</label>
@@ -166,12 +166,12 @@
       <div class="form-row kb-person-sort-row">
         <label>並び替え：</label>
         <select id="kb_person_sort">
-          <option value="name" selected>名前順(デフォルト)</option>
-          <option value="rating">評価順</option>
-          <option value="cup">バスト順</option>
-          <option value="height">身長順</option>
-          <option value="price">価格順</option>
-          <option value="age">年齢順</option>
+          <option value="name" selected>名前順</option>
+          <option value="height">身長が低い順</option>
+          <option value="cup">胸が大きい順</option>
+          <option value="age">年齢が低い順</option>
+          <option value="price">価格が安い順</option>
+          <option value="rating">評価が高い順</option>
         </select>
       </div>
 
@@ -195,7 +195,6 @@
             </a>
             {%- endif -%}
             <div class="kb-person-result-text">
-            <!-- ここに「名前／サービス／年齢／身長…」の行 -->
               <div class="result-id">
                 <a href="/kb/person/{{ p.id }}">{{ p.name }}</a>
                 {%- if p.services -%}/{{ p.services }}{%- endif -%}
