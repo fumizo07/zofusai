@@ -130,7 +130,6 @@ class KBPerson(Base):
     url = Column(Text, nullable=True)
 
     # ★追加：画像URL（複数）: ["https://...jpg", "https://...png", ...]
-    # DBにはURL文字列だけが保存され、画像本体は保存しません
     image_urls = Column(JSON, nullable=True)
 
     memo = Column(Text, nullable=True)
@@ -148,14 +147,6 @@ class KBPerson(Base):
     # フリーワード検索のためのまとめ列
     search_norm = Column(Text, nullable=True, index=True)
 
-    # ------------------------------------------------------------
-    # ★追加：写メ日記（外部日記）の更新検知用（⑦の中間版）
-    #
-    # diary_last_entry_* : 外部日記で検知できた最新エントリの情報
-    # diary_checked_at   : 外部をチェックした時刻（キャッシュ間隔制御に使う）
-    # diary_seen_*       : 「既読ベースライン」。初回チェックで自動で入れておくと、
-    #                      全員がいきなりNEWにならず、次回の差分からNEWになります。
-    # ------------------------------------------------------------
     diary_last_entry_at = Column(DateTime, nullable=True, index=True)
     diary_last_entry_key = Column(Text, nullable=True, index=True)
 
@@ -197,22 +188,18 @@ class KBVisit(Base):
 
 
 # ============================================================
-# KB：金額テンプレ（価格テンプレ）
-# - store_id が NULL の場合は「全店舗共通テンプレ」
-# - store_id がある場合は「店舗専用テンプレ」
+# KB 料金テンプレ（★追加）
+# - 店舗ごと
+# - items は [{label: str, amount: int}, ...]
 # ============================================================
 class KBPriceTemplate(Base):
     __tablename__ = "kb_price_templates"
 
     id = Column(Integer, primary_key=True, index=True)
+    store_id = Column(Integer, ForeignKey("kb_stores.id", ondelete="CASCADE"), nullable=False, index=True)
 
-    store_id = Column(Integer, ForeignKey("kb_stores.id", ondelete="CASCADE"), nullable=True, index=True)
-
-    # 例: "基本セット", "指名込み", "オプション盛り" など
     name = Column(Text, nullable=False, index=True)
-
-    # 例: [{"label":"基本", "amount":12000}, {"label":"指名", "amount":2000}]
-    items = Column(JSON, nullable=True)
+    items = Column(JSON, nullable=False)
 
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at = Column(DateTime, nullable=False, default=datetime.utcnow)
