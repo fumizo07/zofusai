@@ -1,4 +1,4 @@
-// 006
+// 007
 // static/function.js
 (() => {
   "use strict";
@@ -389,65 +389,126 @@
   }
 
   // ============================================================
-  // KB：料金項目（行追加＆合計＆hidden JSON）＋ テンプレ（localStorage）
+  // KB：料金項目（行追加＆合計＆hidden JSON）＋ テンプレ（DB保存/API同期）
   // ============================================================
+
+  // 旧localStorageテンプレ（移行元としてのみ使用）
   const KB_PRICE_TPL_LS_KEY = "kb_price_templates_v1";
 
-  function makeUuid() {
-    // 超簡易UUID（衝突確率を下げる用途、暗号用途ではない）
-    return (
-      Date.now().toString(36) +
-      Math.random().toString(36).slice(2, 10)
-    );
+  function getStoreIdFromPage() {
+    const el = document.querySelector("[data-kb-store-id]");
+    if (el && el.getAttribute("data-kb-store-id")) {
+      const v = parseInt(el.getAttribute("data-kb-store-id"), 10);
+      if (!Number.isNaN(v) && v > 0) return v;
+    }
+    try {
+      const m = location.pathname.match(/\/kb\/store\/(\d+)/);
+      if (m) {
+        const vv = parseInt(m[1], 10);
+        if (!Number.isNaN(vv) && vv > 0) return vv;
+      }
+    } catch (e) {}
+    return 0;
   }
 
-  function defaultPriceTemplates() {
-    return [
-      { id: "basic", name: "基本", items: [{ label: "基本", amount: 0 }] },
-      { id: "basic_ext", name: "基本＋延長", items: [{ label: "基本", amount: 0 }, { label: "延長", amount: 0 }] },
-      { id: "basic_nom_opt", name: "基本＋指名＋オプション", items: [{ label: "基本", amount: 0 }, { label: "指名", amount: 0 }, { label: "オプション", amount: 0 }] },
-      { id: "traffic_opt", name: "交通費＋オプション", items: [{ label: "交通費", amount: 0 }, { label: "オプション", amount: 0 }] },
-    ];
+  async function apiGetTemplates(storeId) {
+    if (!storeId) return [];
+    const url = "/kb/api/price_templates?store_id=" + encodeURIComponent(String(storeId));
+    const res = await fetch(url, { method: "GET", credentials: "same-origin" });
+    if (!res.ok) return [];
+    const data = await res.json().catch(() => null);
+    if (!data || !data.ok || !Array.isArray(data.items)) return [];
+    return data.items;
   }
 
-  function loadPriceTemplates() {
+  async function apiSaveTemplate(storeId, name, items) {
+    const payload = { store_id: storeId, name, items };
+    const res = await fetch("/kb/api/price_templates/save", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) {
+      let t = "";
+      try { t = await res.text(); } catch (_) {}
+      throw new Error("save_failed: " + String(res.status) + " " + t);
+    }
+    const data = await res.json().catch(() => null);
+    if (!data || !data.ok) throw new Error("save_failed");
+    return data;
+  }
+
+  async function apiDeleteTemplate(id) {
+    const payload = { id };
+    const res = await fetch("/kb/api/price_templates/delete", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) throw new Error("delete_failed");
+    const data = await res.json().catch(() => null);
+    if (!data || !data.ok) throw new Error("delete_failed");
+    return data;
+  }
+
+  function loadLegacyLocalTemplates() {
+    // あなたの現行仕様（localStorageに配列で入っている）に合わせて読みます
     try {
       const raw = localStorage.getItem(KB_PRICE_TPL_LS_KEY);
-      if (!raw) return defaultPriceTemplates();
+      if (!raw) return [];
       const parsed = JSON.parse(raw);
-      if (!Array.isArray(parsed)) return defaultPriceTemplates();
-
-      // ざっくりバリデーション
-      const ok = parsed
+      if (!Array.isArray(parsed)) return [];
+      return parsed
         .filter((t) => t && typeof t === "object")
         .map((t) => ({
-          id: String(t.id || makeUuid()),
-          name: String(t.name || "テンプレ").trim() || "テンプレ",
+          name: String(t.name || "").trim(),
           items: Array.isArray(t.items)
             ? t.items.map((it) => ({
                 label: String(it?.label ?? "").trim(),
                 amount: parseYen(it?.amount ?? 0),
               }))
             : [],
-        }));
-      return ok.length ? ok : defaultPriceTemplates();
+        }))
+        .filter((t) => t.name && t.items && t.items.length);
     } catch (_) {
-      return defaultPriceTemplates();
+      return [];
     }
   }
 
-  function savePriceTemplates(list) {
+  function isLegacyMigrated(storeId) {
     try {
-      localStorage.setItem(KB_PRICE_TPL_LS_KEY, JSON.stringify(list || []));
-    } catch (e) {
-      alert("テンプレ保存に失敗しました（localStorageが使えない/容量不足の可能性）。");
+      return (localStorage.getItem("kb_price_templates_migrated_db_" + String(storeId)) || "") === "1";
+    } catch (_) {
+      return false;
     }
   }
 
-  function broadcastTemplatesUpdated() {
-    // ページ内の全price boxのselectを更新
-    const evt = new CustomEvent("kb-price-templates-updated");
-    document.dispatchEvent(evt);
+  function markLegacyMigrated(storeId) {
+    try {
+      localStorage.setItem("kb_price_templates_migrated_db_" + String(storeId), "1");
+    } catch (_) {}
+  }
+
+  async function migrateLegacyOnce(storeId) {
+    if (!storeId) return;
+    if (isLegacyMigrated(storeId)) return;
+
+    const legacy = loadLegacyLocalTemplates();
+    if (!legacy.length) {
+      markLegacyMigrated(storeId);
+      return;
+    }
+
+    for (const t of legacy) {
+      try {
+        await apiSaveTemplate(storeId, t.name, t.items);
+      } catch (_) {
+        // 1個失敗しても続行
+      }
+    }
+    markLegacyMigrated(storeId);
   }
 
   function ensureOneRow(body) {
@@ -463,270 +524,119 @@
     body.appendChild(tr);
   }
 
+  function writeRows(body, items) {
+    if (!body) return;
+    body.innerHTML = "";
+    (items || []).forEach((it) => {
+      const tr = document.createElement("tr");
+      const label = escapeHtml(String(it?.label ?? ""));
+      const amount = escapeHtml(String(parseYen(it?.amount ?? 0)));
+      tr.innerHTML = `
+        <td><input type="text" data-price-label value="${label}" placeholder="例：オプション"></td>
+        <td><input type="text" data-price-amount value="${amount}" placeholder="例：3,000"></td>
+        <td><button type="button" data-price-remove>削除</button></td>
+      `;
+      body.appendChild(tr);
+    });
+    ensureOneRow(body);
+  }
+
+  function collectItemsFromBody(body) {
+    const rows = body ? Array.from(body.querySelectorAll("tr")) : [];
+    const items = [];
+    let total = 0;
+
+    rows.forEach((tr) => {
+      const label = (tr.querySelector("[data-price-label]")?.value || "").trim();
+      const amtRaw = tr.querySelector("[data-price-amount]")?.value || "";
+      const amt = parseYen(amtRaw);
+      if (!label && amt === 0) return;
+      items.push({ label, amount: amt });
+      total += amt;
+    });
+
+    return { items, total };
+  }
+
+  function fillTemplateSelect(root, templates, keepValue) {
+    const sel = root.querySelector("[data-price-template]");
+    if (!sel) return;
+
+    const current = keepValue ? String(sel.value || "") : "";
+
+    sel.innerHTML = "";
+    const opt0 = document.createElement("option");
+    opt0.value = "";
+    opt0.textContent = "（選択）";
+    sel.appendChild(opt0);
+
+    (templates || []).forEach((t) => {
+      const opt = document.createElement("option");
+      opt.value = String(t.id);
+      opt.textContent = String(t.name || "");
+      sel.appendChild(opt);
+    });
+
+    if (current && (templates || []).some((t) => String(t.id) === current)) {
+      sel.value = current;
+    } else {
+      sel.value = "";
+    }
+  }
+
   function initKbPriceItems() {
     const roots = document.querySelectorAll("[data-price-items]");
     if (!roots || !roots.length) return;
 
-    // 共通：テンプレ管理モーダル（1個だけ）
-    function ensureTemplateModal() {
-      let modal = document.getElementById("kbPriceTemplateModal");
-      if (modal) return modal;
+    const storeId = getStoreIdFromPage(); // 店舗単位テンプレ
+    // storeIdが取れない場合でも明細自体は動かす（テンプレ機能のみ無効）
+    let templateCache = [];
+    let templateCacheLoaded = false;
+    let templateCachePromise = null;
 
-      modal = document.createElement("div");
-      modal.id = "kbPriceTemplateModal";
-      modal.style.position = "fixed";
-      modal.style.left = "0";
-      modal.style.top = "0";
-      modal.style.right = "0";
-      modal.style.bottom = "0";
-      modal.style.background = "rgba(0,0,0,0.5)";
-      modal.style.zIndex = "5000";
-      modal.style.display = "none";
+    async function loadTemplatesOnce() {
+      if (!storeId) return [];
+      if (templateCacheLoaded) return templateCache;
+      if (templateCachePromise) return templateCachePromise;
 
-      modal.innerHTML = `
-        <div style="max-width: 720px; margin: 6vh auto; background: #fff; border-radius: 12px; padding: 14px;">
-          <div style="display:flex; justify-content: space-between; align-items:center; gap:10px;">
-            <strong>料金明細テンプレ 管理（localStorage）</strong>
-            <button type="button" data-role="close" class="btn-secondary">閉じる</button>
-          </div>
-
-          <div style="margin-top:10px; display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end;">
-            <div style="flex:1; min-width:220px;">
-              <div class="muted" style="margin-bottom:4px;">テンプレ一覧</div>
-              <select data-role="list" class="kb-input-sm kb-select" style="width:100%;">
-              </select>
-            </div>
-            <div style="display:flex; gap:8px;">
-              <button type="button" data-role="new" class="btn-secondary">新規</button>
-              <button type="button" data-role="delete" class="btn-secondary">削除</button>
-            </div>
-          </div>
-
-          <hr style="margin:12px 0;">
-
-          <div style="display:flex; gap:10px; flex-wrap:wrap;">
-            <div style="flex:1; min-width:240px;">
-              <div class="muted" style="margin-bottom:4px;">テンプレ名</div>
-              <input type="text" data-role="name" class="kb-input-sm" style="width:100%;" placeholder="例：基本＋延長">
-            </div>
-          </div>
-
-          <div style="margin-top:10px;">
-            <div class="muted" style="margin-bottom:4px;">明細（1行1項目）</div>
-            <div class="muted" style="margin-bottom:6px;">形式：項目名,金額　（例：基本,12000） 金額は空でもOK</div>
-            <textarea data-role="items" rows="10" style="width:100%;" placeholder="基本,12000&#10;延長,3000"></textarea>
-          </div>
-
-          <div style="margin-top:10px; display:flex; gap:10px; flex-wrap:wrap;">
-            <button type="button" data-role="save" class="btn-primary">保存</button>
-            <button type="button" data-role="export" class="btn-secondary">JSONエクスポート</button>
-            <button type="button" data-role="import" class="btn-secondary">JSONインポート</button>
-          </div>
-
-          <div class="muted" style="margin-top:10px;">
-            ※このテンプレはブラウザ（localStorage）に保存されます。同じPC/ブラウザ以外には同期されません。
-          </div>
-        </div>
-      `;
-
-      document.body.appendChild(modal);
-
-      // 背景クリックで閉じる
-      modal.addEventListener("click", (e) => {
-        if (e.target === modal) modal.style.display = "none";
-      });
-
-      modal.querySelector('[data-role="close"]').addEventListener("click", () => {
-        modal.style.display = "none";
-      });
-
-      return modal;
-    }
-
-    function modalSetOptions(modal, templates, selectedId) {
-      const sel = modal.querySelector('[data-role="list"]');
-      sel.innerHTML = "";
-      templates.forEach((t) => {
-        const opt = document.createElement("option");
-        opt.value = t.id;
-        opt.textContent = t.name;
-        sel.appendChild(opt);
-      });
-      if (selectedId) sel.value = selectedId;
-      if (!sel.value && templates.length) sel.value = templates[0].id;
-    }
-
-    function itemsToText(items) {
-      const lines = (items || []).map((it) => {
-        const label = String(it?.label ?? "").trim();
-        const amt = parseYen(it?.amount ?? 0);
-        if (!label && amt === 0) return "";
-        return `${label},${amt ? amt : ""}`;
-      }).filter((x) => x !== "");
-      return lines.join("\n");
-    }
-
-    function textToItems(text) {
-      const lines = String(text ?? "").split(/\r?\n/);
-      const out = [];
-      for (const line of lines) {
-        const s = line.trim();
-        if (!s) continue;
-        const parts = s.split(",");
-        const label = String(parts[0] ?? "").trim();
-        const amount = parseYen(parts.slice(1).join(",").trim()); // 2つ目以降もまとめて解析
-        if (!label && amount === 0) continue;
-        out.push({ label, amount });
-      }
-      return out;
-    }
-
-    function openTemplateModal(initialTemplateId) {
-      const modal = ensureTemplateModal();
-      const sel = modal.querySelector('[data-role="list"]');
-      const inName = modal.querySelector('[data-role="name"]');
-      const taItems = modal.querySelector('[data-role="items"]');
-
-      let templates = loadPriceTemplates();
-      modalSetOptions(modal, templates, initialTemplateId);
-
-      function loadToEditor(id) {
-        const t = templates.find((x) => x.id === id) || templates[0];
-        if (!t) {
-          inName.value = "";
-          taItems.value = "";
-          return;
-        }
-        inName.value = t.name;
-        taItems.value = itemsToText(t.items);
-      }
-
-      function getSelectedId() {
-        return String(sel.value || "");
-      }
-
-      // 初期表示
-      loadToEditor(getSelectedId());
-
-      sel.onchange = () => {
-        loadToEditor(getSelectedId());
-      };
-
-      modal.querySelector('[data-role="new"]').onclick = () => {
-        const id = makeUuid();
-        const t = { id, name: "新規テンプレ", items: [] };
-        templates.push(t);
-        savePriceTemplates(templates);
-        modalSetOptions(modal, templates, id);
-        loadToEditor(id);
-        broadcastTemplatesUpdated();
-      };
-
-      modal.querySelector('[data-role="delete"]').onclick = () => {
-        const id = getSelectedId();
-        if (!id) return;
-        if (!confirm("このテンプレを削除しますか？")) return;
-
-        templates = templates.filter((t) => t.id !== id);
-        if (!templates.length) templates = defaultPriceTemplates();
-
-        savePriceTemplates(templates);
-        modalSetOptions(modal, templates, templates[0].id);
-        loadToEditor(templates[0].id);
-        broadcastTemplatesUpdated();
-      };
-
-      modal.querySelector('[data-role="save"]').onclick = () => {
-        const id = getSelectedId();
-        const name = String(inName.value || "").trim() || "テンプレ";
-        const items = textToItems(taItems.value);
-
-        const idx = templates.findIndex((t) => t.id === id);
-        if (idx < 0) return;
-
-        templates[idx] = { ...templates[idx], name, items };
-        savePriceTemplates(templates);
-        modalSetOptions(modal, templates, id);
-        broadcastTemplatesUpdated();
-        alert("保存しました。");
-      };
-
-      modal.querySelector('[data-role="export"]').onclick = () => {
-        const json = JSON.stringify(loadPriceTemplates(), null, 2);
-        navigator.clipboard?.writeText(json).then(() => {
-          alert("クリップボードにコピーしました。");
-        }).catch(() => {
-          prompt("コピーできない環境です。以下を手動でコピーしてください。", json);
-        });
-      };
-
-      modal.querySelector('[data-role="import"]').onclick = () => {
-        const raw = prompt("JSONを貼り付けてください（テンプレ一覧を上書きします）。");
-        if (!raw) return;
+      templateCachePromise = (async () => {
         try {
-          const parsed = JSON.parse(raw);
-          if (!Array.isArray(parsed)) throw new Error("not_array");
-          savePriceTemplates(parsed);
-          templates = loadPriceTemplates();
-          modalSetOptions(modal, templates, templates[0]?.id);
-          loadToEditor(templates[0]?.id);
-          broadcastTemplatesUpdated();
-          alert("インポートしました。");
-        } catch (e) {
-          alert("JSONが不正です。");
-        }
-      };
+          // 初回だけ localStorage → DB へ移行（あれば）
+          await migrateLegacyOnce(storeId);
+        } catch (_) {}
 
-      modal.style.display = "block";
+        try {
+          const list = await apiGetTemplates(storeId);
+          templateCache = Array.isArray(list) ? list : [];
+          templateCacheLoaded = true;
+          return templateCache;
+        } catch (_) {
+          templateCache = [];
+          templateCacheLoaded = true;
+          return templateCache;
+        } finally {
+          templateCachePromise = null;
+        }
+      })();
+
+      return templateCachePromise;
     }
 
-    function fillTemplateSelect(root, keepValue) {
-      const sel = root.querySelector("[data-price-template]");
-      if (!sel) return;
-
-      const templates = loadPriceTemplates();
-      const current = keepValue ? String(sel.value || "") : "";
-
-      sel.innerHTML = "";
-      const opt0 = document.createElement("option");
-      opt0.value = "";
-      opt0.textContent = "（選択）";
-      sel.appendChild(opt0);
-
-      templates.forEach((t) => {
-        const opt = document.createElement("option");
-        opt.value = t.id;
-        opt.textContent = t.name;
-        sel.appendChild(opt);
-      });
-
-      if (current && templates.some((t) => t.id === current)) {
-        sel.value = current;
-      } else {
-        sel.value = "";
-      }
+    async function reloadTemplates() {
+      if (!storeId) return [];
+      templateCacheLoaded = false;
+      templateCache = [];
+      return await loadTemplatesOnce();
     }
 
     function getTemplateById(id) {
-      const templates = loadPriceTemplates();
-      return templates.find((t) => t.id === id) || null;
+      const s = String(id || "");
+      return (templateCache || []).find((t) => String(t.id) === s) || null;
     }
 
-    function writeRows(body, items) {
-      if (!body) return;
-      body.innerHTML = "";
-      (items || []).forEach((it) => {
-        const tr = document.createElement("tr");
-        const label = escapeHtml(String(it?.label ?? ""));
-        const amount = escapeHtml(String(parseYen(it?.amount ?? 0)));
-        tr.innerHTML = `
-          <td><input type="text" data-price-label value="${label}" placeholder="例：オプション"></td>
-          <td><input type="text" data-price-amount value="${amount}" placeholder="例：3,000"></td>
-          <td><button type="button" data-price-remove>削除</button></td>
-        `;
-        body.appendChild(tr);
-      });
-      ensureOneRow(body);
+    function broadcastTemplatesUpdated() {
+      const evt = new CustomEvent("kb-price-templates-updated");
+      document.dispatchEvent(evt);
     }
 
     roots.forEach((root) => {
@@ -737,24 +647,10 @@
       const elTotal = root.querySelector("[data-price-total]");
       const hidden = root.querySelector('input[type="hidden"][name="price_items_json"]');
 
-      // 初期：テンプレselectを埋める
-      fillTemplateSelect(root, false);
+      ensureOneRow(body);
 
-      function collect() {
-        const rows = body ? Array.from(body.querySelectorAll("tr")) : [];
-        const items = [];
-        let total = 0;
-
-        rows.forEach((tr) => {
-          const label = (tr.querySelector("[data-price-label]")?.value || "").trim();
-          const amtRaw = tr.querySelector("[data-price-amount]")?.value || "";
-          const amt = parseYen(amtRaw);
-
-          if (!label && amt === 0) return;
-
-          items.push({ label, amount: amt });
-          total += amt;
-        });
+      function sync() {
+        const { items, total } = collectItemsFromBody(body);
 
         if (elTotal) elTotal.textContent = formatYen(total);
         if (hidden) hidden.value = JSON.stringify(items);
@@ -769,69 +665,138 @@
           <td><button type="button" data-price-remove>削除</button></td>
         `;
         body.appendChild(tr);
-        collect();
+        sync();
       }
 
-      function applyTemplate() {
+      async function initTemplateSelect() {
+        const sel = root.querySelector("[data-price-template]");
+        if (!sel) return;
+        if (!storeId) {
+          // 店舗IDがないとDBテンプレは扱えない
+          sel.innerHTML = "";
+          const opt0 = document.createElement("option");
+          opt0.value = "";
+          opt0.textContent = "（テンプレ無効：store_id未取得）";
+          sel.appendChild(opt0);
+          sel.value = "";
+          return;
+        }
+
+        const list = await loadTemplatesOnce();
+        fillTemplateSelect(root, list, false);
+      }
+
+      async function applyTemplate() {
         const sel = root.querySelector("[data-price-template]");
         const id = String(sel?.value || "");
         if (!id) return;
 
+        if (!templateCacheLoaded) await loadTemplatesOnce();
         const t = getTemplateById(id);
         if (!t) return;
 
         writeRows(body, t.items || []);
-        collect();
+        sync();
       }
 
       function clearTemplate() {
         writeRows(body, []);
-        collect();
+        sync();
+        const sel = root.querySelector("[data-price-template]");
+        if (sel) sel.value = "";
       }
 
-      function saveCurrentAsTemplate() {
-        const name = prompt("テンプレ名を入力してください。");
-        if (!name) return;
+      async function saveCurrentAsTemplate() {
+        if (!storeId) {
+          alert("店舗IDが取得できないため、テンプレ保存ができません。");
+          return;
+        }
 
-        // 現在の明細を集める
-        const rows = body ? Array.from(body.querySelectorAll("tr")) : [];
-        const items = [];
-        rows.forEach((tr) => {
-          const label = (tr.querySelector("[data-price-label]")?.value || "").trim();
-          const amtRaw = tr.querySelector("[data-price-amount]")?.value || "";
-          const amt = parseYen(amtRaw);
-          if (!label && amt === 0) return;
-          items.push({ label, amount: amt });
-        });
+        const name = prompt("テンプレ名を入力してください（この店舗専用）");
+        if (name == null) return;
+        const nm = String(name).trim();
+        if (!nm) return;
 
-        const templates = loadPriceTemplates();
-        templates.push({ id: makeUuid(), name: String(name).trim() || "テンプレ", items });
-        savePriceTemplates(templates);
-        fillTemplateSelect(root, false);
-        broadcastTemplatesUpdated();
-        alert("テンプレとして保存しました。");
+        const { items } = collectItemsFromBody(body);
+        if (!items.length) {
+          alert("明細が空です。テンプレに保存する内容を入れてください。");
+          return;
+        }
+
+        try {
+          await apiSaveTemplate(storeId, nm, items);
+          const list = await reloadTemplates();
+          fillTemplateSelect(root, list, false);
+          broadcastTemplatesUpdated();
+          alert("保存しました。");
+        } catch (e) {
+          alert("保存に失敗しました（" + (e?.message || "error") + "）");
+        }
       }
 
+      async function manageTemplates() {
+        if (!storeId) {
+          alert("店舗IDが取得できないため、テンプレ管理ができません。");
+          return;
+        }
+
+        try {
+          const list = await reloadTemplates();
+          if (!list.length) {
+            alert("テンプレがありません。");
+            return;
+          }
+
+          // 超シンプル管理：削除のみ（必要なら後で「名前変更」追加可能）
+          const lines = list.map((t) => String(t.id) + " : " + String(t.name || ""));
+          const msg =
+            "削除したいテンプレのIDを入力してください（キャンセルで閉じる）\n\n" +
+            lines.join("\n");
+          const ans = prompt(msg, "");
+          if (ans == null) return;
+
+          const id = parseInt(String(ans).trim(), 10);
+          if (!Number.isFinite(id)) return;
+
+          if (!confirm("ID=" + String(id) + " を削除しますか？")) return;
+
+          await apiDeleteTemplate(id);
+          const list2 = await reloadTemplates();
+          fillTemplateSelect(root, list2, false);
+          broadcastTemplatesUpdated();
+          alert("削除しました。");
+        } catch (e) {
+          alert("管理に失敗しました（" + (e?.message || "error") + "）");
+        }
+      }
+
+      // 入力で同期
       root.addEventListener("input", (e) => {
         const t = e.target;
         if (!t) return;
         if (t.matches("[data-price-label]") || t.matches("[data-price-amount]")) {
-          collect();
+          sync();
         }
       });
 
-      root.addEventListener("blur", (e) => {
-        const t = e.target;
-        if (!t || !t.matches || !t.matches("[data-price-amount]")) return;
+      // 金額欄は blur でカンマ整形
+      root.addEventListener(
+        "blur",
+        (e) => {
+          const t = e.target;
+          if (!t || !t.matches || !t.matches("[data-price-amount]")) return;
 
-        const raw = (t.value || "").trim();
-        if (!raw) return;
+          const raw = (t.value || "").trim();
+          if (!raw) return;
 
-        const n = parseYen(raw);
-        t.value = formatYen(n);
-        collect();
-      }, true);
+          const n = parseYen(raw);
+          t.value = formatYen(n);
+          sync();
+        },
+        true
+      );
 
+      // ボタン操作
       root.addEventListener("click", (e) => {
         const t = e.target;
         if (!t) return;
@@ -841,7 +806,7 @@
           const tr = t.closest("tr");
           if (tr && body) tr.remove();
           ensureOneRow(body);
-          collect();
+          sync();
           return;
         }
 
@@ -863,35 +828,45 @@
           return;
         }
 
-        if (t.matches("[data-price-template-manage]")) {
-          e.preventDefault();
-          const sel = root.querySelector("[data-price-template]");
-          openTemplateModal(String(sel?.value || ""));
-          return;
-        }
-
         if (t.matches("[data-price-template-save-current]")) {
           e.preventDefault();
           saveCurrentAsTemplate();
           return;
         }
+
+        if (t.matches("[data-price-template-manage]")) {
+          e.preventDefault();
+          manageTemplates();
+          return;
+        }
       });
 
-      // テンプレ更新イベントが来たらselectを更新
-      document.addEventListener("kb-price-templates-updated", () => {
-        fillTemplateSelect(root, true);
+      // 他のboxでテンプレ更新が走ったら、このboxのselectも更新
+      document.addEventListener("kb-price-templates-updated", async () => {
+        const sel = root.querySelector("[data-price-template]");
+        if (!sel) return;
+        if (!storeId) return;
+
+        // 現在選択を維持しつつ再描画
+        try {
+          const list = await reloadTemplates();
+          fillTemplateSelect(root, list, true);
+        } catch (_) {}
       });
 
+      // submit直前に同期
       const form = root.closest("form");
       if (form) {
         form.addEventListener("submit", () => {
-          collect();
+          sync();
         });
       }
 
-      // 初期の合計＆hidden同期
-      ensureOneRow(body);
-      collect();
+      // 初期同期
+      sync();
+
+      // 初期：テンプレselectを埋める（非同期）
+      initTemplateSelect();
     });
   }
 
@@ -1302,7 +1277,7 @@
     // KB
     initKbPersonSearchSort();
     initKbStarRating();
-    initKbPriceItems();   // ← テンプレ込み
+    initKbPriceItems();   // ← DBテンプレ込み（統合済み）
     initKbDuration();
   });
 })();
