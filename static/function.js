@@ -1,4 +1,4 @@
-// 004
+// 005
 // static/function.js
 (() => {
   "use strict";
@@ -108,13 +108,9 @@
   // 店舗ページ検索 / 名前で店舗ページ検索
   // ============================================================
   function initStoreSearchHandlers() {
-    // クリック委譲で十分（各ページで要素があれば動く）
     document.addEventListener("click", (e) => {
       const target = e.target;
 
-      // ----------------------------
-      // 1) スレタイ近くの「店舗ページ検索」
-      // ----------------------------
       const storeBox = target.closest ? target.closest(".store-search") : null;
       if (storeBox) {
         const clickable =
@@ -152,9 +148,6 @@
         return;
       }
 
-      // ----------------------------
-      // 2) 各レスの「名前で店舗ページ検索」
-      // ----------------------------
       const nameBox = target.closest ? target.closest(".name-store-search") : null;
       if (nameBox) {
         const btn = target.closest
@@ -285,7 +278,6 @@
     const getNameKey = (el) => {
       const ds = el?.dataset?.sortName;
       if (ds && String(ds).trim()) return String(ds).trim();
-
       const a = el.querySelector(".result-id a");
       return (a?.textContent || "").trim();
     };
@@ -299,8 +291,8 @@
       const aNull = (a == null);
       const bNull = (b == null);
       if (aNull && bNull) return 0;
-      if (aNull) return 1;
-      if (bNull) return -1;
+      if (aNull) return 1;   // null は下へ
+      if (bNull) return -1;  // null は下へ
       return asc ? (a - b) : (b - a);
     }
 
@@ -323,26 +315,25 @@
         if (mode === "name") {
           const c = A.name.localeCompare(B.name, "ja", { numeric: true, sensitivity: "base" });
           if (c !== 0) return c;
-        } else if (mode === "rating") {
-          const c = compareNullableNumber(A.rating, B.rating, false); // 高い順
+        } else if (mode === "height") {
+          const c = compareNullableNumber(A.height, B.height, true); // 低い順
           if (c !== 0) return c;
         } else if (mode === "cup") {
           const c = compareNullableNumber(A.cupRank, B.cupRank, false); // 大きい順
           if (c !== 0) return c;
-        } else if (mode === "height") {
-          const c = compareNullableNumber(A.height, B.height, false); // 高い順
+        } else if (mode === "age") {
+          const c = compareNullableNumber(A.age, B.age, true); // 低い順
           if (c !== 0) return c;
         } else if (mode === "price") {
           const c = compareNullableNumber(A.price, B.price, true); // 安い順
           if (c !== 0) return c;
-        } else if (mode === "age") {
-          const c = compareNullableNumber(A.age, B.age, true); // 若い順
+        } else if (mode === "rating") {
+          const c = compareNullableNumber(A.rating, B.rating, false); // 高い順
           if (c !== 0) return c;
         }
 
         const cn = A.name.localeCompare(B.name, "ja", { numeric: true, sensitivity: "base" });
         if (cn !== 0) return cn;
-
         return A.idx - B.idx;
       });
 
