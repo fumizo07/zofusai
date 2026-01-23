@@ -1,4 +1,4 @@
-# 022
+# 023
 # routers/kb.py
 import json
 import re
@@ -21,7 +21,7 @@ from sqlalchemy.orm import Session
 
 from app_context import templates
 from db import get_db
-from models import KBPerson, KBRegion, KBStore, KBVisit
+from models import KBPerson, KBRegion, KBStore, KBVisit, KBPriceTemplate
 
 router = APIRouter()
 
@@ -484,6 +484,187 @@ def kb_api_diary_status(
         out.append({"id": int(pid), "is_new": bool(latest_ts)})
 
     return JSONResponse({"ok": True, "items": out})
+
+
+# =========================
+# 価格テンプレ（DB版）
+# =========================
+def _sanitize_template_name(raw: str) -> str:
+    s = unicodedata.normalize("NFKC", str(raw or "")).strip()
+    s = re.sub(r"\s+", " ", s)
+    if len(s) > 60:
+        s = s[:60].strip()
+    return s
+
+
+def _sanitize_price_template_items(items) -> list[dict]:
+    """
+    items 期待:
+    - [{"label":"基本", "amount":12000}, ...]
+    """
+    if not isinstance(items, list):
+        return []
+
+    out: list[dict] = []
+    for it in items:
+        if not isinstance(it, dict):
+            continue
+
+        label = unicodedata.normalize("NFKC", str(it.get("label", "") or "")).strip()
+        label = re.sub(r"\s+", " ", label)
+        if len(label) > 40:
+            label = label[:40].strip()
+
+        amt_raw = it.get("amount", 0)
+        amt = _parse_amount_int(amt_raw)
+
+        # 両方空は捨てる
+        if not label and amt == 0:
+            continue
+
+        out.append({"label": label, "amount": int(amt)})
+
+        if len(out) >= 40:
+            break
+
+    return out
+
+
+@router.get("/kb/api/price_templates")
+def kb_api_price_templates(
+    store_id: str = "",
+    include_global: str = "1",
+    db: Session = Depends(get_db),
+):
+    """
+    store_id を指定したら:
+    - store専用テンプレ + （include_global=1なら）共通テンプレ（store_id NULL）
+    """
+    sid = _parse_int(store_id)
+
+    q = db.query(KBPriceTemplate)
+    conds = []
+
+    if sid is not None:
+        conds.append(KBPriceTemplate.store_id == int(sid))
+    if (include_global or "") == "1":
+        conds.append(KBPriceTemplate.store_id.is_(None))
+
+    if conds:
+        q = q.filter(or_(*conds))
+
+    rows = q.order_by(
+        KBPriceTemplate.store_id.asc().nullsfirst(),
+        KBPriceTemplate.name.asc()
+    ).all()
+
+    items = []
+    for t in rows:
+        items.append(
+            {
+                "id": int(getattr(t, "id")),
+                "store_id": getattr(t, "store_id", None),
+                "name": getattr(t, "name", "") or "",
+                "items": getattr(t, "items", None),
+            }
+        )
+
+    return JSONResponse({"ok": True, "items": items})
+
+
+@router.post("/kb/api/price_templates/save")
+async def kb_api_price_templates_save(
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """
+    upsert（store_id + name で一意）
+    body:
+    {
+      "store_id": 123 or null,
+      "name": "基本セット",
+      "items": [{"label":"基本", "amount":12000}, ...]
+    }
+    """
+    try:
+        data = await request.json()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "invalid_json"}, status_code=400)
+
+    if not isinstance(data, dict):
+        return JSONResponse({"ok": False, "error": "payload_not_object"}, status_code=400)
+
+    store_id = data.get("store_id", None)
+    if store_id in ("", "null"):
+        store_id = None
+    sid = _parse_int(store_id) if store_id is not None else None
+
+    name = _sanitize_template_name(data.get("name", ""))
+    if not name:
+        return JSONResponse({"ok": False, "error": "name_required"}, status_code=400)
+
+    items = _sanitize_price_template_items(data.get("items", []))
+    # 空でも保存は許可（「名前だけテンプレ」もアリにする）
+    items_payload = items or None
+
+    try:
+        exists_q = db.query(KBPriceTemplate).filter(
+            KBPriceTemplate.name == name,
+            (KBPriceTemplate.store_id == int(sid)) if sid is not None else KBPriceTemplate.store_id.is_(None),
+        )
+        obj = exists_q.first()
+
+        if obj:
+            obj.items = items_payload
+            obj.updated_at = datetime.utcnow()
+        else:
+            obj = KBPriceTemplate(
+                store_id=int(sid) if sid is not None else None,
+                name=name,
+                items=items_payload,
+                created_at=datetime.utcnow(),
+                updated_at=datetime.utcnow(),
+            )
+            db.add(obj)
+
+        db.commit()
+        db.refresh(obj)
+
+        return JSONResponse(
+            {"ok": True, "item": {"id": int(obj.id), "store_id": obj.store_id, "name": obj.name, "items": obj.items}}
+        )
+    except Exception:
+        db.rollback()
+        return JSONResponse({"ok": False, "error": "db_error"}, status_code=500)
+
+
+@router.post("/kb/api/price_templates/delete")
+async def kb_api_price_templates_delete(
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """
+    body:
+    { "id": 123 }
+    """
+    try:
+        data = await request.json()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "invalid_json"}, status_code=400)
+
+    tid = None
+    if isinstance(data, dict):
+        tid = _parse_int(data.get("id", ""))
+    if tid is None:
+        return JSONResponse({"ok": False, "error": "id_required"}, status_code=400)
+
+    try:
+        n = db.query(KBPriceTemplate).filter(KBPriceTemplate.id == int(tid)).delete(synchronize_session=False)
+        db.commit()
+        return JSONResponse({"ok": True, "deleted": int(n or 0)})
+    except Exception:
+        db.rollback()
+        return JSONResponse({"ok": False, "error": "db_error"}, status_code=500)
 
 
 # =========================
