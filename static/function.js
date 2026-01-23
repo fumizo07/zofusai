@@ -1,5 +1,4 @@
-===== FILE: static/function.js =====
-// 003
+// 004
 // static/function.js
 (() => {
   "use strict";
@@ -59,6 +58,24 @@
     const n = Number(s);
     if (!Number.isFinite(n)) return null;
     return n;
+  }
+
+  // カップ文字 → ソート用順位（大きいほど上）
+  // 例: AAA < AA < A < B < ... < K ...
+  function cupToRank(raw) {
+    const s = String(raw ?? "").trim().toUpperCase();
+    if (!s) return null;
+
+    if (s.startsWith("AAA")) return -1;
+    if (s.startsWith("AA")) return 0;
+
+    const m = s.match(/[A-Z]/);
+    if (!m) return null;
+
+    const code = m[0].charCodeAt(0); // 'A' = 65
+    const rank = code - 64; // A=1, B=2...
+    if (!Number.isFinite(rank)) return null;
+    return rank;
   }
 
   // 店舗名末尾の「数字」「丸数字①②③…」「絵文字」などを落とす
@@ -266,7 +283,6 @@
     if (!sel || !list) return;
 
     const getNameKey = (el) => {
-      // data-sort-name を優先（無ければリンク文字）
       const ds = el?.dataset?.sortName;
       if (ds && String(ds).trim()) return String(ds).trim();
 
@@ -279,14 +295,6 @@
       return parseNumOrNull(v);
     };
 
-    function compareName(a, b) {
-      const an = getNameKey(a);
-      const bn = getNameKey(b);
-      // 日本語ロケールで比較（濁点等は大雑把に）
-      return an.localeCompare(bn, "ja", { numeric: true, sensitivity: "base" });
-    }
-
-    // null を末尾へ寄せるための比較器（asc/desc）
     function compareNullableNumber(a, b, asc) {
       const aNull = (a == null);
       const bNull = (b == null);
@@ -305,22 +313,21 @@
         idx,
         name: getNameKey(el),
         rating: getNumKey(el, "sortRating"),
-        bust: getNumKey(el, "sortBust"),
+        cupRank: cupToRank(el?.dataset?.sortCup || ""),
         height: getNumKey(el, "sortHeight"),
         price: getNumKey(el, "sortPrice"),
         age: getNumKey(el, "sortAge"),
       }));
 
       enriched.sort((A, B) => {
-        // 1) メインキー
         if (mode === "name") {
           const c = A.name.localeCompare(B.name, "ja", { numeric: true, sensitivity: "base" });
           if (c !== 0) return c;
         } else if (mode === "rating") {
           const c = compareNullableNumber(A.rating, B.rating, false); // 高い順
           if (c !== 0) return c;
-        } else if (mode === "bust") {
-          const c = compareNullableNumber(A.bust, B.bust, false); // 大きい順
+        } else if (mode === "cup") {
+          const c = compareNullableNumber(A.cupRank, B.cupRank, false); // 大きい順
           if (c !== 0) return c;
         } else if (mode === "height") {
           const c = compareNullableNumber(A.height, B.height, false); // 高い順
@@ -333,15 +340,12 @@
           if (c !== 0) return c;
         }
 
-        // 2) 同値のときは名前で安定化
         const cn = A.name.localeCompare(B.name, "ja", { numeric: true, sensitivity: "base" });
         if (cn !== 0) return cn;
 
-        // 3) 完全同値なら元の順序（安定）
         return A.idx - B.idx;
       });
 
-      // DOM並び替え（再描画なし）
       const frag = document.createDocumentFragment();
       enriched.forEach((x) => frag.appendChild(x.el));
       list.appendChild(frag);
@@ -351,7 +355,6 @@
       applySort(sel.value || "name");
     });
 
-    // 初期はデフォルト（名前順）
     applySort(sel.value || "name");
   }
 
@@ -389,7 +392,6 @@
         });
       });
 
-      // 初期値があれば反映
       const initVal = input ? parseInt(input.value || "0", 10) : 0;
       render((1 <= initVal && initVal <= 5) ? initVal : 0);
     });
@@ -422,11 +424,11 @@
 
           if (!label && amt === 0) return;
 
-          items.push({ label, amount: amt }); // 数値だけ保存（カンマなし）
+          items.push({ label, amount: amt });
           total += amt;
         });
 
-        if (elTotal) elTotal.textContent = formatYen(total); // 表示だけカンマ
+        if (elTotal) elTotal.textContent = formatYen(total);
         if (hidden) hidden.value = JSON.stringify(items);
       }
 
@@ -442,7 +444,6 @@
         collect();
       }
 
-      // 入力変化で再計算（合計の表示更新）
       root.addEventListener("input", (e) => {
         const t = e.target;
         if (!t) return;
@@ -451,7 +452,6 @@
         }
       });
 
-      // 金額欄は「フォーカス外れたら」見た目だけカンマ整形（内部は常に数値でJSON化）
       root.addEventListener("blur", (e) => {
         const t = e.target;
         if (!t || !t.matches || !t.matches("[data-price-amount]")) return;
@@ -460,7 +460,6 @@
         if (!raw) return;
 
         const n = parseYen(raw);
-        // 0 でも表示を 0 に寄せる（空欄を保ちたいならここは return でもOK）
         t.value = formatYen(n);
         collect();
       }, true);
@@ -484,7 +483,6 @@
         }
       });
 
-      // 送信直前に確実にJSON化
       const form = root.closest("form");
       if (form) {
         form.addEventListener("submit", () => {
@@ -492,7 +490,6 @@
         });
       }
 
-      // 初回
       collect();
     });
   }
@@ -501,12 +498,10 @@
   // KB：利用時間（開始/終了 → ○○分）
   // ============================================================
   function initKbDuration() {
-    // KBページ以外でも安全に動くように「要素があれば」方式
     const forms = document.querySelectorAll("form");
     if (!forms || !forms.length) return;
 
     forms.forEach((form) => {
-      // 同一フォームに start/end が無ければ無視
       const start = form.querySelector('input[name="start_time"]');
       const end = form.querySelector('input[name="end_time"]');
       if (!start || !end) return;
@@ -524,7 +519,6 @@
         let dur = null;
         if (sMin != null && eMin != null) {
           dur = eMin - sMin;
-          // 日跨ぎは今は未対応（必要ならここで +24h などにできます）
           if (dur < 0) dur = null;
           if (dur != null) dur = clamp(dur, 0, 24 * 60);
         }
@@ -539,11 +533,7 @@
 
       start.addEventListener("input", render);
       end.addEventListener("input", render);
-
-      // submit前にも確実に反映
       form.addEventListener("submit", render);
-
-      // 初期表示
       render();
     });
   }
@@ -555,7 +545,7 @@
   const API_ENDPOINT = "/api/post_preview";
   const MAX_RANGE_EXPAND = 30;
 
-  const cache = new Map(); // key -> { ok, posted_at, body } or { ok:false, message }
+  const cache = new Map();
 
   const tooltipStack = [];
   const BASE_Z_INDEX = 2000;
@@ -915,4 +905,3 @@
     initKbDuration();
   });
 })();
-===== END FILE =====
