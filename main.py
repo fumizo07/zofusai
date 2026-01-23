@@ -1,4 +1,4 @@
-# 002
+# 003
 # main.py
 import os
 import secrets
@@ -21,8 +21,11 @@ from preview_api import preview_api
 # ★投稿編集（既存）
 from post_edit import post_edit_router
 
-# KB追加（routers import群の近く）
+# KB（既存）
 from routers.kb import router as kb_router
+
+# ★追加：KB 料金テンプレAPI
+from routers.kb_templates import router as kb_templates_router
 
 
 # =========================
@@ -79,10 +82,6 @@ class BasicAuthMiddleware(BaseHTTPMiddleware):
         if not BASIC_ENABLED:
             return await call_next(request)
 
-        # もし将来ヘルスチェックを外に出したいならここで例外扱いにできる
-        # if request.url.path in ("/healthz",):
-        #     return await call_next(request)
-
         if _basic_ok_from_header(request):
             return await call_next(request)
 
@@ -97,7 +96,6 @@ class BasicAuthMiddleware(BaseHTTPMiddleware):
 # FastAPI 初期化
 # =========================
 app = FastAPI(
-    # docsは公開しない
     docs_url=None,
     redoc_url=None,
 )
@@ -105,11 +103,7 @@ app = FastAPI(
 # ★最重要：StaticFiles含め「全部」にBasicを掛ける
 app.add_middleware(BasicAuthMiddleware)
 
-# （任意）通常ルートにも依存を掛けたいなら残してOKだが、
-# Middlewareで全体を守るので、二重にする必然は薄い。
-# app = FastAPI(dependencies=[Depends(verify_basic)], docs_url=None, redoc_url=None)
-
-# static / templates
+# static
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 # router 登録
@@ -121,8 +115,11 @@ app.include_router(admin_router)
 app.include_router(threads_router)
 app.include_router(external_router)
 
-# KB追加（include_router群のどこでもOK）
+# KB（既存）
 app.include_router(kb_router)
+
+# ★追加：KB 料金テンプレAPI
+app.include_router(kb_templates_router)
 
 # startup（DB schema補助・バックフィル）
 register_startup(app)

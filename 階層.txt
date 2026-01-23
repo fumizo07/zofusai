@@ -2,8 +2,11 @@ routers/admin.py
 routers/external_search.py
 routers/init.py
 routers/internal_search.py
+routers/kb.py
+routers/kb_templates.py
 routers/threads.py
 static/base.css
+static/favicon.ico
 static/function.js
 templates/_footer.html
 templates/_header.html
