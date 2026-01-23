@@ -1,4 +1,4 @@
-{# 015 #}
+{# 016 #}
 {# templates/kb_person.html #}
 {% set page_title_suffix = "KB - 人物" %}
 {% set body_class = "page-kb" %}
@@ -8,6 +8,9 @@
 {% include "_header.html" %}
 
 <main>
+  {# ★追加：JSが店舗IDを取るための目印（APIテンプレを店舗ごとに分ける） #}
+  <div data-kb-store-id="{{ store.id if store else '' }}" style="display:none;"></div>
+
   <section class="card">
     <div class="section-title">人物</div>
 
@@ -73,6 +76,7 @@
     </div>
   </section>
 
+  {# 以下、あなたの貼った内容をそのまま #}
   <section class="card">
     <h2>人物情報（編集）</h2>
 
@@ -333,7 +337,6 @@
               <div class="section-title-small">料金明細</div>
 
               <div class="kb-price-box" data-price-items>
-                {# 安全策：JSが死んでも明細が消えにくいよう初期値を入れる #}
                 <input type="hidden" name="price_items_json" value='{{ (v.price_items or [])|tojson }}'>
 
                 <div class="kb-price-actions kb-price-actions-gap">
@@ -396,6 +399,5 @@
     {% endif %}
   </section>
 </main>
-
 
 {% include "_footer.html" %}
