@@ -678,7 +678,7 @@
             </div>
 
             <div style="flex:1; min-width:320px; border:1px solid #eee; border-radius:10px; padding:10px;">
-              <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end;">
+              <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:last baseline;">
                 <div style="flex:1; min-width:220px;">
                   <div class="muted" style="margin-bottom:4px;">テンプレ名</div>
                   <input type="text" data-role="name" class="kb-input-sm" style="width:100%;" placeholder="例：基本＋延長">
