@@ -1,4 +1,4 @@
-# 023
+# 024
 # routers/kb.py
 import json
 import re
@@ -530,15 +530,35 @@ def _sanitize_price_template_items(items) -> list[dict]:
     return out
 
 
+def _utc_iso(dt) -> Optional[str]:
+    if not dt:
+        return None
+    try:
+        # DBにtimezone無しで入ってる想定（utc扱い）
+        return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+    except Exception:
+        return None
+
+
 @router.get("/kb/api/price_templates")
 def kb_api_price_templates(
     store_id: str = "",
     include_global: str = "1",
+    sort: str = "name",   # name | updated | created
+    order: str = "",      # asc | desc（未指定は name=asc、それ以外=desc）
     db: Session = Depends(get_db),
 ):
     """
     store_id を指定したら:
     - store専用テンプレ + （include_global=1なら）共通テンプレ（store_id NULL）
+
+    sort:
+    - name: 名前順
+    - updated: 最近使った/更新順（updated_at desc がデフォ）
+    - created: 作成順（created_at desc がデフォ）
+
+    ※「よく使う順（頻度）」を厳密にやるには use_count 等の列が必要。
+      ここでは “最近使った順（updated_at）” を提供します。
     """
     sid = _parse_int(store_id)
 
@@ -553,10 +573,37 @@ def kb_api_price_templates(
     if conds:
         q = q.filter(or_(*conds))
 
-    rows = q.order_by(
-        KBPriceTemplate.store_id.asc().nullsfirst(),
-        KBPriceTemplate.name.asc()
-    ).all()
+    sk = (sort or "").strip().lower()
+    od = (order or "").strip().lower()
+
+    if sk not in ("name", "updated", "created"):
+        sk = "name"
+
+    if od not in ("asc", "desc"):
+        od = "asc" if sk == "name" else "desc"
+
+    # store_id(NULL先頭) でグルーピングは維持しつつ、2ndで並び替え
+    base_order = [KBPriceTemplate.store_id.asc().nullsfirst()]
+
+    if sk == "name":
+        base_order.append(KBPriceTemplate.name.asc() if od == "asc" else KBPriceTemplate.name.desc())
+    elif sk == "created":
+        col = getattr(KBPriceTemplate, "created_at", None)
+        if col is not None:
+            base_order.append(col.asc() if od == "asc" else col.desc())
+        else:
+            base_order.append(KBPriceTemplate.id.asc() if od == "asc" else KBPriceTemplate.id.desc())
+    else:  # updated
+        col = getattr(KBPriceTemplate, "updated_at", None)
+        if col is not None:
+            base_order.append(col.asc() if od == "asc" else col.desc())
+        else:
+            base_order.append(KBPriceTemplate.id.asc() if od == "asc" else KBPriceTemplate.id.desc())
+
+    # 安定のため最後に name
+    base_order.append(KBPriceTemplate.name.asc())
+
+    rows = q.order_by(*base_order).all()
 
     items = []
     for t in rows:
@@ -566,6 +613,8 @@ def kb_api_price_templates(
                 "store_id": getattr(t, "store_id", None),
                 "name": getattr(t, "name", "") or "",
                 "items": getattr(t, "items", None),
+                "created_at": _utc_iso(getattr(t, "created_at", None)),
+                "updated_at": _utc_iso(getattr(t, "updated_at", None)),
             }
         )
 
@@ -616,14 +665,15 @@ async def kb_api_price_templates_save(
 
         if obj:
             obj.items = items_payload
-            obj.updated_at = datetime.utcnow()
+            if hasattr(obj, "updated_at"):
+                obj.updated_at = datetime.utcnow()
         else:
             obj = KBPriceTemplate(
                 store_id=int(sid) if sid is not None else None,
                 name=name,
                 items=items_payload,
-                created_at=datetime.utcnow(),
-                updated_at=datetime.utcnow(),
+                created_at=datetime.utcnow() if hasattr(KBPriceTemplate, "created_at") else None,
+                updated_at=datetime.utcnow() if hasattr(KBPriceTemplate, "updated_at") else None,
             )
             db.add(obj)
 
@@ -633,6 +683,101 @@ async def kb_api_price_templates_save(
         return JSONResponse(
             {"ok": True, "item": {"id": int(obj.id), "store_id": obj.store_id, "name": obj.name, "items": obj.items}}
         )
+    except Exception:
+        db.rollback()
+        return JSONResponse({"ok": False, "error": "db_error"}, status_code=500)
+
+
+@router.post("/kb/api/price_templates/rename")
+async def kb_api_price_templates_rename(
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """
+    ② テンプレのリネームを「削除→再作成」ではなく update で安全に行う。
+    body:
+    {
+      "id": 123,
+      "name": "新しい名前"
+    }
+
+    - 同一 scope（store_idが同じ or 両方NULL）で name 重複は拒否
+    """
+    try:
+        data = await request.json()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "invalid_json"}, status_code=400)
+
+    if not isinstance(data, dict):
+        return JSONResponse({"ok": False, "error": "payload_not_object"}, status_code=400)
+
+    tid = _parse_int(data.get("id", ""))
+    new_name = _sanitize_template_name(data.get("name", ""))
+
+    if tid is None:
+        return JSONResponse({"ok": False, "error": "id_required"}, status_code=400)
+    if not new_name:
+        return JSONResponse({"ok": False, "error": "name_required"}, status_code=400)
+
+    obj = db.query(KBPriceTemplate).filter(KBPriceTemplate.id == int(tid)).first()
+    if not obj:
+        return JSONResponse({"ok": False, "error": "not_found"}, status_code=404)
+
+    if (getattr(obj, "name", "") or "") == new_name:
+        return JSONResponse({"ok": True, "item": {"id": int(obj.id), "store_id": obj.store_id, "name": obj.name, "items": obj.items}})
+
+    # 重複チェック（store_id scope）
+    sid = getattr(obj, "store_id", None)
+    dup_q = db.query(KBPriceTemplate).filter(
+        KBPriceTemplate.id != int(obj.id),
+        KBPriceTemplate.name == new_name,
+        (KBPriceTemplate.store_id == int(sid)) if sid is not None else KBPriceTemplate.store_id.is_(None),
+    )
+    if dup_q.first():
+        return JSONResponse({"ok": False, "error": "name_exists"}, status_code=409)
+
+    try:
+        obj.name = new_name
+        if hasattr(obj, "updated_at"):
+            obj.updated_at = datetime.utcnow()
+        db.commit()
+        db.refresh(obj)
+        return JSONResponse({"ok": True, "item": {"id": int(obj.id), "store_id": obj.store_id, "name": obj.name, "items": obj.items}})
+    except Exception:
+        db.rollback()
+        return JSONResponse({"ok": False, "error": "db_error"}, status_code=500)
+
+
+@router.post("/kb/api/price_templates/touch")
+async def kb_api_price_templates_touch(
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """
+    ①の「よく使う順」の代替として “最近使った順(updated_at)” を成立させるための軽量API。
+    フロントでテンプレを適用したタイミングで呼べば updated_at が更新されます。
+    body: { "id": 123 }
+    """
+    try:
+        data = await request.json()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "invalid_json"}, status_code=400)
+
+    tid = None
+    if isinstance(data, dict):
+        tid = _parse_int(data.get("id", ""))
+    if tid is None:
+        return JSONResponse({"ok": False, "error": "id_required"}, status_code=400)
+
+    obj = db.query(KBPriceTemplate).filter(KBPriceTemplate.id == int(tid)).first()
+    if not obj:
+        return JSONResponse({"ok": False, "error": "not_found"}, status_code=404)
+
+    try:
+        if hasattr(obj, "updated_at"):
+            obj.updated_at = datetime.utcnow()
+            db.commit()
+        return JSONResponse({"ok": True})
     except Exception:
         db.rollback()
         return JSONResponse({"ok": False, "error": "db_error"}, status_code=500)
@@ -665,6 +810,163 @@ async def kb_api_price_templates_delete(
     except Exception:
         db.rollback()
         return JSONResponse({"ok": False, "error": "db_error"}, status_code=500)
+
+
+@router.get("/kb/api/price_templates/export")
+def kb_api_price_templates_export(
+    store_id: str = "",
+    include_global: str = "1",
+    db: Session = Depends(get_db),
+):
+    """
+    ③ テンプレのインポート/エクスポート（テンプレ単体のバックアップ）
+    - store_id 指定でスコープを絞れる
+    - include_global=1 なら共通テンプレも含める
+    """
+    sid = _parse_int(store_id)
+
+    q = db.query(KBPriceTemplate)
+    conds = []
+
+    if sid is not None:
+        conds.append(KBPriceTemplate.store_id == int(sid))
+    if (include_global or "") == "1":
+        conds.append(KBPriceTemplate.store_id.is_(None))
+
+    if conds:
+        q = q.filter(or_(*conds))
+
+    rows = q.order_by(KBPriceTemplate.store_id.asc().nullsfirst(), KBPriceTemplate.name.asc()).all()
+
+    items = []
+    for t in rows:
+        items.append(
+            {
+                "id": int(getattr(t, "id")),
+                "store_id": getattr(t, "store_id", None),
+                "name": getattr(t, "name", "") or "",
+                "items": getattr(t, "items", None),
+            }
+        )
+
+    payload = {
+        "version": 1,
+        "exported_at_utc": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "price_templates": items,
+    }
+    return JSONResponse(payload, headers={"Cache-Control": "no-store"})
+
+
+@router.post("/kb/api/price_templates/import")
+async def kb_api_price_templates_import(
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """
+    ③ テンプレのインポート（テンプレ単体）
+    body:
+    {
+      "payload": { ... }  # /kb/api/price_templates/export のJSON
+      "confirm": "1",
+      "mode": "replace"   # replaceのみ（安全寄り）
+    }
+
+    - replace: 対象スコープのテンプレを全削除→流し込み
+      （※payload内に store_id が混在する場合は、その混在分を丸ごと置換）
+    """
+    try:
+        data = await request.json()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "invalid_json"}, status_code=400)
+
+    if not isinstance(data, dict):
+        return JSONResponse({"ok": False, "error": "payload_not_object"}, status_code=400)
+
+    if (str(data.get("confirm", "")) or "") != "1":
+        return JSONResponse({"ok": False, "error": "confirm_required"}, status_code=400)
+
+    mode = (str(data.get("mode", "replace")) or "replace").strip().lower()
+    if mode != "replace":
+        return JSONResponse({"ok": False, "error": "mode_not_supported"}, status_code=400)
+
+    payload = data.get("payload", None)
+    if not isinstance(payload, dict):
+        return JSONResponse({"ok": False, "error": "payload_not_object"}, status_code=400)
+
+    tpls = payload.get("price_templates", payload.get("templates", []))
+    if not isinstance(tpls, list):
+        return JSONResponse({"ok": False, "error": "templates_not_list"}, status_code=400)
+
+    # どの store_id スコープが含まれているかを収集（None含む）
+    scope_store_ids: set[Optional[int]] = set()
+    for it in tpls:
+        if not isinstance(it, dict):
+            continue
+        sid = it.get("store_id", None)
+        if sid in ("", "null"):
+            sid = None
+        sid_i = _parse_int(sid) if sid is not None else None
+        scope_store_ids.add(int(sid_i) if sid_i is not None else None)
+
+    try:
+        # スコープ内の既存テンプレを削除（FK事故回避のためテンプレだけ）
+        for sid in scope_store_ids:
+            if sid is None:
+                db.query(KBPriceTemplate).filter(KBPriceTemplate.store_id.is_(None)).delete(synchronize_session=False)
+            else:
+                db.query(KBPriceTemplate).filter(KBPriceTemplate.store_id == int(sid)).delete(synchronize_session=False)
+        db.commit()
+    except Exception:
+        db.rollback()
+        return JSONResponse({"ok": False, "error": "clear_failed"}, status_code=500)
+
+    inserted = 0
+    try:
+        for it in tpls:
+            if not isinstance(it, dict):
+                continue
+
+            tid = _parse_int(it.get("id", ""))
+            sid = it.get("store_id", None)
+            if sid in ("", "null"):
+                sid = None
+            sid_i = _parse_int(sid) if sid is not None else None
+
+            name = _sanitize_template_name(it.get("name", ""))
+            if not name:
+                continue
+
+            items = it.get("items", None)
+            items_norm = _sanitize_price_template_items(items) if items is not None else []
+            items_payload = (items_norm or None) if items is not None else None
+
+            obj = KBPriceTemplate(
+                store_id=int(sid_i) if sid_i is not None else None,
+                name=name,
+                items=items_payload,
+                created_at=datetime.utcnow() if hasattr(KBPriceTemplate, "created_at") else None,
+                updated_at=datetime.utcnow() if hasattr(KBPriceTemplate, "updated_at") else None,
+            )
+            if tid is not None:
+                try:
+                    obj.id = int(tid)
+                except Exception:
+                    pass
+
+            db.add(obj)
+            inserted += 1
+
+        db.flush()
+
+        # 明示ID挿入のあと、Postgresのシーケンスを復旧
+        _reset_postgres_pk_sequence(db, KBPriceTemplate)
+
+        db.commit()
+    except Exception:
+        db.rollback()
+        return JSONResponse({"ok": False, "error": "import_failed"}, status_code=500)
+
+    return JSONResponse({"ok": True, "inserted": int(inserted)})
 
 
 # =========================
@@ -2041,6 +2343,7 @@ def kb_panic_delete_all(
         return RedirectResponse(url="/kb?panic=failed", status_code=303)
 
     try:
+        db.query(KBPriceTemplate).delete(synchronize_session=False)
         db.query(KBVisit).delete(synchronize_session=False)
         db.query(KBPerson).delete(synchronize_session=False)
         db.query(KBStore).delete(synchronize_session=False)
@@ -2257,11 +2560,13 @@ def kb_search(
 def kb_export(db: Session = Depends(get_db)):
     """
     全KBを JSON で吐き出す（コピペ/移行/保険）
+    - #024: price_templates（KBPriceTemplate）も含める
     """
     regions = db.query(KBRegion).order_by(KBRegion.id.asc()).all()
     stores = db.query(KBStore).order_by(KBStore.id.asc()).all()
     persons = db.query(KBPerson).order_by(KBPerson.id.asc()).all()
     visits = db.query(KBVisit).order_by(KBVisit.id.asc()).all()
+    price_templates = db.query(KBPriceTemplate).order_by(KBPriceTemplate.id.asc()).all()
 
     def region_to_dict(r: KBRegion) -> dict:
         return {
@@ -2317,13 +2622,22 @@ def kb_export(db: Session = Depends(get_db)):
             "total_yen": getattr(v, "total_yen", None),
         }
 
+    def tpl_to_dict(t: KBPriceTemplate) -> dict:
+        return {
+            "id": int(getattr(t, "id")),
+            "store_id": getattr(t, "store_id", None),
+            "name": getattr(t, "name", None),
+            "items": getattr(t, "items", None),
+        }
+
     payload = {
-        "version": 1,
+        "version": 2,
         "exported_at_utc": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
         "regions": [region_to_dict(r) for r in regions],
         "stores": [store_to_dict(s) for s in stores],
         "persons": [person_to_dict(p) for p in persons],
         "visits": [visit_to_dict(v) for v in visits],
+        "price_templates": [tpl_to_dict(t) for t in price_templates],
     }
     return JSONResponse(payload, headers={"Cache-Control": "no-store"})
 
@@ -2373,9 +2687,11 @@ def kb_import(
     stores = data.get("stores", [])
     persons = data.get("persons", [])
     visits = data.get("visits", [])
+    price_templates = data.get("price_templates", data.get("templates", []))
 
     try:
-        # 全削除
+        # 全削除（FK事故回避のためテンプレ→visit→person→store→region）
+        db.query(KBPriceTemplate).delete(synchronize_session=False)
         db.query(KBVisit).delete(synchronize_session=False)
         db.query(KBPerson).delete(synchronize_session=False)
         db.query(KBStore).delete(synchronize_session=False)
@@ -2411,6 +2727,38 @@ def kb_import(
             for k in ["area", "board_category", "board_id"]:
                 if hasattr(obj, k) and k in s:
                     setattr(obj, k, s.get(k))
+            db.add(obj)
+        db.flush()
+
+        # price_templates（storesが入った後）
+        for t in price_templates if isinstance(price_templates, list) else []:
+            if not isinstance(t, dict):
+                continue
+            tid = _parse_int(str(t.get("id", "")))
+            sid = t.get("store_id", None)
+            if sid in ("", "null"):
+                sid = None
+            sid_i = _parse_int(sid) if sid is not None else None
+
+            name = _sanitize_template_name(t.get("name", ""))
+            if tid is None or not name:
+                continue
+
+            items = t.get("items", None)
+            if items is None:
+                items_payload = None
+            else:
+                items_norm = _sanitize_price_template_items(items)
+                items_payload = items_norm or None
+
+            obj = KBPriceTemplate(
+                id=int(tid),
+                store_id=int(sid_i) if sid_i is not None else None,
+                name=name,
+                items=items_payload,
+                created_at=datetime.utcnow() if hasattr(KBPriceTemplate, "created_at") else None,
+                updated_at=datetime.utcnow() if hasattr(KBPriceTemplate, "updated_at") else None,
+            )
             db.add(obj)
         db.flush()
 
@@ -2542,6 +2890,7 @@ def kb_import(
         # 明示ID挿入のあと、Postgresのシーケンスを復旧
         _reset_postgres_pk_sequence(db, KBRegion)
         _reset_postgres_pk_sequence(db, KBStore)
+        _reset_postgres_pk_sequence(db, KBPriceTemplate)
         _reset_postgres_pk_sequence(db, KBPerson)
         _reset_postgres_pk_sequence(db, KBVisit)
 
