@@ -1,4 +1,4 @@
-# 021
+# 022
 # routers/kb.py
 import json
 import re
@@ -16,7 +16,7 @@ import urllib.error
 
 from fastapi import APIRouter, Depends, Form, Query, Request, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
-from sqlalchemy import and_, desc, exists, func, or_
+from sqlalchemy import and_, desc, exists, func, or_, text
 from sqlalchemy.orm import Session
 
 from app_context import templates
@@ -1191,6 +1191,28 @@ def _build_store_region_maps(db: Session, persons: List[KBPerson]):
     return stores, regions_map
 
 
+def _reset_postgres_pk_sequence(db: Session, model) -> None:
+    """
+    Postgres系（Neonなど）で、明示ID挿入後にシーケンスがズレる問題を直す。
+    SQLiteなどでは失敗しても握りつぶす（影響なし）。
+    """
+    try:
+        table = model.__table__.name
+        pk_cols = list(model.__table__.primary_key.columns)
+        if not pk_cols:
+            return
+        pk = pk_cols[0].name
+        sql = (
+            f"SELECT setval("
+            f"pg_get_serial_sequence('{table}', '{pk}'), "
+            f"COALESCE((SELECT MAX({pk}) FROM {table}), 1)"
+            f")"
+        )
+        db.execute(text(sql))
+    except Exception:
+        return
+
+
 # =========================
 # KBトップ
 # =========================
@@ -1199,6 +1221,8 @@ def kb_index(request: Request, db: Session = Depends(get_db)):
     regions, stores_by_region, counts = _build_tree_data(db)
     panic = request.query_params.get("panic") or ""
     search_error = request.query_params.get("search_error") or ""
+    import_status = request.query_params.get("import") or ""
+    import_error = request.query_params.get("import_error") or ""
 
     svc_options, tag_options = _collect_service_tag_options(db)
 
@@ -1214,6 +1238,8 @@ def kb_index(request: Request, db: Session = Depends(get_db)):
             "person_counts": counts,
             "panic": panic,
             "search_error": search_error,
+            "import_status": import_status,
+            "import_error": import_error,
             "search_q": "",
             "search_region_id": "",
             "search_budget_min": "",
@@ -2008,6 +2034,8 @@ def kb_search(
             "person_counts": counts,
             "panic": request.query_params.get("panic") or "",
             "search_error": "",
+            "import_status": request.query_params.get("import") or "",
+            "import_error": request.query_params.get("import_error") or "",
             "search_q": q_raw,
             "search_region_id": rid or "",
             "search_budget_min": str(bmin) if bmin is not None else "",
@@ -2047,7 +2075,7 @@ def kb_search(
 @router.get("/kb/export")
 def kb_export(db: Session = Depends(get_db)):
     """
-    全KBを JSON で吐き出す（移行/保険）
+    全KBを JSON で吐き出す（コピペ/移行/保険）
     """
     regions = db.query(KBRegion).order_by(KBRegion.id.asc()).all()
     stores = db.query(KBStore).order_by(KBStore.id.asc()).all()
@@ -2116,42 +2144,54 @@ def kb_export(db: Session = Depends(get_db)):
         "persons": [person_to_dict(p) for p in persons],
         "visits": [visit_to_dict(v) for v in visits],
     }
-    return JSONResponse(payload)
+    return JSONResponse(payload, headers={"Cache-Control": "no-store"})
 
 
 @router.post("/kb/import")
 def kb_import(
+    request: Request,
     payload_json: str = Form(""),
     confirm_check: str = Form(""),
     mode: str = Form("replace"),  # replace のみ実装（安全寄り）
     db: Session = Depends(get_db),
 ):
     """
-    JSONを取り込み。
+    JSONを取り込み（貼り付け想定）。
     - mode=replace: 全削除→流し込み（confirm_check=1 必須）
+    - 成否は /kb?import=done|failed にリダイレクトで返す
     """
+    def _redir(status: str, err: str = ""):
+        q = {"import": status}
+        if err:
+            q["import_error"] = err
+        return RedirectResponse(url="/kb?" + urlencode(q), status_code=303)
+
     if (confirm_check or "") != "1":
-        raise HTTPException(status_code=400, detail="confirm_check=1 is required")
+        return _redir("failed", "confirm_required")
+
+    if mode != "replace":
+        return _redir("failed", "mode_not_supported")
 
     raw = (payload_json or "").strip()
     if not raw:
-        raise HTTPException(status_code=400, detail="payload_json is empty")
+        return _redir("failed", "payload_empty")
+
+    # 乱用・事故防止のサイズ上限（必要なら後で増やせます）
+    if len(raw.encode("utf-8")) > 5 * 1024 * 1024:
+        return _redir("failed", "payload_too_large")
 
     try:
         data = json.loads(raw)
     except Exception:
-        raise HTTPException(status_code=400, detail="payload_json is not valid JSON")
+        return _redir("failed", "invalid_json")
 
     if not isinstance(data, dict):
-        raise HTTPException(status_code=400, detail="payload_json must be an object")
+        return _redir("failed", "payload_not_object")
 
     regions = data.get("regions", [])
     stores = data.get("stores", [])
     persons = data.get("persons", [])
     visits = data.get("visits", [])
-
-    if mode != "replace":
-        raise HTTPException(status_code=400, detail="only mode=replace is supported")
 
     try:
         # 全削除
@@ -2162,7 +2202,7 @@ def kb_import(
         db.commit()
     except Exception:
         db.rollback()
-        raise HTTPException(status_code=500, detail="failed to clear tables")
+        return _redir("failed", "clear_failed")
 
     try:
         # regions
@@ -2316,11 +2356,17 @@ def kb_import(
 
             db.add(obj)
 
+        db.flush()
+
+        # 明示ID挿入のあと、Postgresのシーケンスを復旧
+        _reset_postgres_pk_sequence(db, KBRegion)
+        _reset_postgres_pk_sequence(db, KBStore)
+        _reset_postgres_pk_sequence(db, KBPerson)
+        _reset_postgres_pk_sequence(db, KBVisit)
+
         db.commit()
-    except HTTPException:
-        raise
     except Exception:
         db.rollback()
-        raise HTTPException(status_code=500, detail="import failed")
+        return _redir("failed", "import_failed")
 
-    return JSONResponse({"ok": True})
+    return _redir("done")
