@@ -1,4 +1,4 @@
-{# 013 #}
+{# 015 #}
 {# templates/kb_person.html #}
 {% set page_title_suffix = "KB - 人物" %}
 {% set body_class = "page-kb" %}
@@ -199,6 +199,15 @@
       <div class="kb-price-box" data-price-items>
         <input type="hidden" name="price_items_json" value="[]">
 
+        <div class="kb-price-actions kb-price-actions-gap">
+          <span class="muted">テンプレ：</span>
+          <select class="kb-input-sm kb-select" data-price-template></select>
+          <button type="button" class="btn-secondary" data-price-template-apply>適用</button>
+          <button type="button" class="btn-secondary" data-price-template-clear>クリア</button>
+          <button type="button" class="btn-secondary" data-price-template-save-current>現在の明細を保存</button>
+          <button type="button" class="btn-secondary" data-price-template-manage>管理</button>
+        </div>
+
         <table class="kb-price-table">
           <thead>
             <tr>
@@ -324,7 +333,17 @@
               <div class="section-title-small">料金明細</div>
 
               <div class="kb-price-box" data-price-items>
-                <input type="hidden" name="price_items_json" value="[]">
+                {# 安全策：JSが死んでも明細が消えにくいよう初期値を入れる #}
+                <input type="hidden" name="price_items_json" value='{{ (v.price_items or [])|tojson }}'>
+
+                <div class="kb-price-actions kb-price-actions-gap">
+                  <span class="muted">テンプレ：</span>
+                  <select class="kb-input-sm kb-select" data-price-template></select>
+                  <button type="button" class="btn-secondary" data-price-template-apply>適用</button>
+                  <button type="button" class="btn-secondary" data-price-template-clear>クリア</button>
+                  <button type="button" class="btn-secondary" data-price-template-save-current>現在の明細を保存</button>
+                  <button type="button" class="btn-secondary" data-price-template-manage>管理</button>
+                </div>
 
                 <table class="kb-price-table">
                   <thead>
@@ -377,5 +396,6 @@
     {% endif %}
   </section>
 </main>
+
 
 {% include "_footer.html" %}
