@@ -1,4 +1,4 @@
-# 006
+# 007
 # models.py
 from datetime import datetime
 
@@ -194,3 +194,29 @@ class KBVisit(Base):
     search_norm = Column(Text, nullable=True, index=True)
 
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+
+# ============================================================
+# KB：金額テンプレ（価格テンプレ）
+# - store_id が NULL の場合は「全店舗共通テンプレ」
+# - store_id がある場合は「店舗専用テンプレ」
+# ============================================================
+class KBPriceTemplate(Base):
+    __tablename__ = "kb_price_templates"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    store_id = Column(Integer, ForeignKey("kb_stores.id", ondelete="CASCADE"), nullable=True, index=True)
+
+    # 例: "基本セット", "指名込み", "オプション盛り" など
+    name = Column(Text, nullable=False, index=True)
+
+    # 例: [{"label":"基本", "amount":12000}, {"label":"指名", "amount":2000}]
+    items = Column(JSON, nullable=True)
+
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("store_id", "name", name="uq_kb_price_templates_store_name"),
+    )
