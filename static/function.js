@@ -1,4 +1,4 @@
-// 009
+// 002
 // static/function.js
 (() => {
   "use strict";
@@ -32,7 +32,7 @@
     return hh * 60 + mm;
   }
 
-    // 金額：入力は「1,234円」「¥1,234」「１２３４」などを許容 → 0以上の整数にする
+  // 金額：入力は「1,234円」「¥1,234」「１２３４」などを許容 → 0以上の整数にする
   function parseYen(v) {
     const s = String(v ?? "").trim();
     if (!s) return 0;
@@ -50,7 +50,6 @@
     if (!Number.isFinite(x)) return "0";
     return Math.trunc(x).toLocaleString("ja-JP");
   }
-
 
   // 店舗名末尾の「数字」「丸数字①②③…」「絵文字」などを落とす
   function normalizeStoreTitle(raw) {
@@ -289,6 +288,108 @@
   }
 
   // ============================================================
+  // KB：料金項目（行追加＆合計＆hidden JSON）
+  // ============================================================
+  function initKbPriceItems() {
+    const roots = document.querySelectorAll("[data-price-items]");
+    if (!roots || !roots.length) return;
+
+    roots.forEach((root) => {
+      if (root.dataset.kbPriceApplied === "1") return;
+      root.dataset.kbPriceApplied = "1";
+
+      const body = root.querySelector("[data-price-items-body]");
+      const elTotal = root.querySelector("[data-price-total]");
+      const hidden = root.querySelector('input[type="hidden"][name="price_items_json"]');
+
+      function collect() {
+        const rows = body ? Array.from(body.querySelectorAll("tr")) : [];
+        const items = [];
+        let total = 0;
+
+        rows.forEach((tr) => {
+          const label = (tr.querySelector("[data-price-label]")?.value || "").trim();
+          const amtRaw = tr.querySelector("[data-price-amount]")?.value || "";
+          const amt = parseYen(amtRaw);
+
+          if (!label && amt === 0) return;
+
+          items.push({ label, amount: amt }); // 数値だけ保存（カンマなし）
+          total += amt;
+        });
+
+        if (elTotal) elTotal.textContent = formatYen(total); // 表示だけカンマ
+        if (hidden) hidden.value = JSON.stringify(items);
+      }
+
+      function addRow() {
+        if (!body) return;
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+          <td><input type="text" data-price-label placeholder="例：オプション"></td>
+          <td><input type="text" data-price-amount placeholder="例：3,000"></td>
+          <td><button type="button" data-price-remove>削除</button></td>
+        `;
+        body.appendChild(tr);
+        collect();
+      }
+
+      // 入力変化で再計算（合計の表示更新）
+      root.addEventListener("input", (e) => {
+        const t = e.target;
+        if (!t) return;
+        if (t.matches("[data-price-label]") || t.matches("[data-price-amount]")) {
+          collect();
+        }
+      });
+
+      // 金額欄は「フォーカス外れたら」見た目だけカンマ整形（内部は常に数値でJSON化）
+      root.addEventListener("blur", (e) => {
+        const t = e.target;
+        if (!t || !t.matches || !t.matches("[data-price-amount]")) return;
+
+        const raw = (t.value || "").trim();
+        if (!raw) return;
+
+        const n = parseYen(raw);
+        // 0 でも表示を 0 に寄せる（空欄を保ちたいならここは return でもOK）
+        t.value = formatYen(n);
+        collect();
+      }, true);
+
+      root.addEventListener("click", (e) => {
+        const t = e.target;
+        if (!t) return;
+
+        if (t.matches("[data-price-remove]")) {
+          e.preventDefault();
+          const tr = t.closest("tr");
+          if (tr && body) tr.remove();
+          collect();
+          return;
+        }
+
+        if (t.matches("[data-price-add]")) {
+          e.preventDefault();
+          addRow();
+          return;
+        }
+      });
+
+      // 送信直前に確実にJSON化
+      const form = root.closest("form");
+      if (form) {
+        form.addEventListener("submit", () => {
+          collect();
+        });
+      }
+
+      // 初回
+      collect();
+    });
+  }
+
+  // ============================================================
   // KB：利用時間（開始/終了 → ○○分）
   // ============================================================
   function initKbDuration() {
@@ -315,11 +416,9 @@
         let dur = null;
         if (sMin != null && eMin != null) {
           dur = eMin - sMin;
-
-          // ★日跨ぎ対応（バックエンド _calc_duration と合わせる）
-          if (dur < 0) dur += 24 * 60;
-
-          dur = clamp(dur, 0, 24 * 60);
+          // 日跨ぎは今は未対応（必要ならここで +24h などにできます）
+          if (dur < 0) dur = null;
+          if (dur != null) dur = clamp(dur, 0, 24 * 60);
         }
 
         if (label) {
@@ -339,19 +438,6 @@
       // 初期表示
       render();
     });
-  }
-
-  // ============================================================
-  // KB：パニックボタン（チェックで有効化）
-  // ============================================================
-  function initKbPanicButton() {
-    const chk = document.getElementById("kb_panic_check");
-    const btn = document.getElementById("kb_panic_btn");
-    if (!chk || !btn) return;
-
-    const sync = () => { btn.disabled = !chk.checked; };
-    chk.addEventListener("change", sync);
-    sync();
   }
 
   // ============================================================
@@ -716,7 +802,7 @@
 
     // KB
     initKbStarRating();
+    initKbPriceItems();
     initKbDuration();
-    initKbPanicButton();
   });
 })();
