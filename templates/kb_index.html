@@ -1,5 +1,4 @@
-===== FILE: templates/kb_index.html =====
-{# 008 #}
+{# 009 #}
 {% set page_title_suffix = "KB" %}
 {% set body_class = "page-kb" %}
 {% set active_page = "kb" %}
@@ -169,7 +168,7 @@
         <select id="kb_person_sort">
           <option value="name" selected>名前順(デフォルト)</option>
           <option value="rating">評価順</option>
-          <option value="bust">バスト順</option>
+          <option value="cup">バスト順</option>
           <option value="height">身長順</option>
           <option value="price">価格順</option>
           <option value="age">年齢順</option>
@@ -185,7 +184,7 @@
           <div class="result kb-person-result"
                data-sort-name="{{ (p.name or '')|e }}"
                data-sort-rating="{{ avg if avg is not none else '' }}"
-               data-sort-bust="{{ p.bust_cm if p.bust_cm else '' }}"
+               data-sort-cup="{{ (p.cup or '')|e }}"
                data-sort-height="{{ p.height_cm if p.height_cm else '' }}"
                data-sort-price="{{ avg_amt if avg_amt is not none else '' }}"
                data-sort-age="{{ p.age if p.age else '' }}">
@@ -304,4 +303,3 @@
 </main>
 
 {% include "_footer.html" %}
-===== END FILE =====
