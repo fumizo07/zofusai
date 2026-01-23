@@ -1,11 +1,8 @@
-{# 007 #}
-{# templates/kb_store.html #}
+{# 006 #}
 {% set page_title_suffix = "KB - 店舗" %}
 {% set body_class = "page-kb" %}
 {% set active_page = "kb" %}
 {% include "_header.html" %}
-
-{% set last_visit_map = last_visit_map|default({}) %}
 
 <main>
   <section class="card">
@@ -36,50 +33,31 @@
   <section class="card">
     <h2>人物一覧（{{ persons|length }}人）</h2>
 
-    <form method="get" action="/kb/store/{{ store.id }}" class="kb-list-controls">
-      <div class="form-row">
-        <label>並び替え：</label>
-        <select name="sort" class="kb-input-sm kb-select">
-          {% for k, label in (sort_options or {}).items() %}
-            <option value="{{ k }}" {% if (sort or 'name') == k %}selected{% endif %}>{{ label }}</option>
-          {% endfor %}
-        </select>
-
-        <select name="order" class="kb-input-sm kb-select">
-          <option value="desc" {% if (order or '') == 'desc' %}selected{% endif %}>降順</option>
-          <option value="asc" {% if (order or '') == 'asc' %}selected{% endif %}>昇順</option>
-        </select>
-
-        <label>平均評価：</label>
-        <select name="rating_min" class="kb-input-sm kb-select">
-          <option value="" {% if not rating_min %}selected{% endif %}>（指定なし）</option>
-          <option value="3" {% if rating_min == '3' %}selected{% endif %}>★3以上</option>
-          <option value="4" {% if rating_min == '4' %}selected{% endif %}>★4以上</option>
-          <option value="5" {% if rating_min == '5' %}selected{% endif %}>★5のみ</option>
-        </select>
-
-        <button type="submit" class="btn-secondary">適用</button>
-      </div>
-    </form>
-
     {% if persons %}
-      <div class="thread-results">
+      <!-- 並び替え（クライアント側・再読み込みなし） -->
+      <div class="form-row kb-person-sort-row">
+        <label>並び替え：</label>
+        <select id="kb_person_sort">
+          <option value="name" selected>名前順</option>
+          <option value="height">身長が低い順</option>
+          <option value="cup">胸が大きい順</option>
+          <option value="age">年齢が低い順</option>
+          <option value="price">価格が安い順</option>
+          <option value="rating">評価が高い順</option>
+        </select>
+      </div>
+
+      <div class="thread-results" id="kb_person_results">
         {% for p in persons %}
           {% set avg = (rating_avg_map or {}).get(p.id) %}
           {% set avg_amt = (amount_avg_map or {}).get(p.id) %}
-          {% set lastv = (last_visit_map or {}).get(p.id) %}
-
-          {# lastv を datetime / 文字列どちらでも壊れないように YYYY-MM-DD に寄せる #}
-          {% set lastv_str = '' %}
-          {% if lastv %}
-            {% if lastv is string %}
-              {% set lastv_str = lastv %}
-            {% else %}
-              {% set lastv_str = lastv.strftime('%Y-%m-%d') %}
-            {% endif %}
-          {% endif %}
-
-          <div class="result kb-person-result">
+          <div class="result kb-person-result"
+               data-sort-name="{{ (p.name or '')|e }}"
+               data-sort-rating="{{ avg if avg is not none else '' }}"
+               data-sort-cup="{{ (p.cup or '')|e }}"
+               data-sort-height="{{ p.height_cm if p.height_cm else '' }}"
+               data-sort-price="{{ avg_amt if avg_amt is not none else '' }}"
+               data-sort-age="{{ p.age if p.age else '' }}">
             {%- set thumb = (p.image_urls[0] if p.image_urls and (p.image_urls|length) > 0 else "") -%}
             {%- if thumb -%}
             <a href="/kb/person/{{ p.id }}">
@@ -105,7 +83,6 @@
               <div class="muted">
                 {% if avg is not none %}平均評価:{{ "%.2f"|format(avg) }}{% endif %}
                 {%- if avg_amt is not none -%}/平均金額:{{ "{:,}".format(avg_amt) }}円{%- endif -%}
-                {%- if lastv_str -%}/最終利用:{{ lastv_str }}{%- endif -%}
               </div>
               <div class="muted">
                 <a href="/kb/person/{{ p.id }}/external_search" target="_blank">外部検索で調べる</a>{%- if p.url -%}/<a href="{{ p.url|e }}" target="_blank" rel="noopener noreferrer">プロフ(外部)</a>{%- endif -%}
