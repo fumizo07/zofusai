@@ -1,4 +1,5 @@
-// 002
+===== FILE: static/function.js =====
+// 003
 // static/function.js
 (() => {
   "use strict";
@@ -49,6 +50,15 @@
     const x = Number(n || 0);
     if (!Number.isFinite(x)) return "0";
     return Math.trunc(x).toLocaleString("ja-JP");
+  }
+
+  // 数値（空や不正は null）
+  function parseNumOrNull(v) {
+    const s = String(v ?? "").trim();
+    if (!s) return null;
+    const n = Number(s);
+    if (!Number.isFinite(n)) return null;
+    return n;
   }
 
   // 店舗名末尾の「数字」「丸数字①②③…」「絵文字」などを落とす
@@ -245,6 +255,104 @@
     document.addEventListener("keydown", function (e) {
       if (e.key === "Escape" && overlay.classList.contains("open")) closeMenu();
     });
+  }
+
+  // ============================================================
+  // KB：人物検索結果の並び替え（再読み込みなし）
+  // ============================================================
+  function initKbPersonSearchSort() {
+    const sel = document.getElementById("kb_person_sort");
+    const list = document.getElementById("kb_person_results");
+    if (!sel || !list) return;
+
+    const getNameKey = (el) => {
+      // data-sort-name を優先（無ければリンク文字）
+      const ds = el?.dataset?.sortName;
+      if (ds && String(ds).trim()) return String(ds).trim();
+
+      const a = el.querySelector(".result-id a");
+      return (a?.textContent || "").trim();
+    };
+
+    const getNumKey = (el, key) => {
+      const v = el?.dataset ? el.dataset[key] : "";
+      return parseNumOrNull(v);
+    };
+
+    function compareName(a, b) {
+      const an = getNameKey(a);
+      const bn = getNameKey(b);
+      // 日本語ロケールで比較（濁点等は大雑把に）
+      return an.localeCompare(bn, "ja", { numeric: true, sensitivity: "base" });
+    }
+
+    // null を末尾へ寄せるための比較器（asc/desc）
+    function compareNullableNumber(a, b, asc) {
+      const aNull = (a == null);
+      const bNull = (b == null);
+      if (aNull && bNull) return 0;
+      if (aNull) return 1;
+      if (bNull) return -1;
+      return asc ? (a - b) : (b - a);
+    }
+
+    function applySort(mode) {
+      const items = Array.from(list.querySelectorAll(".kb-person-result"));
+      if (!items.length) return;
+
+      const enriched = items.map((el, idx) => ({
+        el,
+        idx,
+        name: getNameKey(el),
+        rating: getNumKey(el, "sortRating"),
+        bust: getNumKey(el, "sortBust"),
+        height: getNumKey(el, "sortHeight"),
+        price: getNumKey(el, "sortPrice"),
+        age: getNumKey(el, "sortAge"),
+      }));
+
+      enriched.sort((A, B) => {
+        // 1) メインキー
+        if (mode === "name") {
+          const c = A.name.localeCompare(B.name, "ja", { numeric: true, sensitivity: "base" });
+          if (c !== 0) return c;
+        } else if (mode === "rating") {
+          const c = compareNullableNumber(A.rating, B.rating, false); // 高い順
+          if (c !== 0) return c;
+        } else if (mode === "bust") {
+          const c = compareNullableNumber(A.bust, B.bust, false); // 大きい順
+          if (c !== 0) return c;
+        } else if (mode === "height") {
+          const c = compareNullableNumber(A.height, B.height, false); // 高い順
+          if (c !== 0) return c;
+        } else if (mode === "price") {
+          const c = compareNullableNumber(A.price, B.price, true); // 安い順
+          if (c !== 0) return c;
+        } else if (mode === "age") {
+          const c = compareNullableNumber(A.age, B.age, true); // 若い順
+          if (c !== 0) return c;
+        }
+
+        // 2) 同値のときは名前で安定化
+        const cn = A.name.localeCompare(B.name, "ja", { numeric: true, sensitivity: "base" });
+        if (cn !== 0) return cn;
+
+        // 3) 完全同値なら元の順序（安定）
+        return A.idx - B.idx;
+      });
+
+      // DOM並び替え（再描画なし）
+      const frag = document.createDocumentFragment();
+      enriched.forEach((x) => frag.appendChild(x.el));
+      list.appendChild(frag);
+    }
+
+    sel.addEventListener("change", () => {
+      applySort(sel.value || "name");
+    });
+
+    // 初期はデフォルト（名前順）
+    applySort(sel.value || "name");
   }
 
   // ============================================================
@@ -801,8 +909,10 @@
     initStoreSearchHandlers();
 
     // KB
+    initKbPersonSearchSort();
     initKbStarRating();
     initKbPriceItems();
     initKbDuration();
   });
 })();
+===== END FILE =====
