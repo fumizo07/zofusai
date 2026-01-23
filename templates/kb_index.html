@@ -1,4 +1,4 @@
-{# 010 #}
+{# 011 #}
 {% set page_title_suffix = "KB" %}
 {% set body_class = "page-kb" %}
 {% set active_page = "kb" %}
@@ -19,9 +19,21 @@
 {% set search_total_count = search_total_count|default(None) %}
 {% set search_truncated = search_truncated|default(False) %}
 
+{% set import_status = import_status|default('') %}
+{% set import_error = import_error|default('') %}
+
 <main>
   <section class="card">
     <h2>KB（知った情報の整理）</h2>
+
+    {% if import_status == "done" %}
+      <p class="muted info-message">バックアップをインポートしました。</p>
+    {% elif import_status == "failed" %}
+      <p class="error-message">
+        バックアップのインポートに失敗しました。
+        {% if import_error %}<span class="muted">（{{ import_error }}）</span>{% endif %}
+      </p>
+    {% endif %}
 
     {% if panic == "done" %}
       <p class="muted info-message">KBの全データを削除しました。</p>
@@ -168,7 +180,7 @@
         <select id="kb_person_sort">
           <option value="name" selected>名前順</option>
           <option value="height">身長が低い順</option>
-          <option value="cup">胸が大きい順</option>
+          <option value="cup">カップが大きい順</option>
           <option value="age">年齢が低い順</option>
           <option value="price">価格が安い順</option>
           <option value="rating">評価が高い順</option>
@@ -220,6 +232,116 @@
           </div>
         {% endfor %}
       </div>
+
+      <script>
+        (function () {
+          const sel = document.getElementById("kb_person_sort");
+          const box = document.getElementById("kb_person_results");
+          if (!sel || !box) return;
+
+          const cupRank = (s) => {
+            const x = (s || "").toString().trim().toUpperCase();
+            if (!x) return null;
+            const ch = x[0];
+            const code = ch.charCodeAt(0);
+            if (code >= 65 && code <= 90) return code - 64; // A=1..Z=26
+            return null;
+          };
+
+          const getStr = (el, attr) => {
+            try {
+              return (el.getAttribute(attr) || "").toString();
+            } catch (e) {
+              return "";
+            }
+          };
+
+          const getNum = (el, attr) => {
+            const s = getStr(el, attr).trim();
+            if (!s) return null;
+            const v = Number(s);
+            return Number.isFinite(v) ? v : null;
+          };
+
+          const sortNow = () => {
+            const key = (sel.value || "name").toString();
+
+            const items = Array.from(box.querySelectorAll(".kb-person-result"));
+            if (!items.length) return;
+
+            const cmp = (a, b) => {
+              const nameA = getStr(a, "data-sort-name");
+              const nameB = getStr(b, "data-sort-name");
+
+              const missLastAsc = (va, vb) => {
+                const ma = (va === null || va === undefined);
+                const mb = (vb === null || vb === undefined);
+                if (ma && mb) return 0;
+                if (ma) return 1;
+                if (mb) return -1;
+                return null;
+              };
+
+              if (key === "name") {
+                return nameA.localeCompare(nameB, "ja");
+              }
+
+              if (key === "height") {
+                const aV = getNum(a, "data-sort-height");
+                const bV = getNum(b, "data-sort-height");
+                const m = missLastAsc(aV, bV);
+                if (m !== null) return m;
+                if (aV !== bV) return aV - bV; // 低い順
+                return nameA.localeCompare(nameB, "ja");
+              }
+
+              if (key === "age") {
+                const aV = getNum(a, "data-sort-age");
+                const bV = getNum(b, "data-sort-age");
+                const m = missLastAsc(aV, bV);
+                if (m !== null) return m;
+                if (aV !== bV) return aV - bV; // 若い順
+                return nameA.localeCompare(nameB, "ja");
+              }
+
+              if (key === "price") {
+                const aV = getNum(a, "data-sort-price");
+                const bV = getNum(b, "data-sort-price");
+                const m = missLastAsc(aV, bV);
+                if (m !== null) return m;
+                if (aV !== bV) return aV - bV; // 安い順
+                return nameA.localeCompare(nameB, "ja");
+              }
+
+              if (key === "rating") {
+                const aV = getNum(a, "data-sort-rating");
+                const bV = getNum(b, "data-sort-rating");
+                const m = missLastAsc(aV, bV);
+                if (m !== null) return m;
+                if (aV !== bV) return bV - aV; // 高い順
+                return nameA.localeCompare(nameB, "ja");
+              }
+
+              if (key === "cup") {
+                const aV = cupRank(getStr(a, "data-sort-cup"));
+                const bV = cupRank(getStr(b, "data-sort-cup"));
+                const m = missLastAsc(aV, bV);
+                if (m !== null) return m;
+                if (aV !== bV) return bV - aV; // 大きい順
+                return nameA.localeCompare(nameB, "ja");
+              }
+
+              return nameA.localeCompare(nameB, "ja");
+            };
+
+            items.sort(cmp);
+            for (const el of items) box.appendChild(el);
+          };
+
+          sel.addEventListener("change", sortNow);
+          sortNow();
+        })();
+      </script>
     {% endif %}
   </section>
 
@@ -298,6 +420,125 @@
         <p class="muted">店舗はまだありません。</p>
       {% endif %}
     {% endfor %}
+  </section>
+
+  <!-- バックアップ（コピペ運用） -->
+  <section class="card">
+    <div class="section-title">バックアップ（コピペ保存 / Joplin向け）</div>
+
+    <p class="muted">
+      「バックアップJSONを生成」で全データを取得し、Joplinへ貼り付けて保存してください。<br>
+      インポートは<strong>全置き換え</strong>です（地域/店舗/人物/利用ログが丸ごと入れ替わります）。
+    </p>
+
+    <h3>バックアップJSONを取得（コピー用）</h3>
+    <div class="form-row">
+      <button type="button" class="btn-primary" id="kb_backup_generate">バックアップJSONを生成</button>
+      <button type="button" class="btn-secondary" id="kb_backup_copy" disabled>コピー</button>
+      <a class="btn-secondary" href="/kb/export" target="_blank" rel="noopener noreferrer">別タブで開く</a>
+    </div>
+    <div class="form-row">
+      <textarea id="kb_backup_text" rows="10" readonly placeholder="ここにバックアップJSONが表示されます（生成ボタンを押してください）"></textarea>
+    </div>
+    <div id="kb_backup_msg" class="muted"></div>
+
+    <hr>
+
+    <h3>インポート（貼り付け / 全置き換え）</h3>
+    <form method="post" action="/kb/import"
+          onsubmit="return confirm('インポートを実行します。現在のKBデータは全て削除され、貼り付けたバックアップで置き換わります。よろしいですか？');">
+      <input type="hidden" name="mode" value="replace">
+
+      <div class="form-row">
+        <label class="muted">バックアップJSON：</label>
+      </div>
+      <div class="form-row">
+        <textarea name="payload_json" rows="10" placeholder="ここにバックアップJSONを貼り付けてください"></textarea>
+      </div>
+
+      <div class="form-row">
+        <label>
+          <input id="kb_import_check" type="checkbox" name="confirm_check" value="1">
+          全置き換え（全削除→復元）を理解しました
+        </label>
+      </div>
+
+      <div class="form-row">
+        <button id="kb_import_btn" type="submit" class="btn-secondary" disabled>インポートを実行</button>
+      </div>
+    </form>
+
+    <script>
+      (function () {
+        const btnGen = document.getElementById("kb_backup_generate");
+        const btnCopy = document.getElementById("kb_backup_copy");
+        const ta = document.getElementById("kb_backup_text");
+        const msg = document.getElementById("kb_backup_msg");
+
+        const importChk = document.getElementById("kb_import_check");
+        const importBtn = document.getElementById("kb_import_btn");
+
+        if (importChk && importBtn) {
+          const sync = () => { importBtn.disabled = !importChk.checked; };
+          importChk.addEventListener("change", sync);
+          sync();
+        }
+
+        if (!btnGen || !btnCopy || !ta) return;
+
+        const setMsg = (t) => { if (msg) msg.textContent = t || ""; };
+
+        btnGen.addEventListener("click", async function () {
+          setMsg("");
+          btnGen.disabled = true;
+          btnCopy.disabled = true;
+          const orig = btnGen.textContent;
+          btnGen.textContent = "生成中...";
+
+          try {
+            const res = await fetch("/kb/export", { headers: { "Accept": "application/json" } });
+            if (!res.ok) throw new Error("export_failed");
+            const data = await res.json();
+            const text = JSON.stringify(data, null, 2);
+            ta.value = text;
+            ta.scrollTop = 0;
+            btnCopy.disabled = !text;
+            setMsg("生成しました。Joplinに貼り付けて保存してください。");
+          } catch (e) {
+            ta.value = "";
+            btnCopy.disabled = true;
+            setMsg("バックアップの取得に失敗しました。別タブで /kb/export を開いてコピーしてください。");
+          } finally {
+            btnGen.disabled = false;
+            btnGen.textContent = orig;
+          }
+        });
+
+        btnCopy.addEventListener("click", async function () {
+          const text = ta.value || "";
+          if (!text) return;
+
+          try {
+            if (navigator.clipboard && window.isSecureContext) {
+              await navigator.clipboard.writeText(text);
+              setMsg("コピーしました。");
+              return;
+            }
+          } catch (e) {
+            // fallbackへ
+          }
+
+          try {
+            ta.focus();
+            ta.select();
+            const ok = document.execCommand("copy");
+            setMsg(ok ? "コピーしました。" : "コピーに失敗しました。手動で選択してコピーしてください。");
+          } catch (e) {
+            setMsg("コピーに失敗しました。手動で選択してコピーしてください。");
+          }
+        });
+      })();
+    </script>
   </section>
 </main>
 
