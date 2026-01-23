@@ -1,4 +1,4 @@
-{# 005 #}
+{# 006 #}
 {% set page_title_suffix = "KB - 店舗" %}
 {% set body_class = "page-kb" %}
 {% set active_page = "kb" %}
@@ -34,11 +34,30 @@
     <h2>人物一覧（{{ persons|length }}人）</h2>
 
     {% if persons %}
-      <div class="thread-results">
+      <!-- 並び替え（クライアント側・再読み込みなし） -->
+      <div class="form-row kb-person-sort-row">
+        <label>並び替え：</label>
+        <select id="kb_person_sort">
+          <option value="name" selected>名前順</option>
+          <option value="height">身長が低い順</option>
+          <option value="cup">カップが大きい順</option>
+          <option value="age">年齢が低い順</option>
+          <option value="price">価格が安い順</option>
+          <option value="rating">評価が高い順</option>
+        </select>
+      </div>
+
+      <div class="thread-results" id="kb_person_results">
         {% for p in persons %}
           {% set avg = (rating_avg_map or {}).get(p.id) %}
           {% set avg_amt = (amount_avg_map or {}).get(p.id) %}
-          <div class="result kb-person-result">
+          <div class="result kb-person-result"
+               data-sort-name="{{ (p.name or '')|e }}"
+               data-sort-rating="{{ avg if avg is not none else '' }}"
+               data-sort-cup="{{ (p.cup or '')|e }}"
+               data-sort-height="{{ p.height_cm if p.height_cm else '' }}"
+               data-sort-price="{{ avg_amt if avg_amt is not none else '' }}"
+               data-sort-age="{{ p.age if p.age else '' }}">
             {%- set thumb = (p.image_urls[0] if p.image_urls and (p.image_urls|length) > 0 else "") -%}
             {%- if thumb -%}
             <a href="/kb/person/{{ p.id }}">
@@ -46,7 +65,6 @@
             </a>
             {%- endif -%}
             <div class="kb-person-result-text">
-            <!-- ここに「名前／サービス／年齢／身長…」の行 -->
               <div class="result-id">
                 <a href="/kb/person/{{ p.id }}">{{ p.name }}</a><!-- 空白対策
                 --><span class="muted">
