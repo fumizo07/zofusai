@@ -1,4 +1,4 @@
-{# 013 #}
+{# 014 #}
 {# templates/kb_person.html #}
 {% set page_title_suffix = "KB - 人物" %}
 {% set body_class = "page-kb" %}
@@ -199,6 +199,19 @@
       <div class="kb-price-box" data-price-items>
         <input type="hidden" name="price_items_json" value="[]">
 
+        <div class="kb-price-actions kb-price-actions-gap">
+          <span class="muted">テンプレ：</span>
+          <select class="kb-input-sm kb-select" data-price-template>
+            <option value="">（選択）</option>
+            <option value='[{"label":"基本","amount":0}]'>基本</option>
+            <option value='[{"label":"基本","amount":0},{"label":"延長","amount":0}]'>基本＋延長</option>
+            <option value='[{"label":"基本","amount":0},{"label":"指名","amount":0},{"label":"オプション","amount":0}]'>基本＋指名＋オプション</option>
+            <option value='[{"label":"交通費","amount":0},{"label":"オプション","amount":0}]'>交通費＋オプション</option>
+          </select>
+          <button type="button" class="btn-secondary" data-price-template-apply>適用</button>
+          <button type="button" class="btn-secondary" data-price-template-clear>クリア</button>
+        </div>
+
         <table class="kb-price-table">
           <thead>
             <tr>
@@ -324,7 +337,21 @@
               <div class="section-title-small">料金明細</div>
 
               <div class="kb-price-box" data-price-items>
-                <input type="hidden" name="price_items_json" value="[]">
+                {# 安全策：JSが死んでも明細が消えないよう、既存値を初期値に入れる #}
+                <input type="hidden" name="price_items_json" value='{{ (v.price_items or [])|tojson }}'>
+
+                <div class="kb-price-actions kb-price-actions-gap">
+                  <span class="muted">テンプレ：</span>
+                  <select class="kb-input-sm kb-select" data-price-template>
+                    <option value="">（選択）</option>
+                    <option value='[{"label":"基本","amount":0}]'>基本</option>
+                    <option value='[{"label":"基本","amount":0},{"label":"延長","amount":0}]'>基本＋延長</option>
+                    <option value='[{"label":"基本","amount":0},{"label":"指名","amount":0},{"label":"オプション","amount":0}]'>基本＋指名＋オプション</option>
+                    <option value='[{"label":"交通費","amount":0},{"label":"オプション","amount":0}]'>交通費＋オプション</option>
+                  </select>
+                  <button type="button" class="btn-secondary" data-price-template-apply>適用</button>
+                  <button type="button" class="btn-secondary" data-price-template-clear>クリア</button>
+                </div>
 
                 <table class="kb-price-table">
                   <thead>
