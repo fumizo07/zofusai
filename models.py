@@ -1,4 +1,4 @@
-# 008
+# 009
 # models.py
 from datetime import datetime
 
@@ -258,7 +258,7 @@ class KBPriceTemplate(Base):
     items = Column(JSON, nullable=False)
 
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
-    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     __table_args__ = (
         UniqueConstraint("store_id", "name", name="uq_kb_price_templates_store_name"),
