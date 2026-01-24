@@ -1,4 +1,4 @@
-{# 006 #}
+{# 007 #}
 {% set page_title_suffix = "KB - 店舗" %}
 {% set body_class = "page-kb" %}
 {% set active_page = "kb" %}
@@ -34,7 +34,8 @@
     <h2>人物一覧（{{ persons|length }}人）</h2>
 
     {% if persons %}
-      <!-- 並び替え（クライアント側・再読み込みなし） -->
+      <!-- 並び替え（クライアント側・再読み込みなし）
+           ※実装は static/function.js の initKbPersonSearchSort() -->
       <div class="form-row kb-person-sort-row">
         <label>並び替え：</label>
         <select id="kb_person_sort">
