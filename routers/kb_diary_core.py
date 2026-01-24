@@ -3,32 +3,22 @@
 from __future__ import annotations
 
 import gzip
+import importlib
 import re
 import time
 import urllib.error
 import urllib.request
 from datetime import datetime, timedelta, timezone
 from io import BytesIO
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urlencode, urlparse
 
-try:
-    # SQLAlchemyがある前提（型だけ使う）
-    from sqlalchemy.orm import Session  # type: ignore
-except Exception:  # pragma: no cover
-    Session = object  # type: ignore
 
 # =========================
-# 写メ日記 NEWチェック（DB版）Core
-# - 追跡対象: track == True のみ
-# - latest_ts はサーバが取得し、DBに保存（TTL/intervalで再取得を抑制）
-# - seen_ts はDBに保存（クリックで既読化）
-# - 仕様B: seen_ts が未設定(None)の場合、初回取得時に seen_ts=latest_ts で初期化し NEWを出さない
-#
-# ★互換方針：
-# - (A) KBPersonに diary_* 列があるならそれを使う
-# - (B) models に KBDiaryState があるならそれを使う（person_id 1:1）
-# - 両方ある場合は「KBDiaryState優先」
+# 写メ日記 NEWチェック（コア）
+# - 外部HTMLから「最新日記の日時」を推測して epoch(ms) にする
+# - ホスト制限 / gzip制限 / メモリキャッシュ
+# - DB state は「KBPerson列」または「KBDiaryState」互換で扱う
 # =========================
 
 JST = timezone(timedelta(hours=9))
@@ -38,8 +28,8 @@ _DIARY_CACHE_TTL_SEC = 10 * 60  # 10分（HTTP取得結果のメモリキャッ�
 _DIARY_MAX_BYTES = 1024 * 1024  # 1MB
 _DIARY_UA = "Mozilla/5.0 (compatible; PersonalSearchKB/1.0; +https://example.invalid)"
 
-# DBへの再チェック間隔（ここが「検索のたびに重い」を潰す本体）
-_DIARY_DB_RECHECK_INTERVAL_SEC = 2 * 60 * 60  # 2時間
+# DBへの再チェック間隔（2時間）
+_DIARY_DB_RECHECK_INTERVAL_SEC = 2 * 60 * 60
 
 # ざっくり安全策（オープンプロキシ化を避ける）
 _DIARY_ALLOWED_HOST_SUFFIXES = (
@@ -52,9 +42,44 @@ _DIARY_CACHE: Dict[str, Tuple[float, Optional[int], str]] = {}
 
 
 # ============================================================
-# 低レベル共通
+# 依存モデルの「ゆる解決」（プロジェクト構成が分からないので保険）
 # ============================================================
-def parse_ids_csv(raw: str, limit: int = 30) -> List[int]:
+def _try_import_attr(module_path: str, attr: str) -> Optional[Any]:
+    try:
+        mod = importlib.import_module(module_path)
+        return getattr(mod, attr, None)
+    except Exception:
+        return None
+
+
+def resolve_kb_diary_state_model() -> Optional[Any]:
+    """
+    KBDiaryState の import パスが環境により違う前提で、よくある候補を試します。
+    見つからない場合は None（= state無効扱い）にします。
+    """
+    candidates = [
+        ("models", "KBDiaryState"),
+        ("models.kb", "KBDiaryState"),
+        ("app.models", "KBDiaryState"),
+        ("app.models.kb", "KBDiaryState"),
+        ("db.models", "KBDiaryState"),
+        ("database.models", "KBDiaryState"),
+    ]
+    for m, a in candidates:
+        obj = _try_import_attr(m, a)
+        if obj is not None:
+            return obj
+    return None
+
+
+# グローバルに解決しておく（見つからなければ None）
+KBDiaryState = resolve_kb_diary_state_model()
+
+
+# ============================================================
+# ユーティリティ
+# ============================================================
+def _parse_ids_csv(raw: str, limit: int = 30) -> List[int]:
     out: List[int] = []
     if not raw:
         return out
@@ -76,7 +101,7 @@ def parse_ids_csv(raw: str, limit: int = 30) -> List[int]:
     return out
 
 
-def is_allowed_diary_url(url: str) -> bool:
+def _is_allowed_diary_url(url: str) -> bool:
     try:
         u = urlparse(url)
     except Exception:
@@ -92,7 +117,7 @@ def is_allowed_diary_url(url: str) -> bool:
     return False
 
 
-def gzip_decompress_limited(raw: bytes, limit: int) -> bytes:
+def _gzip_decompress_limited(raw: bytes, limit: int) -> bytes:
     """
     gzip 展開時の“膨張”に上限をかける（zip爆弾対策）。
     - 展開後 limit bytes までしか読まない
@@ -110,7 +135,7 @@ def gzip_decompress_limited(raw: bytes, limit: int) -> bytes:
         return raw
 
 
-def http_get_text(url: str, timeout_sec: int = _DIARY_HTTP_TIMEOUT_SEC) -> str:
+def _http_get_text(url: str, timeout_sec: int = _DIARY_HTTP_TIMEOUT_SEC) -> str:
     req = urllib.request.Request(
         url,
         headers={
@@ -132,7 +157,7 @@ def http_get_text(url: str, timeout_sec: int = _DIARY_HTTP_TIMEOUT_SEC) -> str:
             enc = ""
 
         if "gzip" in enc:
-            raw = gzip_decompress_limited(raw, _DIARY_MAX_BYTES)
+            raw = _gzip_decompress_limited(raw, _DIARY_MAX_BYTES)
 
         charset = "utf-8"
         try:
@@ -149,7 +174,7 @@ def http_get_text(url: str, timeout_sec: int = _DIARY_HTTP_TIMEOUT_SEC) -> str:
             return raw.decode("utf-8", errors="replace")
 
 
-def infer_year_for_md(month: int, day: int, now_jst: datetime) -> int:
+def _infer_year_for_md(month: int, day: int, now_jst: datetime) -> int:
     """
     年が無い "M/D" や "M月D日" を現在年で補完しつつ、
     未来になりすぎる場合は前年扱いに寄せる。
@@ -165,7 +190,7 @@ def infer_year_for_md(month: int, day: int, now_jst: datetime) -> int:
     return y
 
 
-def extract_latest_diary_dt(html: str) -> Optional[datetime]:
+def _extract_latest_diary_dt(html: str) -> Optional[datetime]:
     if not html:
         return None
 
@@ -175,7 +200,7 @@ def extract_latest_diary_dt(html: str) -> Optional[datetime]:
     if idx < 0:
         idx = scope.find("日記")
     if idx >= 0:
-        scope = scope[idx : idx + 200000]
+        scope = scope[idx: idx + 200000]
     else:
         scope = scope[:200000]
 
@@ -241,7 +266,7 @@ def extract_latest_diary_dt(html: str) -> Optional[datetime]:
             d = int(m.group(2))
             hh = int(m.group(3))
             mm = int(m.group(4))
-            y = infer_year_for_md(mo, d, now_jst)
+            y = _infer_year_for_md(mo, d, now_jst)
             upd(datetime(y, mo, d, hh, mm, tzinfo=JST))
         except Exception:
             continue
@@ -253,7 +278,7 @@ def extract_latest_diary_dt(html: str) -> Optional[datetime]:
             d = int(m.group(2))
             hh = int(m.group(3))
             mm = int(m.group(4))
-            y = infer_year_for_md(mo, d, now_jst)
+            y = _infer_year_for_md(mo, d, now_jst)
             upd(datetime(y, mo, d, hh, mm, tzinfo=JST))
         except Exception:
             continue
@@ -284,7 +309,7 @@ def extract_latest_diary_dt(html: str) -> Optional[datetime]:
             try:
                 mo = int(m.group(1))
                 d = int(m.group(2))
-                y = infer_year_for_md(mo, d, now_jst)
+                y = _infer_year_for_md(mo, d, now_jst)
                 upd(datetime(y, mo, d, 0, 0, tzinfo=JST))
             except Exception:
                 continue
@@ -293,7 +318,7 @@ def extract_latest_diary_dt(html: str) -> Optional[datetime]:
             try:
                 mo = int(m.group(1))
                 d = int(m.group(2))
-                y = infer_year_for_md(mo, d, now_jst)
+                y = _infer_year_for_md(mo, d, now_jst)
                 upd(datetime(y, mo, d, 0, 0, tzinfo=JST))
             except Exception:
                 continue
@@ -301,14 +326,14 @@ def extract_latest_diary_dt(html: str) -> Optional[datetime]:
     return best
 
 
-def dt_to_epoch_ms(dt: datetime) -> int:
+def _dt_to_epoch_ms(dt: datetime) -> int:
     try:
         return int(dt.timestamp() * 1000)
     except Exception:
         return 0
 
 
-def get_latest_diary_ts_ms(person_url: str) -> Tuple[Optional[int], str]:
+def _get_latest_diary_ts_ms(person_url: str) -> Tuple[Optional[int], str]:
     """
     戻り: (latest_ts_ms or None, err)
     - None の場合は取得不能
@@ -316,7 +341,7 @@ def get_latest_diary_ts_ms(person_url: str) -> Tuple[Optional[int], str]:
     url = (person_url or "").strip()
     if not url:
         return None, "url_empty"
-    if not is_allowed_diary_url(url):
+    if not _is_allowed_diary_url(url):
         return None, "unsupported_host"
 
     now_m = time.monotonic()
@@ -327,12 +352,12 @@ def get_latest_diary_ts_ms(person_url: str) -> Tuple[Optional[int], str]:
             return latest_ts, err
 
     try:
-        html = http_get_text(url, timeout_sec=_DIARY_HTTP_TIMEOUT_SEC)
-        dt = extract_latest_diary_dt(html)
+        html = _http_get_text(url, timeout_sec=_DIARY_HTTP_TIMEOUT_SEC)
+        dt = _extract_latest_diary_dt(html)
         if not dt:
             _DIARY_CACHE[url] = (now_m, None, "no_datetime_found")
             return None, "no_datetime_found"
-        ts = dt_to_epoch_ms(dt)
+        ts = _dt_to_epoch_ms(dt)
         if ts <= 0:
             _DIARY_CACHE[url] = (now_m, None, "bad_datetime")
             return None, "bad_datetime"
@@ -347,25 +372,26 @@ def get_latest_diary_ts_ms(person_url: str) -> Tuple[Optional[int], str]:
         return None, "fetch_error"
 
 
-# ============================================================
-# URL生成（フォールバック用）
-# ============================================================
-def build_google_search_url(query: str) -> str:
+def _build_google_search_url(query: str) -> str:
     q = (query or "").strip()
     if not q:
         return ""
     return "https://www.google.com/search?" + urlencode({"q": q})
 
 
-def build_google_site_search_url(domain: str, query: str) -> str:
+def _build_google_site_search_url(domain: str, query: str) -> str:
     d = (domain or "").strip()
     q = (query or "").strip()
     if not d or not q:
         return ""
-    return build_google_search_url(f"site:{d} {q}")
+    return _build_google_search_url(f"site:{d} {q}")
 
 
-def build_diary_open_url_from_maps(person, store=None, region=None) -> str:
+def _build_diary_open_url_from_maps(
+    person: Any,
+    store: Optional[Any],
+    region: Optional[Any],
+) -> str:
     """
     NEWクリック時に飛ばす先（DB問い合わせしない版）。
     - person.url があればそれを優先
@@ -373,37 +399,35 @@ def build_diary_open_url_from_maps(person, store=None, region=None) -> str:
     """
     pu = ""
     try:
-        if hasattr(person, "url"):
-            pu = (getattr(person, "url", "") or "").strip()
+        pu = (getattr(person, "url", "") or "").strip()
     except Exception:
         pu = ""
-
     if pu:
         return pu
 
     parts: List[str] = []
     try:
-        if region is not None and getattr(region, "name", None):
+        if region and getattr(region, "name", None):
             parts.append(str(region.name))
     except Exception:
         pass
     try:
-        if store is not None and getattr(store, "name", None):
+        if store and getattr(store, "name", None):
             parts.append(str(store.name))
     except Exception:
         pass
     try:
-        if person is not None and getattr(person, "name", None):
+        if person and getattr(person, "name", None):
             parts.append(str(person.name))
     except Exception:
         pass
 
     parts.append("写メ日記")
     q = " ".join([x for x in parts if x]).strip()
-    return build_google_search_url(q)
+    return _build_google_search_url(q)
 
 
-def bool_from_form(v: str) -> bool:
+def _bool_from_form(v: str) -> bool:
     s = (v or "").strip().lower()
     return s in ("1", "true", "on", "yes")
 
@@ -411,14 +435,18 @@ def bool_from_form(v: str) -> bool:
 # ============================================================
 # diary state helpers（KBPerson列 or KBDiaryState）
 # ============================================================
-def safe_bool(v) -> bool:
+def _diary_state_enabled() -> bool:
+    return KBDiaryState is not None
+
+
+def _safe_bool(v: Any) -> bool:
     try:
         return bool(v)
     except Exception:
         return False
 
 
-def safe_int(v) -> Optional[int]:
+def _safe_int(v: Any) -> Optional[int]:
     if v is None:
         return None
     try:
@@ -427,19 +455,15 @@ def safe_int(v) -> Optional[int]:
         return None
 
 
-def diary_state_enabled(KBDiaryStateModel) -> bool:
-    return KBDiaryStateModel is not None
-
-
-def get_diary_state_map(db: Session, KBDiaryStateModel, person_ids: List[int]) -> Dict[int, object]:
+def _get_diary_state_map(db: Any, person_ids: List[int]) -> Dict[int, Any]:
     """
     person_id -> state_obj
     """
-    out: Dict[int, object] = {}
-    if not diary_state_enabled(KBDiaryStateModel) or not person_ids:
+    out: Dict[int, Any] = {}
+    if not _diary_state_enabled() or not person_ids:
         return out
     try:
-        rows = db.query(KBDiaryStateModel).filter(KBDiaryStateModel.person_id.in_(person_ids)).all()  # type: ignore
+        rows = db.query(KBDiaryState).filter(KBDiaryState.person_id.in_(person_ids)).all()  # type: ignore
         for st in rows:
             pid = getattr(st, "person_id", None)
             if pid is None:
@@ -450,23 +474,18 @@ def get_diary_state_map(db: Session, KBDiaryStateModel, person_ids: List[int]) -
     return out
 
 
-def get_or_create_diary_state(
-    db: Session,
-    KBDiaryStateModel,
-    state_map: Dict[int, object],
-    person_id: int,
-) -> Optional[object]:
-    if not diary_state_enabled(KBDiaryStateModel):
+def _get_or_create_diary_state(db: Any, state_map: Dict[int, Any], person_id: int) -> Optional[Any]:
+    if not _diary_state_enabled():
         return None
     pid = int(person_id)
     st = state_map.get(pid)
     if st is not None:
         return st
     try:
-        st = KBDiaryStateModel(person_id=pid)  # type: ignore
+        st = KBDiaryState(person_id=pid)  # type: ignore
     except Exception:
         try:
-            st = KBDiaryStateModel()  # type: ignore
+            st = KBDiaryState()  # type: ignore
             if hasattr(st, "person_id"):
                 setattr(st, "person_id", pid)
         except Exception:
@@ -479,17 +498,17 @@ def get_or_create_diary_state(
     return st
 
 
-def get_person_diary_track(person, st: Optional[object] = None) -> bool:
+def _get_person_diary_track(p: Any, st: Optional[Any] = None) -> bool:
     # state優先
     if st is not None and hasattr(st, "track"):
-        return safe_bool(getattr(st, "track", False))
-    if hasattr(person, "diary_track"):
-        return safe_bool(getattr(person, "diary_track", False))
+        return _safe_bool(getattr(st, "track", False))
+    if hasattr(p, "diary_track"):
+        return _safe_bool(getattr(p, "diary_track", False))
     # 列がまだ無い間は「従来挙動」を保つ（壊さない）
     return True
 
 
-def set_person_diary_track(person, track: bool, st: Optional[object] = None) -> bool:
+def _set_person_diary_track(p: Any, track: bool, st: Optional[Any] = None) -> bool:
     changed = False
     if st is not None and hasattr(st, "track"):
         try:
@@ -497,28 +516,28 @@ def set_person_diary_track(person, track: bool, st: Optional[object] = None) -> 
             changed = True
         except Exception:
             pass
-    elif hasattr(person, "diary_track"):
+    elif hasattr(p, "diary_track"):
         try:
-            setattr(person, "diary_track", bool(track))
+            setattr(p, "diary_track", bool(track))
             changed = True
         except Exception:
             pass
     return changed
 
 
-def get_person_diary_latest_ts(person, st: Optional[object] = None) -> Optional[int]:
+def _get_person_diary_latest_ts(p: Any, st: Optional[Any] = None) -> Optional[int]:
     if st is not None:
         for k in ("latest_ts_ms", "diary_latest_ts_ms", "latest_ts", "diary_latest_ts"):
             if hasattr(st, k):
-                return safe_int(getattr(st, k, None))
+                return _safe_int(getattr(st, k, None))
     for k in ("diary_latest_ts_ms", "diary_latest_ts"):
-        if hasattr(person, k):
-            return safe_int(getattr(person, k, None))
+        if hasattr(p, k):
+            return _safe_int(getattr(p, k, None))
     return None
 
 
-def set_person_diary_latest_ts(person, ts: Optional[int], st: Optional[object] = None) -> bool:
-    ts_i = safe_int(ts)
+def _set_person_diary_latest_ts(p: Any, ts: Optional[int], st: Optional[Any] = None) -> bool:
+    ts_i = _safe_int(ts)
     changed = False
 
     if st is not None:
@@ -534,9 +553,9 @@ def set_person_diary_latest_ts(person, ts: Optional[int], st: Optional[object] =
             return True
 
     for k in ("diary_latest_ts_ms", "diary_latest_ts"):
-        if hasattr(person, k):
+        if hasattr(p, k):
             try:
-                setattr(person, k, ts_i)
+                setattr(p, k, ts_i)
                 changed = True
             except Exception:
                 pass
@@ -544,19 +563,19 @@ def set_person_diary_latest_ts(person, ts: Optional[int], st: Optional[object] =
     return changed
 
 
-def get_person_diary_seen_ts(person, st: Optional[object] = None) -> Optional[int]:
+def _get_person_diary_seen_ts(p: Any, st: Optional[Any] = None) -> Optional[int]:
     if st is not None:
         for k in ("seen_ts_ms", "diary_seen_ts_ms", "seen_ts", "diary_seen_ts"):
             if hasattr(st, k):
-                return safe_int(getattr(st, k, None))
+                return _safe_int(getattr(st, k, None))
     for k in ("diary_seen_ts_ms", "diary_seen_ts"):
-        if hasattr(person, k):
-            return safe_int(getattr(person, k, None))
+        if hasattr(p, k):
+            return _safe_int(getattr(p, k, None))
     return None
 
 
-def set_person_diary_seen_ts(person, ts: Optional[int], st: Optional[object] = None) -> bool:
-    ts_i = safe_int(ts)
+def _set_person_diary_seen_ts(p: Any, ts: Optional[int], st: Optional[Any] = None) -> bool:
+    ts_i = _safe_int(ts)
     changed = False
 
     if st is not None:
@@ -572,9 +591,9 @@ def set_person_diary_seen_ts(person, ts: Optional[int], st: Optional[object] = N
             return True
 
     for k in ("diary_seen_ts_ms", "diary_seen_ts"):
-        if hasattr(person, k):
+        if hasattr(p, k):
             try:
-                setattr(person, k, ts_i)
+                setattr(p, k, ts_i)
                 changed = True
             except Exception:
                 pass
@@ -582,7 +601,7 @@ def set_person_diary_seen_ts(person, ts: Optional[int], st: Optional[object] = N
     return changed
 
 
-def get_person_diary_checked_at(person, st: Optional[object] = None) -> Optional[datetime]:
+def _get_person_diary_checked_at(p: Any, st: Optional[Any] = None) -> Optional[datetime]:
     if st is not None:
         for k in ("checked_at", "diary_checked_at", "last_checked_at"):
             if hasattr(st, k):
@@ -590,15 +609,15 @@ def get_person_diary_checked_at(person, st: Optional[object] = None) -> Optional
                     return getattr(st, k, None)
                 except Exception:
                     return None
-    if hasattr(person, "diary_checked_at"):
+    if hasattr(p, "diary_checked_at"):
         try:
-            return getattr(person, "diary_checked_at", None)
+            return getattr(p, "diary_checked_at", None)
         except Exception:
             return None
     return None
 
 
-def set_person_diary_checked_at(person, dt: Optional[datetime], st: Optional[object] = None) -> bool:
+def _set_person_diary_checked_at(p: Any, dt: Optional[datetime], st: Optional[Any] = None) -> bool:
     if st is not None:
         for k in ("checked_at", "diary_checked_at", "last_checked_at"):
             if hasattr(st, k):
@@ -607,9 +626,9 @@ def set_person_diary_checked_at(person, dt: Optional[datetime], st: Optional[obj
                     return True
                 except Exception:
                     return False
-    if hasattr(person, "diary_checked_at"):
+    if hasattr(p, "diary_checked_at"):
         try:
-            setattr(person, "diary_checked_at", dt)
+            setattr(p, "diary_checked_at", dt)
             return True
         except Exception:
             return False
@@ -617,19 +636,7 @@ def set_person_diary_checked_at(person, dt: Optional[datetime], st: Optional[obj
 
 
 # ============================================================
-# re-check 判定（ルーター側から使う用）
+# 外部公開して使う用の“設定値”も出しておく（API側で使う）
 # ============================================================
-def should_recheck_db(checked_at: Optional[datetime], now: Optional[datetime] = None) -> bool:
-    """
-    DB再チェックの要否。
-    - checked_at が無い → チェックする
-    - 2時間以内 → チェックしない
-    """
-    if checked_at is None:
-        return True
-    now_dt = now or datetime.now(JST)
-    try:
-        age = (now_dt - checked_at).total_seconds()
-    except Exception:
-        return True
-    return age >= float(_DIARY_DB_RECHECK_INTERVAL_SEC)
+def diary_db_recheck_interval_sec() -> int:
+    return int(_DIARY_DB_RECHECK_INTERVAL_SEC)
