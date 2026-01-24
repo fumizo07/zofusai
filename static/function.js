@@ -1,4 +1,4 @@
-// 008
+// 009
 // static/function.js
 (() => {
   "use strict";
@@ -381,8 +381,9 @@
   }
 
   // ============================================================
-  // KB：写メ日記 NEW バッジ（クリックで既読→消える）
+  // KB：写メ日記 NEW バッジ（点灯：API / クリックで既読→消える）
   // ============================================================
+  const DIARY_STATUS_API = "/kb/api/diary_status";
   const DIARY_SEEN_API = "/kb/api/diary_seen";
 
   function diarySeenKey(personId) {
@@ -408,7 +409,6 @@
         try { return localStorage.getItem(key) || ""; } catch (_) { return ""; }
       })();
       const diaryKey = a.getAttribute("data-diary-key") || "";
-      // diaryKey がある場合は一致で既読扱い。無い場合は「何でも既読」にはしない。
       if (diaryKey && stored && stored === diaryKey) {
         hideDiaryBadges(pid);
       }
@@ -416,27 +416,106 @@
   }
 
   async function markDiarySeen(personId, diaryKey) {
-    // UX優先：先にローカルに記録して消す（通信失敗でも次回は消えやすい）
     if (diaryKey) {
       try { localStorage.setItem(diarySeenKey(personId), String(diaryKey)); } catch (_) {}
     }
 
-    // サーバ側の既読も付ける（NEWの再表示を止めるために必要）
     try {
       await fetch(DIARY_SEEN_API, {
         method: "POST",
         credentials: "same-origin",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ person_id: Number(personId) }),
+        body: JSON.stringify({ person_id: Number(personId), diary_key: String(diaryKey || "") }),
         keepalive: true,
       });
-    } catch (_) {
-      // 失敗しても画面側は消してOK（サーバ実装後に安定します）
+    } catch (_) {}
+  }
+
+  function createNewBadge(personId, diaryUrl, diaryKey) {
+    const a = document.createElement("a");
+    a.href = diaryUrl;
+    a.className = "kb-diary-new";
+    a.setAttribute("data-kb-diary-new", "1");
+    a.setAttribute("data-person-id", String(personId));
+    a.setAttribute("data-diary-key", String(diaryKey || ""));
+    a.target = "_blank";
+    a.rel = "noopener noreferrer";
+    a.textContent = "NEW";
+    return a;
+  }
+
+  async function fetchDiaryStatusAndRender() {
+    const slots = Array.from(document.querySelectorAll("[data-kb-diary-slot][data-person-id][data-diary-url]"));
+    if (!slots.length) return;
+
+    // person_id ごとに1回だけ問い合わせ
+    const uniq = new Map(); // pid -> {pid, url}
+    slots.forEach((s) => {
+      const pid = parseInt(String(s.getAttribute("data-person-id") || "0"), 10);
+      const url = String(s.getAttribute("data-diary-url") || "").trim();
+      if (!Number.isFinite(pid) || pid <= 0) return;
+      if (!url) return;
+      if (!uniq.has(pid)) uniq.set(pid, { person_id: pid, diary_url: url });
+    });
+
+    const items = Array.from(uniq.values());
+    if (!items.length) return;
+
+    let data = null;
+    try {
+      const res = await fetch(DIARY_STATUS_API, {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ items }),
+      });
+      if (!res.ok) return;
+      data = await res.json();
+    } catch (e) {
+      return;
     }
+
+    if (!data || !data.ok || !Array.isArray(data.items)) return;
+
+    // is_new のものだけ差し込み
+    const byId = new Map();
+    data.items.forEach((it) => {
+      const pid = Number(it?.person_id || 0);
+      if (!Number.isFinite(pid) || pid <= 0) return;
+      byId.set(pid, it);
+    });
+
+    slots.forEach((slot) => {
+      const pid = parseInt(String(slot.getAttribute("data-person-id") || "0"), 10);
+      const url = String(slot.getAttribute("data-diary-url") || "").trim();
+      if (!pid || !url) return;
+
+      const st = byId.get(pid);
+      if (!st) return;
+
+      const diaryKey = String(st.diary_key || "");
+      const isNew = !!st.is_new;
+
+      // 既にバッジがある場合は二重に作らない
+      const already = slot.querySelector("[data-kb-diary-new]");
+      if (already) return;
+
+      if (isNew && diaryKey) {
+        const badge = createNewBadge(pid, url, diaryKey);
+        slot.appendChild(badge);
+      }
+    });
+
+    // ローカル既読があれば消す（動的生成分も含む）
+    applyDiarySeenFromLocalStorage();
   }
 
   function initKbDiaryNewBadges() {
+    // 既存バッジがあれば先に既読反映
     applyDiarySeenFromLocalStorage();
+
+    // ★点灯（API問い合わせ→NEW挿入）
+    fetchDiaryStatusAndRender();
 
     document.addEventListener("click", (e) => {
       const a = e.target?.closest?.("[data-kb-diary-new]");
@@ -447,16 +526,12 @@
 
       const diaryKey = a.getAttribute("data-diary-key") || "";
 
-      // クリックしたら即消す（同ページ上）
       hideDiaryBadges(pid);
-
-      // 既読通知（遷移しても送れるよう keepalive）
       markDiarySeen(pid, diaryKey);
-      // リンク遷移自体は止めない（target=_blank想定）
     }, true);
   }
 
-// ============================================================
+  // ============================================================
   // ★追加：KB パニックボタン（チェックONで有効化）
   // ============================================================
   function initKbPanicCheck() {
@@ -536,9 +611,7 @@
           setMsg("コピーしました。");
           return;
         }
-      } catch (e) {
-        // fallbackへ
-      }
+      } catch (e) {}
 
       try {
         ta.focus();
@@ -550,7 +623,7 @@
       }
     });
   }
-  
+
   // ============================================================
   // KB：料金項目（行追加＆合計＆hidden JSON）＋ テンプレ（DB + 端末ローカルの並び/使用回数）
   // （あなたの既存実装：そのまま）
@@ -1977,10 +2050,10 @@
     // KB
     initKbPersonSearchSort();
     initKbStarRating();
-    initKbDiaryNewBadges(); // ← NEWバッジ（今回追加）
+    initKbDiaryNewBadges();
     initKbPriceItems();
-    initKbPanicCheck();   // ← 追加
-    initKbBackupUi();     // ← 追加
+    initKbPanicCheck();
+    initKbBackupUi();
     initKbDuration();
   });
 })();
