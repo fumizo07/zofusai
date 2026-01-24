@@ -3,9 +3,13 @@ routers/external_search.py
 routers/init.py
 routers/internal_search.py
 routers/kb.py
-routers/kb_diary_api.py
-routers/kb_diary_core.py
-routers/kb_templates.py
+routers/kb_parts/__init__.py
+routers/kb_parts/backup.py
+routers/kb_parts/diary_api.py
+routers/kb_parts/diary_core.py
+routers/kb_parts/pages.py
+routers/kb_parts/price_templates_api.py
+routers/kb_parts/utils.py
 routers/threads.py
 static/base.css
 static/favicon.ico
