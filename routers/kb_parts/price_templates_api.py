@@ -1,8 +1,10 @@
-# 001
+# 002
 # routers/kb_parts/price_templates_api.py
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Optional
+
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
 from sqlalchemy import or_
@@ -10,6 +12,12 @@ from sqlalchemy.orm import Session
 
 from db import get_db
 from models import KBPriceTemplate
+
+# KBStore は環境によって未使用/未定義の可能性もゼロではないので安全に扱う
+try:
+    from models import KBStore  # type: ignore
+except Exception:
+    KBStore = None  # type: ignore
 
 from .utils import (
     parse_int,
@@ -19,8 +27,16 @@ from .utils import (
     reset_postgres_pk_sequence,
 )
 
-
 router = APIRouter()
+
+# 旧 kb_templates.py に合わせた上限（大量保存の事故防止）
+_MAX_TEMPLATES_PER_STORE = 200
+
+
+def _scope_filter_store_id(q, sid: Optional[int]):
+    if sid is None:
+        return q.filter(KBPriceTemplate.store_id.is_(None))
+    return q.filter(KBPriceTemplate.store_id == int(sid))
 
 
 @router.get("/kb/api/price_templates")
@@ -76,14 +92,18 @@ def kb_api_price_templates(
 
     items = []
     for t in rows:
+        created_at = getattr(t, "created_at", None)
+        updated_at = getattr(t, "updated_at", None)
         items.append(
             {
                 "id": int(getattr(t, "id")),
                 "store_id": getattr(t, "store_id", None),
                 "name": getattr(t, "name", "") or "",
                 "items": getattr(t, "items", None),
-                "created_at": utc_iso(getattr(t, "created_at", None)),
-                "updated_at": utc_iso(getattr(t, "updated_at", None)),
+                "created_at": utc_iso(created_at),
+                "updated_at": utc_iso(updated_at),
+                # 旧 kb_templates.py 互換フィールド（フロントがこれ前提でも壊れない）
+                "updated_at_utc": utc_iso(updated_at),
             }
         )
 
@@ -108,11 +128,21 @@ async def kb_api_price_templates_save(
         store_id = None
     sid = parse_int(store_id) if store_id is not None else None
 
+    # 旧仕様寄り：store_id が指定されているなら存在チェック
+    if sid is not None and KBStore is not None:
+        st = db.query(KBStore).filter(KBStore.id == int(sid)).first()
+        if not st:
+            return JSONResponse({"ok": False, "error": "store_not_found"}, status_code=404)
+
     name = sanitize_template_name(data.get("name", ""))
     if not name:
         return JSONResponse({"ok": False, "error": "name_required"}, status_code=400)
 
     items = sanitize_price_template_items(data.get("items", []))
+    # 旧 kb_templates.py と同様に「空はNG」
+    if not items:
+        return JSONResponse({"ok": False, "error": "items_empty"}, status_code=400)
+
     items_payload = items or None
 
     try:
@@ -127,6 +157,13 @@ async def kb_api_price_templates_save(
             if hasattr(obj, "updated_at"):
                 obj.updated_at = datetime.utcnow()
         else:
+            # 旧 kb_templates.py の上限を踏襲（事故防止）
+            cnt_q = db.query(KBPriceTemplate)
+            cnt_q = _scope_filter_store_id(cnt_q, int(sid) if sid is not None else None)
+            cnt = cnt_q.count()
+            if cnt >= _MAX_TEMPLATES_PER_STORE:
+                return JSONResponse({"ok": False, "error": "too_many_templates"}, status_code=400)
+
             obj = KBPriceTemplate(
                 store_id=int(sid) if sid is not None else None,
                 name=name,
@@ -139,8 +176,13 @@ async def kb_api_price_templates_save(
         db.commit()
         db.refresh(obj)
 
+        # 旧互換：id も返す（フロントが id 前提でも壊れない）
         return JSONResponse(
-            {"ok": True, "item": {"id": int(obj.id), "store_id": obj.store_id, "name": obj.name, "items": obj.items}}
+            {
+                "ok": True,
+                "id": int(obj.id),
+                "item": {"id": int(obj.id), "store_id": obj.store_id, "name": obj.name, "items": obj.items},
+            }
         )
     except Exception:
         db.rollback()
@@ -173,7 +215,9 @@ async def kb_api_price_templates_rename(
         return JSONResponse({"ok": False, "error": "not_found"}, status_code=404)
 
     if (getattr(obj, "name", "") or "") == new_name:
-        return JSONResponse({"ok": True, "item": {"id": int(obj.id), "store_id": obj.store_id, "name": obj.name, "items": obj.items}})
+        return JSONResponse(
+            {"ok": True, "item": {"id": int(obj.id), "store_id": obj.store_id, "name": obj.name, "items": obj.items}}
+        )
 
     sid = getattr(obj, "store_id", None)
     dup_q = db.query(KBPriceTemplate).filter(
@@ -190,7 +234,9 @@ async def kb_api_price_templates_rename(
             obj.updated_at = datetime.utcnow()
         db.commit()
         db.refresh(obj)
-        return JSONResponse({"ok": True, "item": {"id": int(obj.id), "store_id": obj.store_id, "name": obj.name, "items": obj.items}})
+        return JSONResponse(
+            {"ok": True, "item": {"id": int(obj.id), "store_id": obj.store_id, "name": obj.name, "items": obj.items}}
+        )
     except Exception:
         db.rollback()
         return JSONResponse({"ok": False, "error": "db_error"}, status_code=500)
@@ -245,6 +291,7 @@ async def kb_api_price_templates_delete(
     try:
         n = db.query(KBPriceTemplate).filter(KBPriceTemplate.id == int(tid)).delete(synchronize_session=False)
         db.commit()
+        # 旧互換：ok true だけ見てるフロントでもOK、deleted を見てる実装でもOK
         return JSONResponse({"ok": True, "deleted": int(n or 0)})
     except Exception:
         db.rollback()
