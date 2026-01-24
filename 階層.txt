@@ -4,6 +4,7 @@ routers/init.py
 routers/internal_search.py
 routers/kb.py
 routers/kb_diary_api.py
+routers/kb_diary_core.py
 routers/kb_templates.py
 routers/threads.py
 static/base.css
