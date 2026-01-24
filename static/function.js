@@ -381,7 +381,84 @@
   }
 
   // ============================================================
+  // KB：写メ日記 NEW バッジ（クリックで既読→消える）
+  // ============================================================
+  const DIARY_SEEN_API = "/kb/api/diary_seen";
+
+  function diarySeenKey(personId) {
+    return `kb_diary_seen_${String(personId)}`;
+  }
+
+  function hideDiaryBadges(personId) {
+    const nodes = document.querySelectorAll(`[data-kb-diary-new][data-person-id="${CSS.escape(String(personId))}"]`);
+    nodes.forEach((n) => {
+      try { n.remove(); } catch (_) { n.style.display = "none"; }
+    });
+  }
+
+  function applyDiarySeenFromLocalStorage() {
+    const badges = document.querySelectorAll("[data-kb-diary-new][data-person-id]");
+    if (!badges.length) return;
+
+    badges.forEach((a) => {
+      const pid = a.getAttribute("data-person-id");
+      if (!pid) return;
+      const key = diarySeenKey(pid);
+      const stored = (() => {
+        try { return localStorage.getItem(key) || ""; } catch (_) { return ""; }
+      })();
+      const diaryKey = a.getAttribute("data-diary-key") || "";
+      // diaryKey がある場合は一致で既読扱い。無い場合は「何でも既読」にはしない。
+      if (diaryKey && stored && stored === diaryKey) {
+        hideDiaryBadges(pid);
+      }
+    });
+  }
+
+  async function markDiarySeen(personId, diaryKey) {
+    // UX優先：先にローカルに記録して消す（通信失敗でも次回は消えやすい）
+    if (diaryKey) {
+      try { localStorage.setItem(diarySeenKey(personId), String(diaryKey)); } catch (_) {}
+    }
+
+    // サーバ側の既読も付ける（NEWの再表示を止めるために必要）
+    try {
+      await fetch(DIARY_SEEN_API, {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ person_id: Number(personId) }),
+        keepalive: true,
+      });
+    } catch (_) {
+      // 失敗しても画面側は消してOK（サーバ実装後に安定します）
+    }
+  }
+
+  function initKbDiaryNewBadges() {
+    applyDiarySeenFromLocalStorage();
+
+    document.addEventListener("click", (e) => {
+      const a = e.target?.closest?.("[data-kb-diary-new]");
+      if (!a) return;
+
+      const pid = a.getAttribute("data-person-id");
+      if (!pid) return;
+
+      const diaryKey = a.getAttribute("data-diary-key") || "";
+
+      // クリックしたら即消す（同ページ上）
+      hideDiaryBadges(pid);
+
+      // 既読通知（遷移しても送れるよう keepalive）
+      markDiarySeen(pid, diaryKey);
+      // リンク遷移自体は止めない（target=_blank想定）
+    }, true);
+  }
+
+  // ============================================================
   // KB：料金項目（行追加＆合計＆hidden JSON）＋ テンプレ（DB + 端末ローカルの並び/使用回数）
+  // （あなたの既存実装：そのまま）
   // ============================================================
   function getStoreIdFromPage() {
     const el = document.querySelector("[data-kb-store-id]");
@@ -1805,7 +1882,8 @@
     // KB
     initKbPersonSearchSort();
     initKbStarRating();
-    initKbPriceItems();   // ← テンプレ(並び/使用/移行)込み
+    initKbDiaryNewBadges(); // ← NEWバッジ（今回追加）
+    initKbPriceItems();
     initKbDuration();
   });
 })();
