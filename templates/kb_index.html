@@ -1,4 +1,4 @@
-{# 013 #}
+{# 014 #}
 {% set page_title_suffix = "KB" %}
 {% set body_class = "page-kb" %}
 {% set active_page = "kb" %}
@@ -21,12 +21,6 @@
 
 {% set import_status = import_status|default('') %}
 {% set import_error = import_error|default('') %}
-
-{# 写メ日記NEW表示用（サーバが渡さなくても落ちない） #}
-{% set diary_new_map = diary_new_map|default({}) %}
-{% set diary_key_map = diary_key_map|default({}) %}
-{# 初回はNEWを出さない（静かな運用）: サーバがtrueを渡した時だけ表示 #}
-{% set diary_show_new = diary_show_new|default(False) %}
 
 <main>
   <section class="card">
@@ -210,9 +204,6 @@
             {% set diary_url = '' %}
           {% endif %}
 
-          {% set is_new = (diary_new_map.get(p.id) if diary_new_map else False) %}
-          {% set diary_key = (diary_key_map.get(p.id) if diary_key_map else '') %}
-
           <div class="result kb-person-result"
                data-sort-name="{{ (p.name or '')|e }}"
                data-sort-rating="{{ avg if avg is not none else '' }}"
@@ -230,15 +221,12 @@
 
             <div class="kb-person-result-text">
               <div class="result-id">
-                {# NEW（初回は出さない＝diary_show_newがtrueの時だけ） #}
-                {% if diary_show_new and is_new and diary_url %}
-                  <a href="{{ diary_url|e }}"
-                     class="kb-diary-new"
-                     data-kb-diary-new="1"
-                     data-person-id="{{ p.id }}"
-                     data-diary-key="{{ diary_key|e }}"
-                     target="_blank"
-                     rel="noopener noreferrer">NEW</a>
+                {# ★NEW差し込み口（JSが /kb/api/diary_status の結果で挿入） #}
+                {% if diary_url %}
+                  <span class="kb-diary-slot"
+                        data-kb-diary-slot="1"
+                        data-person-id="{{ p.id }}"
+                        data-diary-url="{{ diary_url|e }}"></span>
                 {% endif %}
 
                 <a href="/kb/person/{{ p.id }}">{{ p.name }}</a>
