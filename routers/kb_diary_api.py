@@ -13,11 +13,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-# ============================
-# ★ここだけあなたの構成に合わせて修正が必要かも
-# 例：from db import get_db / from app.db import get_db など
-# ============================
-from db import get_db  # ←合わなければここを直してください
+from db import get_db
 
 
 router = APIRouter(prefix="/kb/api", tags=["kb-diary"])
