@@ -1,4 +1,4 @@
-{# 012 #}
+{# 013 #}
 {% set page_title_suffix = "KB" %}
 {% set body_class = "page-kb" %}
 {% set active_page = "kb" %}
@@ -21,6 +21,12 @@
 
 {% set import_status = import_status|default('') %}
 {% set import_error = import_error|default('') %}
+
+{# 写メ日記NEW表示用（サーバが渡さなくても落ちない） #}
+{% set diary_new_map = diary_new_map|default({}) %}
+{% set diary_key_map = diary_key_map|default({}) %}
+{# 初回はNEWを出さない（静かな運用）: サーバがtrueを渡した時だけ表示 #}
+{% set diary_show_new = diary_show_new|default(False) %}
 
 <main>
   <section class="card">
@@ -174,8 +180,7 @@
         <p class="muted">表示件数が多いため先頭500件のみ表示しています。条件を絞ってください。</p>
       {% endif %}
 
-      <!-- 並び替え（クライアント側・再読み込みなし）
-           ※実装は static/function.js の initKbPersonSearchSort() に統一 -->
+      <!-- 並び替え（クライアント側・再読み込みなし） -->
       <div class="form-row kb-person-sort-row">
         <label>並び替え：</label>
         <select id="kb_person_sort">
@@ -194,6 +199,20 @@
           {% set rg = (regions_map or {}).get(st.region_id) if st else None %}
           {% set avg = (rating_avg_map or {}).get(p.id) %}
           {% set avg_amt = (amount_avg_map or {}).get(p.id) %}
+
+          {# 日記URL（URL+/diary） #}
+          {% set base_url = (p.url or '') %}
+          {% if base_url and base_url.endswith('/') %}
+            {% set diary_url = base_url[:-1] ~ '/diary' %}
+          {% elif base_url %}
+            {% set diary_url = base_url ~ '/diary' %}
+          {% else %}
+            {% set diary_url = '' %}
+          {% endif %}
+
+          {% set is_new = (diary_new_map.get(p.id) if diary_new_map else False) %}
+          {% set diary_key = (diary_key_map.get(p.id) if diary_key_map else '') %}
+
           <div class="result kb-person-result"
                data-sort-name="{{ (p.name or '')|e }}"
                data-sort-rating="{{ avg if avg is not none else '' }}"
@@ -201,14 +220,27 @@
                data-sort-height="{{ p.height_cm if p.height_cm else '' }}"
                data-sort-price="{{ avg_amt if avg_amt is not none else '' }}"
                data-sort-age="{{ p.age if p.age else '' }}">
+
             {%- set thumb = (p.image_urls[0] if p.image_urls and (p.image_urls|length) > 0 else "") -%}
             {%- if thumb -%}
             <a href="/kb/person/{{ p.id }}">
               <img class="kb-person-thumb" src="{{ thumb|e }}" alt="thumb" loading="lazy" referrerpolicy="no-referrer">
             </a>
             {%- endif -%}
+
             <div class="kb-person-result-text">
               <div class="result-id">
+                {# NEW（初回は出さない＝diary_show_newがtrueの時だけ） #}
+                {% if diary_show_new and is_new and diary_url %}
+                  <a href="{{ diary_url|e }}"
+                     class="kb-diary-new"
+                     data-kb-diary-new="1"
+                     data-person-id="{{ p.id }}"
+                     data-diary-key="{{ diary_key|e }}"
+                     target="_blank"
+                     rel="noopener noreferrer">NEW</a>
+                {% endif %}
+
                 <a href="/kb/person/{{ p.id }}">{{ p.name }}</a>
                 {%- if p.services -%}/{{ p.services }}{%- endif -%}
                 {% if p.age %}/{{ p.age }}歳{% endif %}
@@ -217,15 +249,18 @@
                 {%- if p.waist_cm -%}-{{ p.waist_cm }}{%- endif -%}
                 {% if p.hip_cm %}-{{ p.hip_cm }}{% endif %}
               </div>
+
               <div class="muted">
                 {% if rg %}{{ rg.name }}{% endif %}
                 {%- if st -%}/{{ st.name }}{%- endif -%}
                 {% if p.tags %}/タグ:{{ p.tags }}{% endif %}
               </div>
+
               <div class="muted">
                 {% if avg is not none %}平均評価:{{ "%.2f"|format(avg) }}{% endif %}
                 {%- if avg_amt is not none -%}/平均金額:{{ "{:,}".format(avg_amt) }}円{%- endif -%}
               </div>
+
               <div class="muted">
                 <a href="/kb/person/{{ p.id }}/external_search" target="_blank">外部検索で調べる</a>{%- if p.url -%}/<a href="{{ p.url|e }}" target="_blank" rel="noopener noreferrer">プロフ(外部)</a>{%- endif -%}
               </div>
@@ -256,17 +291,6 @@
         <button id="kb_panic_btn" type="submit" class="btn-secondary" disabled>全削除を実行</button>
       </div>
     </form>
-
-    <script>
-      (function () {
-        const chk = document.getElementById("kb_panic_check");
-        const btn = document.getElementById("kb_panic_btn");
-        if (!chk || !btn) return;
-        const sync = () => { btn.disabled = !chk.checked; };
-        chk.addEventListener("change", sync);
-        sync();
-      })();
-    </script>
   </section>
 
   <!-- 通常のツリー -->
@@ -358,78 +382,6 @@
         <button id="kb_import_btn" type="submit" class="btn-secondary" disabled>インポートを実行</button>
       </div>
     </form>
-
-    <script>
-      (function () {
-        const btnGen = document.getElementById("kb_backup_generate");
-        const btnCopy = document.getElementById("kb_backup_copy");
-        const ta = document.getElementById("kb_backup_text");
-        const msg = document.getElementById("kb_backup_msg");
-
-        const importChk = document.getElementById("kb_import_check");
-        const importBtn = document.getElementById("kb_import_btn");
-
-        if (importChk && importBtn) {
-          const sync = () => { importBtn.disabled = !importChk.checked; };
-          importChk.addEventListener("change", sync);
-          sync();
-        }
-
-        if (!btnGen || !btnCopy || !ta) return;
-
-        const setMsg = (t) => { if (msg) msg.textContent = t || ""; };
-
-        btnGen.addEventListener("click", async function () {
-          setMsg("");
-          btnGen.disabled = true;
-          btnCopy.disabled = true;
-          const orig = btnGen.textContent;
-          btnGen.textContent = "生成中...";
-
-          try {
-            const res = await fetch("/kb/export", { headers: { "Accept": "application/json" } });
-            if (!res.ok) throw new Error("export_failed");
-            const data = await res.json();
-            const text = JSON.stringify(data, null, 2);
-            ta.value = text;
-            ta.scrollTop = 0;
-            btnCopy.disabled = !text;
-            setMsg("生成しました。Joplinに貼り付けて保存してください。");
-          } catch (e) {
-            ta.value = "";
-            btnCopy.disabled = true;
-            setMsg("バックアップの取得に失敗しました。別タブで /kb/export を開いてコピーしてください。");
-          } finally {
-            btnGen.disabled = false;
-            btnGen.textContent = orig;
-          }
-        });
-
-        btnCopy.addEventListener("click", async function () {
-          const text = ta.value || "";
-          if (!text) return;
-
-          try {
-            if (navigator.clipboard && window.isSecureContext) {
-              await navigator.clipboard.writeText(text);
-              setMsg("コピーしました。");
-              return;
-            }
-          } catch (e) {
-            // fallbackへ
-          }
-
-          try {
-            ta.focus();
-            ta.select();
-            const ok = document.execCommand("copy");
-            setMsg(ok ? "コピーしました。" : "コピーに失敗しました。手動で選択してコピーしてください。");
-          } catch (e) {
-            setMsg("コピーに失敗しました。手動で選択してコピーしてください。");
-          }
-        });
-      })();
-    </script>
   </section>
 </main>
 
