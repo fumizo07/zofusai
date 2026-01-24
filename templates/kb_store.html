@@ -1,12 +1,12 @@
-{# 007 #}
+{# 008 #}
 {% set page_title_suffix = "KB - 店舗" %}
 {% set body_class = "page-kb" %}
 {% set active_page = "kb" %}
 {% include "_header.html" %}
 
-{# ★追加：写メ日記NEW表示用（将来の「店舗ページにもNEW」を想定して受け口だけ先に） #}
 {% set diary_new_map = diary_new_map|default({}) %}
 {% set diary_key_map = diary_key_map|default({}) %}
+{% set diary_show_new = diary_show_new|default(False) %}
 
 <main>
   <section class="card">
@@ -38,7 +38,6 @@
     <h2>人物一覧（{{ persons|length }}人）</h2>
 
     {% if persons %}
-      <!-- 並び替え（クライアント側・再読み込みなし） -->
       <div class="form-row kb-person-sort-row">
         <label>並び替え：</label>
         <select id="kb_person_sort">
@@ -56,7 +55,6 @@
           {% set avg = (rating_avg_map or {}).get(p.id) %}
           {% set avg_amt = (amount_avg_map or {}).get(p.id) %}
 
-          {# ★追加：NEW表示に必要な値（サーバが渡す場合だけ表示される） #}
           {% set base_url = (p.url or '') %}
           {% if base_url and base_url.endswith('/') %}
             {% set diary_url = base_url[:-1] ~ '/diary' %}
@@ -65,6 +63,7 @@
           {% else %}
             {% set diary_url = '' %}
           {% endif %}
+
           {% set is_new = (diary_new_map.get(p.id) if diary_new_map else False) %}
           {% set diary_key = (diary_key_map.get(p.id) if diary_key_map else '') %}
 
@@ -83,8 +82,7 @@
             {%- endif -%}
             <div class="kb-person-result-text">
               <div class="result-id">
-                {# ★追加：人物名の左に NEW（店舗ページにも将来対応するため） #}
-                {% if is_new and diary_url %}
+                {% if diary_show_new and is_new and diary_url %}
                   <a href="{{ diary_url|e }}"
                      class="kb-diary-new"
                      data-kb-diary-new="1"
