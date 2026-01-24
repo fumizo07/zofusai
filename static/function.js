@@ -1,4 +1,4 @@
-// 007
+// 008
 // static/function.js
 (() => {
   "use strict";
@@ -407,7 +407,6 @@
     if (!res.ok) return [];
     const data = await res.json().catch(() => null);
     if (!data || !data.ok || !Array.isArray(data.items)) return [];
-    // 期待：[{id, name, items:[{label,amount}]}]
     return data.items;
   }
 
@@ -425,7 +424,7 @@
     }
     const data = await res.json().catch(() => null);
     if (!data || !data.ok) throw new Error("save_failed");
-    return data; // 期待: {ok:true, id:...}
+    return data;
   }
 
   async function apiDeleteTemplate(id) {
@@ -481,13 +480,7 @@
     const k = String(id);
     const cur = getUseCount(prefs, k);
     prefs.useCounts[k] = cur + 1;
-    // よく使う順を選びやすいように、適用したらusageに寄せる（好みがあればここは消せます）
-    if (prefs.sortMode === "usage") {
-      saveTplPrefs(storeId, prefs);
-    } else {
-      // sortModeは変えない
-      saveTplPrefs(storeId, prefs);
-    }
+    saveTplPrefs(storeId, prefs);
   }
 
   function sortTemplatesForUi(storeId, list) {
@@ -514,7 +507,6 @@
       return items;
     }
 
-    // usage（デフォ）
     items.sort((a, b) => {
       const ua = getUseCount(prefs, a?.id);
       const ub = getUseCount(prefs, b?.id);
@@ -617,9 +609,6 @@
 
     const storeId = getStoreIdFromPage();
 
-    // ----------------------------
-    // 共通：管理モーダル（1個だけ）
-    // ----------------------------
     function ensureTemplateModal() {
       let modal = document.getElementById("kbPriceTemplateModal");
       if (modal) return modal;
@@ -883,7 +872,6 @@
         broadcastTemplatesUpdated(storeId);
       }
 
-      // radio change
       const radios = modal.querySelectorAll('input[name="kb_tpl_sortmode"]');
       radios.forEach((r) => {
         r.onchange = () => {
@@ -893,7 +881,6 @@
         };
       });
 
-      // list click (delegate)
       ul.onclick = async (e) => {
         const btn = e.target?.closest?.("button");
         const li = e.target?.closest?.("li[data-id]");
@@ -907,11 +894,9 @@
           return;
         }
 
-        // 手動並び替え（↑↓）：manualOrder を更新（sortModeをmanualに寄せる）
         if (act === "up" || act === "down") {
           const prefs = getPrefs();
           const allIds = sortedTemplates().map((t) => String(t.id));
-          // manualOrder を「今の並び」をベースに作り直してから動かす
           let order = allIds.slice();
           const idx = order.indexOf(String(id));
           if (idx < 0) return;
@@ -934,7 +919,6 @@
         }
       };
 
-      // items events
       modal.addEventListener("input", (e) => {
         const t = e.target;
         if (!t) return;
@@ -975,7 +959,6 @@
 
         if (t.getAttribute("data-role") === "new") {
           e.preventDefault();
-          // 新規はエディタだけ初期化（保存で作成）
           selectedId = "";
           inName.value = "新規テンプレ";
           itemsTbody.innerHTML = "";
@@ -1014,9 +997,6 @@
           const name = String(ans).trim();
           if (!name) return;
 
-          // サーバーに update が無い前提で「安全リネーム」：
-          // 1) 新規作成（同items, 新name）
-          // 2) 成功後に旧を削除（失敗したら旧は残る）
           try {
             const items = Array.isArray(cur.items) ? cur.items : [];
             const res = await apiSaveTemplate(storeId, name, items);
@@ -1071,8 +1051,6 @@
             return;
           }
 
-          // 既存選択中なら「上書き相当」：安全に 1)新規作成→2)旧削除（任意）
-          // ※update API ができたらここを真正のupdateに置換できます
           const cur = selectedId ? findById(selectedId) : null;
 
           try {
@@ -1138,7 +1116,6 @@
                   amount: parseYen(it?.amount ?? 0),
                 })) : [],
               })),
-              // 端末ローカルの並び/使用も入れておく（移行時に便利）
               local_prefs: prefs,
             };
             const json = JSON.stringify(payload, null, 2);
@@ -1193,11 +1170,9 @@
               await apiSaveTemplate(storeId, name, items);
             }
 
-            // local_prefs も入っていれば取り込む（任意）
             if (parsed?.local_prefs && typeof parsed.local_prefs === "object") {
               const p = parsed.local_prefs;
               const prefs = loadTplPrefs(storeId);
-              // 乱暴に上書きしないで、必要そうなものだけ
               if (p.sortMode === "usage" || p.sortMode === "name" || p.sortMode === "manual") prefs.sortMode = p.sortMode;
               if (Array.isArray(p.manualOrder)) prefs.manualOrder = p.manualOrder.map((x) => String(x));
               if (p.useCounts && typeof p.useCounts === "object") prefs.useCounts = p.useCounts;
@@ -1213,16 +1188,12 @@
         }
       });
 
-      // 初期
       syncSortRadios();
       renderList();
       loadToEditor(selectedId);
       modalEnsureOneItemRow(modal);
     }
 
-    // ----------------------------
-    // 各price box へバインド
-    // ----------------------------
     async function fillTemplateSelect(root, keepValue) {
       const sel = root.querySelector("[data-price-template]");
       if (!sel) return;
@@ -1338,7 +1309,6 @@
         }
       }
 
-      // 入力変化で合計更新
       root.addEventListener("input", (e) => {
         const t = e.target;
         if (!t) return;
@@ -1347,7 +1317,6 @@
         }
       });
 
-      // 金額blurで整形
       root.addEventListener("blur", (e) => {
         const t = e.target;
         if (!t || !t.matches || !t.matches("[data-price-amount]")) return;
@@ -1360,7 +1329,6 @@
         collectAndSync();
       }, true);
 
-      // ボタン類
       root.addEventListener("click", async (e) => {
         const t = e.target;
         if (!t) return;
@@ -1382,8 +1350,6 @@
 
         if (t.matches("[data-price-template-apply]")) {
           e.preventDefault();
-          // デフォは「追加適用」：基本 → 指名 → 追加…が自然に積める
-          // 置換したい時だけ Alt+クリック（または Option+クリック）
           if (e.altKey) await applyTemplateReplace();
           else await applyTemplateAppend();
           return;
@@ -1409,7 +1375,6 @@
         }
       });
 
-      // テンプレ更新イベントが来たらselectを更新
       document.addEventListener("kb-price-templates-updated", async (evt) => {
         const sid = evt?.detail?.storeId;
         if (!sid || String(sid) !== String(storeId)) return;
@@ -1423,7 +1388,6 @@
         });
       }
 
-      // 初期化
       (async () => {
         ensureOneRow(body);
         collectAndSync();
