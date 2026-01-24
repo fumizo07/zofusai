@@ -1,4 +1,4 @@
-# 024
+# 025
 # routers/kb.py
 import json
 import re
@@ -26,17 +26,21 @@ from models import KBPerson, KBRegion, KBStore, KBVisit, KBPriceTemplate
 router = APIRouter()
 
 # =========================
-# 写メ日記 NEWチェック（本物）
-# - サーバ: 「最新日記の日時(epoch ms)」を返す
-# - フロント: localStorageで seen_ts を持ち、latest_ts > seen_ts なら NEW
-#   （DB改造なし / クリックで消える / インターバルOK）
+# 写メ日記 NEWチェック（DB版）
+# - 追跡対象: person.diary_track == True のみ
+# - latest_ts はサーバが取得し、DBに保存（TTL/intervalで再取得を抑制）
+# - seen_ts はDBに保存（クリックで既読化）
+# - 仕様B: seen_ts が未設定(None)の場合、初回取得時に seen_ts=latest_ts で初期化し NEWを出さない
 # =========================
 JST = timezone(timedelta(hours=9))
 
 _DIARY_HTTP_TIMEOUT_SEC = 8
-_DIARY_CACHE_TTL_SEC = 10 * 60  # 10分
+_DIARY_CACHE_TTL_SEC = 10 * 60  # 10分（HTTP取得結果のメモリキャッシュ）
 _DIARY_MAX_BYTES = 1024 * 1024  # 1MB
 _DIARY_UA = "Mozilla/5.0 (compatible; PersonalSearchKB/1.0; +https://example.invalid)"
+
+# DBへの再チェック間隔（ここが「検索のたびに重い」を潰す本体）
+_DIARY_DB_RECHECK_INTERVAL_SEC = 2 * 60 * 60  # 2時間
 
 # ざっくり安全策（オープンプロキシ化を避ける）
 _DIARY_ALLOWED_HOST_SUFFIXES = (
@@ -363,7 +367,7 @@ def _build_diary_open_url_from_maps(
 ) -> str:
     """
     NEWクリック時に飛ばす先（DB問い合わせしない版）。
-    - person.url があればそれを優先（“日記一覧”に行ける可能性が一番高い）
+    - person.url があればそれを優先
     - 無ければ Google 検索（地域/店/名前 + 写メ日記）で代替
     """
     pu = ""
@@ -384,14 +388,108 @@ def _build_diary_open_url_from_maps(
     return _build_google_search_url(q)
 
 
+def _bool_from_form(v: str) -> bool:
+    s = (v or "").strip().lower()
+    return s in ("1", "true", "on", "yes")
+
+
+def _get_person_diary_track(p: KBPerson) -> bool:
+    if hasattr(p, "diary_track"):
+        try:
+            return bool(getattr(p, "diary_track") or False)
+        except Exception:
+            return False
+    # 列がまだ無い間は「従来挙動」を保つ（壊さない）
+    return True
+
+
+def _get_person_diary_latest_ts(p: KBPerson) -> Optional[int]:
+    for k in ("diary_latest_ts_ms", "diary_latest_ts"):
+        if hasattr(p, k):
+            v = getattr(p, k, None)
+            try:
+                return int(v) if v is not None else None
+            except Exception:
+                return None
+    return None
+
+
+def _set_person_diary_latest_ts(p: KBPerson, ts: Optional[int]) -> bool:
+    if ts is not None:
+        try:
+            ts = int(ts)
+        except Exception:
+            ts = None
+    changed = False
+    for k in ("diary_latest_ts_ms", "diary_latest_ts"):
+        if hasattr(p, k):
+            try:
+                setattr(p, k, ts)
+                changed = True
+            except Exception:
+                pass
+            break
+    return changed
+
+
+def _get_person_diary_seen_ts(p: KBPerson) -> Optional[int]:
+    for k in ("diary_seen_ts_ms", "diary_seen_ts"):
+        if hasattr(p, k):
+            v = getattr(p, k, None)
+            try:
+                return int(v) if v is not None else None
+            except Exception:
+                return None
+    return None
+
+
+def _set_person_diary_seen_ts(p: KBPerson, ts: Optional[int]) -> bool:
+    if ts is not None:
+        try:
+            ts = int(ts)
+        except Exception:
+            ts = None
+    changed = False
+    for k in ("diary_seen_ts_ms", "diary_seen_ts"):
+        if hasattr(p, k):
+            try:
+                setattr(p, k, ts)
+                changed = True
+            except Exception:
+                pass
+            break
+    return changed
+
+
+def _get_person_diary_checked_at(p: KBPerson) -> Optional[datetime]:
+    if hasattr(p, "diary_checked_at"):
+        try:
+            return getattr(p, "diary_checked_at", None)
+        except Exception:
+            return None
+    return None
+
+
+def _set_person_diary_checked_at(p: KBPerson, dt: Optional[datetime]) -> bool:
+    if hasattr(p, "diary_checked_at"):
+        try:
+            setattr(p, "diary_checked_at", dt)
+            return True
+        except Exception:
+            return False
+    return False
+
+
 @router.get("/kb/api/diary_latest")
 def kb_api_diary_latest(
     ids: str = Query(""),
     db: Session = Depends(get_db),
 ):
     """
-    フロントが「最新日記の日時」を取得するAPI。
-    - NEW判定自体はフロント（localStorage）でやる
+    フロントが「最新日記の日時 + NEW判定」を取得するAPI（DB版）。
+    - 追跡OFFはスキップ（tracked=False で返す）
+    - DBの diary_checked_at が新しければ外部取得を省略
+    - 初回（seen_ts=None）は seen_ts=latest_ts に初期化し NEWを出さない（仕様B）
     """
     person_ids = _parse_ids_csv(ids, limit=30)
     if not person_ids:
@@ -413,37 +511,171 @@ def kb_api_diary_latest(
             regions = db.query(KBRegion).filter(KBRegion.id.in_(region_ids)).all()
             region_map = {int(r.id): r for r in regions if r and getattr(r, "id", None)}
 
+    now_utc = datetime.utcnow()
+    dirty = False
     items = []
+
     for pid in person_ids:
         p = pmap.get(int(pid))
         if not p:
-            items.append({"id": int(pid), "latest_ts": None, "open_url": "", "error": "not_found"})
+            items.append(
+                {
+                    "id": int(pid),
+                    "tracked": False,
+                    "latest_ts": None,
+                    "seen_ts": None,
+                    "is_new": False,
+                    "open_url": "",
+                    "error": "not_found",
+                }
+            )
             continue
+
+        tracked = _get_person_diary_track(p)
 
         st = store_map.get(int(getattr(p, "store_id", 0) or 0))
         rg = region_map.get(int(getattr(st, "region_id", 0) or 0)) if st else None
         open_url = _build_diary_open_url_from_maps(p, st, rg)
 
-        latest_ts = None
-        err = ""
+        if not tracked:
+            items.append(
+                {
+                    "id": int(pid),
+                    "tracked": False,
+                    "latest_ts": None,
+                    "seen_ts": _get_person_diary_seen_ts(p),
+                    "is_new": False,
+                    "open_url": open_url,
+                    "error": "not_tracked",
+                }
+            )
+            continue
+
+        # URLなしなら取れない
         pu = ""
         if hasattr(p, "url"):
             pu = (getattr(p, "url", "") or "").strip()
-        if pu:
-            latest_ts, err = _get_latest_diary_ts_ms(pu)
-        else:
-            latest_ts, err = None, "url_empty"
+        if not pu:
+            items.append(
+                {
+                    "id": int(pid),
+                    "tracked": True,
+                    "latest_ts": None,
+                    "seen_ts": _get_person_diary_seen_ts(p),
+                    "is_new": False,
+                    "open_url": open_url,
+                    "error": "url_empty",
+                }
+            )
+            continue
+
+        # DB間引き（checked_at が新しければ外部取得しない）
+        latest_ts = _get_person_diary_latest_ts(p)
+        checked_at = _get_person_diary_checked_at(p)
+
+        need_fetch = True
+        if checked_at and latest_ts is not None:
+            try:
+                age_sec = (now_utc - checked_at).total_seconds()
+                if age_sec >= 0 and age_sec < float(_DIARY_DB_RECHECK_INTERVAL_SEC):
+                    need_fetch = False
+            except Exception:
+                need_fetch = True
+
+        err = ""
+        if need_fetch:
+            latest_ts_fetched, err = _get_latest_diary_ts_ms(pu)
+            # checked_at は「試行した」時点で更新（失敗でも間引きが効く）
+            if _set_person_diary_checked_at(p, now_utc):
+                dirty = True
+
+            if latest_ts_fetched is not None:
+                if _set_person_diary_latest_ts(p, latest_ts_fetched):
+                    dirty = True
+                latest_ts = latest_ts_fetched
+            else:
+                # 取得できなければ latest_ts は維持（NoneならNone）
+                pass
+
+        # seen / NEW判定（仕様B: seen未設定なら初回にseen=latestで初期化）
+        seen_ts = _get_person_diary_seen_ts(p)
+        is_new = False
+
+        if latest_ts is not None:
+            if seen_ts is None:
+                if _set_person_diary_seen_ts(p, latest_ts):
+                    dirty = True
+                seen_ts = latest_ts
+                is_new = False
+            else:
+                try:
+                    is_new = int(latest_ts) > int(seen_ts)
+                except Exception:
+                    is_new = False
 
         items.append(
             {
                 "id": int(pid),
+                "tracked": True,
                 "latest_ts": latest_ts,
+                "seen_ts": seen_ts,
+                "is_new": bool(is_new),
                 "open_url": open_url,
                 "error": err,
             }
         )
 
+    if dirty:
+        try:
+            db.commit()
+        except Exception:
+            db.rollback()
+
     return JSONResponse({"ok": True, "items": items})
+
+
+@router.post("/kb/api/diary_seen")
+async def kb_api_diary_seen(
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """
+    NEWクリック等で既読化するAPI（DB版）
+    body:
+      { "id": 123 }
+    - diary_seen_ts = diary_latest_ts（無ければ失敗）
+    """
+    try:
+        data = await request.json()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "invalid_json"}, status_code=400)
+
+    pid = None
+    if isinstance(data, dict):
+        pid = _parse_int(data.get("id", ""))
+    if pid is None:
+        return JSONResponse({"ok": False, "error": "id_required"}, status_code=400)
+
+    p = db.query(KBPerson).filter(KBPerson.id == int(pid)).first()
+    if not p:
+        return JSONResponse({"ok": False, "error": "not_found"}, status_code=404)
+
+    latest_ts = _get_person_diary_latest_ts(p)
+    if latest_ts is None:
+        return JSONResponse({"ok": False, "error": "latest_not_ready"}, status_code=409)
+
+    changed = _set_person_diary_seen_ts(p, int(latest_ts))
+    if not changed:
+        # 列が無いなど
+        return JSONResponse({"ok": False, "error": "not_supported"}, status_code=409)
+
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+        return JSONResponse({"ok": False, "error": "db_error"}, status_code=500)
+
+    return JSONResponse({"ok": True, "seen_ts": int(latest_ts)})
 
 
 @router.get("/kb/api/diary_status")
@@ -452,8 +684,8 @@ def kb_api_diary_status(
     db: Session = Depends(get_db),
 ):
     """
-    旧フロント互換用（※今のfunction.jsは diary_latest を使う）
-    - is_new はサーバ側では厳密に出せないので「latest_tsが取れたらTrue」扱い
+    旧フロント互換用
+    - DB版では is_new を返せる（tracked/seen/latest を使う）
     """
     person_ids = _parse_ids_csv(ids, limit=30)
     if not person_ids:
@@ -473,15 +705,21 @@ def kb_api_diary_status(
             out.append({"id": int(pid), "is_new": False})
             continue
 
-        pu = ""
-        if hasattr(p, "url"):
-            pu = (getattr(p, "url", "") or "").strip()
+        if not _get_person_diary_track(p):
+            out.append({"id": int(pid), "is_new": False})
+            continue
 
-        latest_ts, _err = (None, "")
-        if pu:
-            latest_ts, _err = _get_latest_diary_ts_ms(pu)
+        latest_ts = _get_person_diary_latest_ts(p)
+        seen_ts = _get_person_diary_seen_ts(p)
 
-        out.append({"id": int(pid), "is_new": bool(latest_ts)})
+        is_new = False
+        if latest_ts is not None and seen_ts is not None:
+            try:
+                is_new = int(latest_ts) > int(seen_ts)
+            except Exception:
+                is_new = False
+
+        out.append({"id": int(pid), "is_new": bool(is_new)})
 
     return JSONResponse({"ok": True, "items": out})
 
@@ -2003,7 +2241,7 @@ def kb_person_page(
     google_cityheaven_url = _build_google_site_search_url("cityheaven.net", base_q)
     google_dto_url = _build_google_site_search_url("dto.jp", base_q)
 
-    # 「写メ日記」も検索に含めたバージョン（⑦の軽量版としても使える）
+    # 「写メ日記」も検索に含めたバージョン
     diary_q = (base_q + " 写メ日記").strip() if base_q else ""
     google_all_diary_url = _build_google_search_url(diary_q)
     google_cityheaven_diary_url = _build_google_site_search_url("cityheaven.net", diary_q)
@@ -2087,6 +2325,8 @@ def kb_update_person(
     url: str = Form(""),
     image_urls_text: str = Form(""),
     memo: str = Form(""),
+    # ★追加：写メ日記追跡
+    diary_track: str = Form(""),
     db: Session = Depends(get_db),
 ):
     back_url = request.headers.get("referer") or f"/kb/person/{person_id}"
@@ -2121,6 +2361,18 @@ def kb_update_person(
             p.image_urls = urls or None
 
         p.memo = (memo or "").strip() or None
+
+        # 追跡フラグ（DB列がある場合のみ保存）
+        if hasattr(p, "diary_track"):
+            old_track = bool(getattr(p, "diary_track") or False)
+            new_track = _bool_from_form(diary_track)
+            p.diary_track = bool(new_track)
+
+            # OFF→ONの初回は「仕様B」に寄せる：
+            # seen_ts が未設定なら、そのまま（最初のチェック時に seen=latest で初期化し NEWを出さない）
+            if (not old_track) and new_track:
+                # なるべく次のチェックで拾えるように checked_at を落としておく（列があれば）
+                _set_person_diary_checked_at(p, None)
 
         p.name_norm = norm_text(p.name or "")
         p.services_norm = norm_text(p.services or "")
@@ -2560,7 +2812,7 @@ def kb_search(
 def kb_export(db: Session = Depends(get_db)):
     """
     全KBを JSON で吐き出す（コピペ/移行/保険）
-    - #024: price_templates（KBPriceTemplate）も含める
+    - #025: diary_track / diary_latest_ts / diary_seen_ts / diary_checked_at があれば含める
     """
     regions = db.query(KBRegion).order_by(KBRegion.id.asc()).all()
     stores = db.query(KBStore).order_by(KBStore.id.asc()).all()
@@ -2605,6 +2857,27 @@ def kb_export(db: Session = Depends(get_db)):
             d["url"] = getattr(p, "url", None)
         if hasattr(p, "image_urls"):
             d["image_urls"] = getattr(p, "image_urls", None)
+
+        # diary fields（存在する場合のみ）
+        if hasattr(p, "diary_track"):
+            d["diary_track"] = bool(getattr(p, "diary_track") or False)
+        if hasattr(p, "diary_latest_ts_ms"):
+            d["diary_latest_ts_ms"] = getattr(p, "diary_latest_ts_ms", None)
+        elif hasattr(p, "diary_latest_ts"):
+            d["diary_latest_ts_ms"] = getattr(p, "diary_latest_ts", None)
+
+        if hasattr(p, "diary_seen_ts_ms"):
+            d["diary_seen_ts_ms"] = getattr(p, "diary_seen_ts_ms", None)
+        elif hasattr(p, "diary_seen_ts"):
+            d["diary_seen_ts_ms"] = getattr(p, "diary_seen_ts", None)
+
+        if hasattr(p, "diary_checked_at"):
+            dt = getattr(p, "diary_checked_at", None)
+            try:
+                d["diary_checked_at_utc"] = dt.strftime("%Y-%m-%dT%H:%M:%SZ") if dt else None
+            except Exception:
+                d["diary_checked_at_utc"] = None
+
         return d
 
     def visit_to_dict(v: KBVisit) -> dict:
@@ -2631,7 +2904,7 @@ def kb_export(db: Session = Depends(get_db)):
         }
 
     payload = {
-        "version": 2,
+        "version": 3,
         "exported_at_utc": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
         "regions": [region_to_dict(r) for r in regions],
         "stores": [store_to_dict(s) for s in stores],
@@ -2700,6 +2973,16 @@ def kb_import(
     except Exception:
         db.rollback()
         return _redir("failed", "clear_failed")
+
+    def _parse_utc_iso_to_dt(s: str) -> Optional[datetime]:
+        try:
+            t = (s or "").strip()
+            if not t:
+                return None
+            # "YYYY-MM-DDTHH:MM:SSZ"
+            return datetime.strptime(t, "%Y-%m-%dT%H:%M:%SZ")
+        except Exception:
+            return None
 
     try:
         # regions
@@ -2795,6 +3078,19 @@ def kb_import(
                 iu = p.get("image_urls", None)
                 if isinstance(iu, list):
                     obj.image_urls = [str(x or "").strip() for x in iu if str(x or "").strip()] or None
+
+            # diary fields（存在する場合のみ）
+            if hasattr(obj, "diary_track") and "diary_track" in p:
+                try:
+                    obj.diary_track = bool(p.get("diary_track") or False)
+                except Exception:
+                    obj.diary_track = False
+            if hasattr(obj, "diary_latest_ts_ms") and "diary_latest_ts_ms" in p:
+                obj.diary_latest_ts_ms = _parse_int(p.get("diary_latest_ts_ms", ""))  # type: ignore[attr-defined]
+            if hasattr(obj, "diary_seen_ts_ms") and "diary_seen_ts_ms" in p:
+                obj.diary_seen_ts_ms = _parse_int(p.get("diary_seen_ts_ms", ""))  # type: ignore[attr-defined]
+            if hasattr(obj, "diary_checked_at") and "diary_checked_at_utc" in p:
+                obj.diary_checked_at = _parse_utc_iso_to_dt(p.get("diary_checked_at_utc", ""))  # type: ignore[attr-defined]
 
             obj.name_norm = norm_text(obj.name or "")
             obj.services_norm = norm_text(obj.services or "")
