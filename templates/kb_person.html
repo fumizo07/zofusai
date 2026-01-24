@@ -1,4 +1,4 @@
-{# 016 #}
+{# 018 #}
 {# templates/kb_person.html #}
 {% set page_title_suffix = "KB - 人物" %}
 {% set body_class = "page-kb" %}
@@ -8,7 +8,6 @@
 {% include "_header.html" %}
 
 <main>
-  {# ★追加：JSが店舗IDを取るための目印（APIテンプレを店舗ごとに分ける） #}
   <div data-kb-store-id="{{ store.id if store else '' }}" style="display:none;"></div>
 
   <section class="card">
@@ -76,7 +75,6 @@
     </div>
   </section>
 
-  {# 以下、あなたの貼った内容をそのまま #}
   <section class="card">
     <h2>人物情報（編集）</h2>
 
@@ -134,6 +132,26 @@
           <div class="kb-grid-input"><input type="text" name="url" value="{{ person.url or '' }}" placeholder="https://..."></div>
         </div>
 
+        {# ★追加：写メ日記の追跡フラグ（URLがある人物のみ対象） #}
+        <div class="inner-flex-box">
+          <div class="kb-grid-label">写メ日記：</div>
+          <div class="kb-grid-input">
+            {% if person.url %}
+              <label>
+                <input type="checkbox" name="track_diary" value="1" {% if person.track_diary %}checked{% endif %}>
+                写メ日記を追跡する
+              </label>
+              <div class="muted">※検索時の取得対象が「追跡ON」の人物だけになります（レスポンス改善）。</div>
+            {% else %}
+              <label class="muted">
+                <input type="checkbox" disabled>
+                写メ日記を追跡する（URL未登録のため不可）
+              </label>
+              <div class="muted">※まずURLを登録してください。</div>
+            {% endif %}
+          </div>
+        </div>
+
         <div class="kb-grid-label">画像URL：</div>
         <div>
           <textarea name="image_urls_text" rows="6"
@@ -158,6 +176,7 @@
     </form>
   </section>
 
+  {# 以下は元のまま（利用ログ etc） #}
   <section class="card">
     <h2>利用ログを追加</h2>
 
