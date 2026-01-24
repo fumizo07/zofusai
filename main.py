@@ -24,9 +24,6 @@ from post_edit import post_edit_router
 # KB（既存）
 from routers.kb import router as kb_router
 
-# ★追加：KB 料金テンプレAPI
-from routers.kb_templates import router as kb_templates_router
-
 
 # =========================
 # BASIC 認証
@@ -117,9 +114,6 @@ app.include_router(external_router)
 
 # KB（既存）
 app.include_router(kb_router)
-
-# ★追加：KB 料金テンプレAPI
-app.include_router(kb_templates_router)
 
 # startup（DB schema補助・バックフィル）
 register_startup(app)
