@@ -1,4 +1,4 @@
-{# 011 #}
+{# 012 #}
 {% set page_title_suffix = "KB" %}
 {% set body_class = "page-kb" %}
 {% set active_page = "kb" %}
@@ -174,7 +174,8 @@
         <p class="muted">表示件数が多いため先頭500件のみ表示しています。条件を絞ってください。</p>
       {% endif %}
 
-      <!-- 並び替え（クライアント側・再読み込みなし） -->
+      <!-- 並び替え（クライアント側・再読み込みなし）
+           ※実装は static/function.js の initKbPersonSearchSort() に統一 -->
       <div class="form-row kb-person-sort-row">
         <label>並び替え：</label>
         <select id="kb_person_sort">
@@ -232,116 +233,6 @@
           </div>
         {% endfor %}
       </div>
-
-      <script>
-        (function () {
-          const sel = document.getElementById("kb_person_sort");
-          const box = document.getElementById("kb_person_results");
-          if (!sel || !box) return;
-
-          const cupRank = (s) => {
-            const x = (s || "").toString().trim().toUpperCase();
-            if (!x) return null;
-            const ch = x[0];
-            const code = ch.charCodeAt(0);
-            if (code >= 65 && code <= 90) return code - 64; // A=1..Z=26
-            return null;
-          };
-
-          const getStr = (el, attr) => {
-            try {
-              return (el.getAttribute(attr) || "").toString();
-            } catch (e) {
-              return "";
-            }
-          };
-
-          const getNum = (el, attr) => {
-            const s = getStr(el, attr).trim();
-            if (!s) return null;
-            const v = Number(s);
-            return Number.isFinite(v) ? v : null;
-          };
-
-          const sortNow = () => {
-            const key = (sel.value || "name").toString();
-
-            const items = Array.from(box.querySelectorAll(".kb-person-result"));
-            if (!items.length) return;
-
-            const cmp = (a, b) => {
-              const nameA = getStr(a, "data-sort-name");
-              const nameB = getStr(b, "data-sort-name");
-
-              const missLastAsc = (va, vb) => {
-                const ma = (va === null || va === undefined);
-                const mb = (vb === null || vb === undefined);
-                if (ma && mb) return 0;
-                if (ma) return 1;
-                if (mb) return -1;
-                return null;
-              };
-
-              if (key === "name") {
-                return nameA.localeCompare(nameB, "ja");
-              }
-
-              if (key === "height") {
-                const aV = getNum(a, "data-sort-height");
-                const bV = getNum(b, "data-sort-height");
-                const m = missLastAsc(aV, bV);
-                if (m !== null) return m;
-                if (aV !== bV) return aV - bV; // 低い順
-                return nameA.localeCompare(nameB, "ja");
-              }
-
-              if (key === "age") {
-                const aV = getNum(a, "data-sort-age");
-                const bV = getNum(b, "data-sort-age");
-                const m = missLastAsc(aV, bV);
-                if (m !== null) return m;
-                if (aV !== bV) return aV - bV; // 若い順
-                return nameA.localeCompare(nameB, "ja");
-              }
-
-              if (key === "price") {
-                const aV = getNum(a, "data-sort-price");
-                const bV = getNum(b, "data-sort-price");
-                const m = missLastAsc(aV, bV);
-                if (m !== null) return m;
-                if (aV !== bV) return aV - bV; // 安い順
-                return nameA.localeCompare(nameB, "ja");
-              }
-
-              if (key === "rating") {
-                const aV = getNum(a, "data-sort-rating");
-                const bV = getNum(b, "data-sort-rating");
-                const m = missLastAsc(aV, bV);
-                if (m !== null) return m;
-                if (aV !== bV) return bV - aV; // 高い順
-                return nameA.localeCompare(nameB, "ja");
-              }
-
-              if (key === "cup") {
-                const aV = cupRank(getStr(a, "data-sort-cup"));
-                const bV = cupRank(getStr(b, "data-sort-cup"));
-                const m = missLastAsc(aV, bV);
-                if (m !== null) return m;
-                if (aV !== bV) return bV - aV; // 大きい順
-                return nameA.localeCompare(nameB, "ja");
-              }
-
-              return nameA.localeCompare(nameB, "ja");
-            };
-
-            items.sort(cmp);
-            for (const el of items) box.appendChild(el);
-          };
-
-          sel.addEventListener("change", sortNow);
-          sortNow();
-        })();
-      </script>
     {% endif %}
   </section>
 
