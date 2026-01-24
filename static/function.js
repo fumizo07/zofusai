@@ -456,6 +456,101 @@
     }, true);
   }
 
+// ============================================================
+  // ★追加：KB パニックボタン（チェックONで有効化）
+  // ============================================================
+  function initKbPanicCheck() {
+    const chk = document.getElementById("kb_panic_check");
+    const btn = document.getElementById("kb_panic_btn");
+    if (!chk || !btn) return;
+
+    if (chk.dataset.kbPanicApplied === "1") return;
+    chk.dataset.kbPanicApplied = "1";
+
+    const sync = () => { btn.disabled = !chk.checked; };
+    chk.addEventListener("change", sync);
+    sync();
+  }
+
+  // ============================================================
+  // ★追加：KB バックアップ生成＆コピー＋インポート確認
+  // ============================================================
+  function initKbBackupUi() {
+    const btnGen = document.getElementById("kb_backup_generate");
+    const btnCopy = document.getElementById("kb_backup_copy");
+    const ta = document.getElementById("kb_backup_text");
+    const msg = document.getElementById("kb_backup_msg");
+
+    const importChk = document.getElementById("kb_import_check");
+    const importBtn = document.getElementById("kb_import_btn");
+
+    if (importChk && importBtn) {
+      if (importChk.dataset.kbImportApplied !== "1") {
+        importChk.dataset.kbImportApplied = "1";
+        const sync = () => { importBtn.disabled = !importChk.checked; };
+        importChk.addEventListener("change", sync);
+        sync();
+      }
+    }
+
+    if (!btnGen || !btnCopy || !ta) return;
+
+    if (btnGen.dataset.kbBackupApplied === "1") return;
+    btnGen.dataset.kbBackupApplied = "1";
+
+    const setMsg = (t) => { if (msg) msg.textContent = t || ""; };
+
+    btnGen.addEventListener("click", async function () {
+      setMsg("");
+      btnGen.disabled = true;
+      btnCopy.disabled = true;
+      const orig = btnGen.textContent;
+      btnGen.textContent = "生成中...";
+
+      try {
+        const res = await fetch("/kb/export", { headers: { "Accept": "application/json" } });
+        if (!res.ok) throw new Error("export_failed");
+        const data = await res.json();
+        const text = JSON.stringify(data, null, 2);
+        ta.value = text;
+        ta.scrollTop = 0;
+        btnCopy.disabled = !text;
+        setMsg("生成しました。Joplinに貼り付けて保存してください。");
+      } catch (e) {
+        ta.value = "";
+        btnCopy.disabled = true;
+        setMsg("バックアップの取得に失敗しました。別タブで /kb/export を開いてコピーしてください。");
+      } finally {
+        btnGen.disabled = false;
+        btnGen.textContent = orig;
+      }
+    });
+
+    btnCopy.addEventListener("click", async function () {
+      const text = ta.value || "";
+      if (!text) return;
+
+      try {
+        if (navigator.clipboard && window.isSecureContext) {
+          await navigator.clipboard.writeText(text);
+          setMsg("コピーしました。");
+          return;
+        }
+      } catch (e) {
+        // fallbackへ
+      }
+
+      try {
+        ta.focus();
+        ta.select();
+        const ok = document.execCommand("copy");
+        setMsg(ok ? "コピーしました。" : "コピーに失敗しました。手動で選択してコピーしてください。");
+      } catch (e) {
+        setMsg("コピーに失敗しました。手動で選択してコピーしてください。");
+      }
+    });
+  }
+  
   // ============================================================
   // KB：料金項目（行追加＆合計＆hidden JSON）＋ テンプレ（DB + 端末ローカルの並び/使用回数）
   // （あなたの既存実装：そのまま）
@@ -1884,6 +1979,8 @@
     initKbStarRating();
     initKbDiaryNewBadges(); // ← NEWバッジ（今回追加）
     initKbPriceItems();
+    initKbPanicCheck();   // ← 追加
+    initKbBackupUi();     // ← 追加
     initKbDuration();
   });
 })();
