@@ -1,8 +1,17 @@
-# 007
+# 008
 # models.py
 from datetime import datetime
 
-from sqlalchemy import Column, Integer, Text, DateTime, UniqueConstraint, ForeignKey, JSON
+from sqlalchemy import (
+    Column,
+    Integer,
+    Text,
+    DateTime,
+    UniqueConstraint,
+    ForeignKey,
+    JSON,
+    Boolean,
+)
 from db import Base
 
 
@@ -147,6 +156,7 @@ class KBPerson(Base):
     # フリーワード検索のためのまとめ列
     search_norm = Column(Text, nullable=True, index=True)
 
+    # 既存の diary_* は残します（互換性のため）
     diary_last_entry_at = Column(DateTime, nullable=True, index=True)
     diary_last_entry_key = Column(Text, nullable=True, index=True)
 
@@ -159,6 +169,52 @@ class KBPerson(Base):
 
     __table_args__ = (
         UniqueConstraint("store_id", "name", name="uq_kb_persons_store_name"),
+    )
+
+
+# ============================================================
+# KB 写メ日記追跡状態（★追加）
+# - 既存 kb_persons にカラム追加せず、新規テーブルで安全に管理する
+# - 仕様B（追跡ON直後はNEWを出さない）:
+#   track_enabled をONにするタイミングで latest_entry_* を取得し、
+#   seen_* を latest_* と同値にして基準点を作る（静かな運用）
+# ============================================================
+class KBDiaryState(Base):
+    __tablename__ = "kb_diary_states"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    person_id = Column(
+        Integer,
+        ForeignKey("kb_persons.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+        unique=True,
+    )
+
+    # 追跡ON/OFF（チェックボックス）
+    track_enabled = Column(Boolean, nullable=False, default=False, index=True)
+
+    # 最後に取得できた「最新日記」の情報
+    latest_entry_at = Column(DateTime, nullable=True, index=True)
+    latest_entry_key = Column(Text, nullable=True, index=True)
+
+    # ユーザーが確認済みにした基準点（NEWを消す）
+    seen_at = Column(DateTime, nullable=True, index=True)
+    seen_entry_key = Column(Text, nullable=True, index=True)
+
+    # 最後に外部へ取りに行った時刻（インターバル判定）
+    fetched_at = Column(DateTime, nullable=True, index=True)
+
+    # 取得失敗時の抑制・デバッグ用
+    last_error = Column(Text, nullable=True)
+    error_at = Column(DateTime, nullable=True, index=True)
+
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("person_id", name="uq_kb_diary_states_person_id"),
     )
 
 
