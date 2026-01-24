@@ -633,6 +633,7 @@
       modal.style.bottom = "0";
       modal.style.background = "rgba(0,0,0,0.5)";
       modal.style.zIndex = "5000";
+      modal.style.overflowY = "scroll";
       modal.style.display = "none";
 
       modal.innerHTML = `
