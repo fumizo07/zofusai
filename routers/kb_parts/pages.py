@@ -1,4 +1,4 @@
-# 003
+# 004
 # routers/kb_parts/pages.py
 from __future__ import annotations
 
@@ -21,6 +21,8 @@ from .diary_core import (
     diary_state_enabled,
     get_diary_state_map,
     get_or_create_diary_state,
+    get_person_diary_track,
+    set_person_diary_track,
     set_person_diary_checked_at,
 )
 from .utils import (
@@ -85,10 +87,16 @@ def _pick_attr(obj, candidates: List[str]) -> str:
 
 def _read_track(person: KBPerson, st) -> bool:
     """
-    追跡フラグを「どこに保存されていても」読めるようにします。
-    優先順：State → Person
+    追跡フラグを「どこに保存されていても」読めるようにする。
+    優先順：diary_core(get_person_diary_track) → State → Person
     """
-    # State側
+    # まずプロジェクト既存の読み取りロジックを優先
+    try:
+        return _coerce_bool(get_person_diary_track(person, st))
+    except Exception:
+        pass
+
+    # State側フォールバック
     if st is not None:
         a = _pick_attr(st, ["track_diary", "diary_track", "is_tracking", "tracking", "track"])
         if a:
@@ -97,7 +105,7 @@ def _read_track(person: KBPerson, st) -> bool:
             except Exception:
                 pass
 
-    # Person側（カラム/属性がある場合）
+    # Person側フォールバック
     a = _pick_attr(person, ["track_diary", "diary_track", "is_tracking", "tracking"])
     if a:
         try:
@@ -108,34 +116,48 @@ def _read_track(person: KBPerson, st) -> bool:
     return False
 
 
-def _write_track(db: Session, person: KBPerson, st, value: bool) -> None:
+def _write_track_value(obj, attr: str, v: bool) -> None:
     """
-    追跡フラグを「存在する場所すべて」に同期して保存します。
-    これで「保存したのに外れる」「全員ONになる」系を潰します。
+    カラム型が str の場合は "0"/"1" にする。
+    bool/int の場合は bool を入れる。
     """
-    v = bool(value)
+    if not obj or not attr:
+        return
+    try:
+        cur = getattr(obj, attr, None)
+        if isinstance(cur, str):
+            setattr(obj, attr, "1" if v else "0")
+        else:
+            setattr(obj, attr, bool(v))
+    except Exception:
+        # どうせフォールバックがあるので握りつぶす
+        return
 
-    # State側に書く（存在する属性にのみ）
+
+def _sync_track_to_models(db: Session, person: KBPerson, st, v: bool) -> None:
+    """
+    保存先が Person/State のどちらでも「表示が必ず合う」ように同期する。
+    """
+    # State側
     if st is not None:
         a = _pick_attr(st, ["track_diary", "diary_track", "is_tracking", "tracking", "track"])
         if a:
-            try:
-                setattr(st, a, v)
-            except Exception:
-                pass
+            _write_track_value(st, a, v)
         try:
             db.add(st)
         except Exception:
             pass
 
-    # Person側にも書く（存在する属性にのみ）
+    # Person側
     a = _pick_attr(person, ["track_diary", "diary_track", "is_tracking", "tracking"])
     if a:
-        try:
-            setattr(person, a, v)
-        except Exception:
-            pass
-    # person は既に session 管理下のことが多いですが、念のため
+        _write_track_value(person, a, v)
+    # 表示用にも確実に instance attr を置く（テンプレでperson.track_diaryを見てしまってもズレにくくする）
+    try:
+        setattr(person, "track_diary", bool(v))
+    except Exception:
+        pass
+
     try:
         db.add(person)
     except Exception:
@@ -393,19 +415,14 @@ def kb_person_page(
     except Exception:
         amount_avg_yen = None
 
-    # ✅ 表示用：追跡フラグを「保存先に依存せず」確実に復元
+    # ✅ 追跡フラグ：Stateが有効なら必ず作成して読み取る（表示は bool をテンプレへ渡す）
     st = None
     if diary_state_enabled():
         state_map = get_diary_state_map(db, [int(person_id)])
         st = state_map.get(int(person_id))
         st = get_or_create_diary_state(db, state_map, int(person_id)) or st
 
-    track = _read_track(person, st)
-    # テンプレは person.track_diary を見ているので、ここで必ず同期
-    try:
-        setattr(person, "track_diary", bool(track))
-    except Exception:
-        pass
+    track_diary = _read_track(person, st)
 
     base_parts = []
     if region and region.name:
@@ -435,6 +452,7 @@ def kb_person_page(
             "visits": visits,
             "rating_avg": rating_avg,
             "amount_avg_yen": amount_avg_yen,
+            "track_diary": track_diary,  # ✅ テンプレはこれを見る（"0" 事故を完全に回避）
             "google_all_url": google_all_url,
             "google_cityheaven_url": google_cityheaven_url,
             "google_dto_url": google_dto_url,
@@ -513,6 +531,11 @@ def kb_update_person(
         state_map = get_diary_state_map(db, [int(person_id)])
         st = state_map.get(int(person_id))
         st = get_or_create_diary_state(db, state_map, int(person_id)) or st
+        # 念のためセッションへ
+        try:
+            db.add(st)
+        except Exception:
+            pass
 
     try:
         p.name = (name or "").strip() or p.name
@@ -548,24 +571,21 @@ def kb_update_person(
 
         old_track = _read_track(p, st)
 
-        # ✅ 保存先に依存せず確実に書く（State/Person 両方に同期）
-        _write_track(db, p, st, new_track)
+        # ✅ まず既存ロジックで保存（保存先の正解をプロジェクト側に委ねる）
+        try:
+            set_person_diary_track(p, new_track, st)
+        except Exception:
+            pass
 
-        # ✅ OFF→ON のときは「未チェック扱い」に戻す（既存ヘルパー優先）
+        # ✅ そのうえで Person/State の実体にも同期（"0" 文字列事故・反映漏れを潰す）
+        _sync_track_to_models(db, p, st, new_track)
+
+        # ✅ OFF→ON のときは未チェック扱いに戻す
         if (not old_track) and new_track:
             try:
                 set_person_diary_checked_at(p, None, st)
             except Exception:
-                # フォールバック：Stateにそれっぽいカラムがあれば null に
-                if st is not None:
-                    for a in ("diary_checked_at", "checked_at", "last_checked_at", "last_checked"):
-                        if hasattr(st, a):
-                            try:
-                                setattr(st, a, None)
-                                db.add(st)
-                                break
-                            except Exception:
-                                pass
+                pass
 
         p.name_norm = norm_text(p.name or "")
         p.services_norm = norm_text(p.services or "")
