@@ -24,7 +24,7 @@
 
 <main>
   <section class="card">
-    <h2>KB（知った情報の整理）</h2>
+    <h2>KB(知った情報の整理)</h2>
 
     {% if import_status == "done" %}
       <p class="muted info-message">バックアップをインポートしました。</p>
@@ -118,7 +118,7 @@
         <div>
           {% if svc_options %}
             <details {% if search_svc %}open{% endif %}>
-              <summary class="muted">サービスを選択（{{ svc_options|length }}件）</summary>
+              <summary class="muted">サービスを選択({{ svc_options|length }}件)</summary>
               <div class="kb-tags-box">
                 {% for s in svc_options %}
                   <label class="kb-tag-chip">
@@ -139,7 +139,7 @@
         <div>
           {% if tag_options %}
             <details {% if search_tag %}open{% endif %}>
-              <summary class="muted">タグを選択（{{ tag_options|length }}件）</summary>
+              <summary class="muted">タグを選択({{ tag_options|length }}件)</summary>
               <div class="kb-tags-box">
                 {% for t in tag_options %}
                   <label class="kb-tag-chip">
@@ -165,11 +165,11 @@
         <button type="button" class="btn-secondary" onclick="window.location.href='/kb'">リセット</button>
       </div>
 
-      <div class="muted">※何も指定せず検索すると全員表示になります（上限500件）。</div>
+      <div class="muted">※何も指定せず検索すると全員表示になります(上限500件)。</div>
     </form>
 
     {% if search_results is not none %}
-      <div class="section-title kb-section-top">検索結果（{{ search_total_count or (search_results|length) }}件）</div>
+      <div class="section-title kb-section-top">検索結果({{ search_total_count or (search_results|length) }}件)</div>
       {% if search_truncated %}
         <p class="muted">表示件数が多いため先頭500件のみ表示しています。条件を絞ってください。</p>
       {% endif %}
@@ -261,7 +261,7 @@
 
   <!-- パニックボタン -->
   <section class="card">
-    <div class="section-title">パニックボタン（全削除）</div>
+    <div class="section-title">パニックボタン(全削除)</div>
     <p class="muted">
       KBの<strong>地域・店舗・人物・利用ログ</strong>をすべて削除します。
     </p>
@@ -327,14 +327,14 @@
 
   <!-- バックアップ（コピペ運用） -->
   <section class="card">
-    <div class="section-title">バックアップ（コピペ保存 / Joplin向け）</div>
+    <div class="section-title">バックアップ(コピペ保存)</div>
 
     <p class="muted">
-      「バックアップJSONを生成」で全データを取得し、Joplinへ貼り付けて保存してください。<br>
+      「バックアップJSONを生成」で全データを取得し、暗号化されるメモ帳(Joplinなど)へ貼り付けて保存してください。<br>
       インポートは<strong>全置き換え</strong>です（地域/店舗/人物/利用ログが丸ごと入れ替わります）。
     </p>
 
-    <h3>バックアップJSONを取得（コピー用）</h3>
+    <h3>バックアップJSONを取得(コピー用)</h3>
     <div class="form-row">
       <button type="button" class="btn-primary" id="kb_backup_generate">バックアップJSONを生成</button>
       <button type="button" class="btn-secondary" id="kb_backup_copy" disabled>コピー</button>
@@ -347,7 +347,7 @@
 
     <hr>
 
-    <h3>インポート（貼り付け / 全置き換え）</h3>
+    <h3>インポート(貼り付け/全置き換え)</h3>
     <form method="post" action="/kb/import"
           onsubmit="return confirm('インポートを実行します。現在のKBデータは全て削除され、貼り付けたバックアップで置き換わります。よろしいですか？');">
       <input type="hidden" name="mode" value="replace">
@@ -362,7 +362,7 @@
       <div class="form-row">
         <label>
           <input id="kb_import_check" type="checkbox" name="confirm_check" value="1">
-          全置き換え（全削除→復元）を理解しました
+          全置き換え(全削除→復元)を理解しました
         </label>
       </div>
 
