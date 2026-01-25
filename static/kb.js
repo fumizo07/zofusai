@@ -334,6 +334,13 @@
     applyDiarySeenFromLocalStorage();
     fetchDiaryLatestAndRender();
 
+    // ★追加：ページを開いている間、5分おきに再チェック
+    // NOTE: Python側の diary_db_recheck_interval_sec より短くしても、
+    // サーバー側が「まだ再取得しない」と判断すれば外部fetchは抑制されます（DBキャッシュ優先）。
+    setInterval(() => {
+      fetchDiaryLatestAndRender();
+    }, 5 * 60 * 1000);
+
     document.addEventListener("click", (e) => {
       const a = e.target?.closest?.("[data-kb-diary-new]");
       if (!a) return;
@@ -347,6 +354,7 @@
       markDiarySeen(pid, diaryKey);
     }, true);
   }
+
 
 
   // ============================================================
