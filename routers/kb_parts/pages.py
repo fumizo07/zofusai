@@ -402,6 +402,9 @@ def kb_update_person(
     url: str = Form(""),
     image_urls_text: str = Form(""),
     memo: str = Form(""),
+    # ✅ 正：フロントの name="track_diary" に合わせる
+    track_diary: str = Form(""),
+    # ✅ 互換：過去の name="diary_track" が残っていても壊れないように受ける
     diary_track: str = Form(""),
     db: Session = Depends(get_db),
 ):
@@ -443,7 +446,10 @@ def kb_update_person(
 
         p.memo = (memo or "").strip() or None
 
-        new_track = (diary_track or "").strip().lower() in ("1", "true", "on", "yes")
+        # ✅ track_diary を優先。空なら diary_track（互換）を参照。
+        raw_track = (track_diary or "").strip() or (diary_track or "").strip()
+        new_track = raw_track.lower() in ("1", "true", "on", "yes")
+
         old_track = get_person_diary_track(p, st)
 
         if set_person_diary_track(p, new_track, st):
@@ -462,6 +468,7 @@ def kb_update_person(
         db.rollback()
 
     return RedirectResponse(url=back_url, status_code=303)
+
 
 
 @router.post("/kb/person/{person_id}/visit")
