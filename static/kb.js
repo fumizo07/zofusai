@@ -1,7 +1,74 @@
-// 001
+// 002
 // static/kb.js
 (() => {
   "use strict";
+
+  // ============================================================
+  // 共通ヘルパ（※ init より前で必ず定義する）
+  //  - 今回の不具合：parseNumOrNull が未定義で sort が落ちていました
+  // ============================================================
+  function parseNumOrNull(v) {
+    if (v == null) return null;
+    const s = String(v).trim();
+    if (!s) return null;
+    // 例: "12,345" / " 3.5 " / "¥12,000" などを雑に数値化
+    const cleaned = s.replace(/[^\d.\-]/g, "");
+    if (!cleaned) return null;
+    const n = Number(cleaned);
+    return Number.isFinite(n) ? n : null;
+  }
+
+  function parseYen(v) {
+    if (v == null) return 0;
+    const s = String(v).trim();
+    if (!s) return 0;
+    const cleaned = s.replace(/[^\d\-]/g, "");
+    const n = parseInt(cleaned || "0", 10);
+    return Number.isFinite(n) ? n : 0;
+  }
+
+  function formatYen(n) {
+    const x = Number(n || 0);
+    if (!Number.isFinite(x)) return "0";
+    return Math.trunc(x).toLocaleString("ja-JP");
+  }
+
+  function escapeHtml(str) {
+    return String(str ?? "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
+  }
+
+  function clamp(v, min, max) {
+    const n = Number(v);
+    if (!Number.isFinite(n)) return min;
+    return Math.min(max, Math.max(min, n));
+  }
+
+  function parseTimeToMin(hhmm) {
+    const s = String(hhmm || "").trim();
+    if (!s) return null;
+    const m = s.match(/^(\d{1,2}):(\d{2})$/);
+    if (!m) return null;
+    const hh = parseInt(m[1], 10);
+    const mm = parseInt(m[2], 10);
+    if (!Number.isFinite(hh) || !Number.isFinite(mm)) return null;
+    if (hh < 0 || hh > 23 || mm < 0 || mm > 59) return null;
+    return hh * 60 + mm;
+  }
+
+  function cupToRank(cup) {
+    const c = String(cup || "").trim().toUpperCase();
+    if (!c) return null;
+    const code = c.charCodeAt(0);
+    // A=1, B=2, ... Z=26（無効なら null）
+    if (code < 65 || code > 90) return null;
+    return (code - 64);
+  }
+
   // ============================================================
   // KB：人物検索結果の並び替え（再読み込みなし）
   // ============================================================
@@ -1401,7 +1468,7 @@
       if (form.dataset.kbDurationApplied === "1") return;
       form.dataset.kbDurationApplied = "1";
 
-      const hidden = form.querySelector('input[name="duration_min"]');
+      const hidden = form.querySelector('input[type="hidden"][name="duration_min"]');
       const label = form.querySelector("[data-kb-duration-label]");
 
       function render() {
@@ -1429,6 +1496,7 @@
       render();
     });
   }
+
   // ============================================================
   // 起動
   // ============================================================
