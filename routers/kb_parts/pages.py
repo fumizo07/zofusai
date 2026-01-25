@@ -310,32 +310,6 @@ def kb_person_page(
     except Exception:
         amount_avg_yen = None
 
-    dup_candidates: List[KBPerson] = []
-    if dup:
-        ids: List[int] = []
-        for x in str(dup).split(","):
-            x = (x or "").strip()
-            if not x:
-                continue
-            v = parse_int(x)
-            if v is None:
-                continue
-            if int(v) == int(person.id):
-                continue
-            ids.append(int(v))
-            if len(ids) >= 10:
-                break
-        if ids:
-            try:
-                dup_candidates = (
-                    db.query(KBPerson)
-                    .filter(KBPerson.id.in_(ids))
-                    .order_by(KBPerson.name.asc())
-                    .all()
-                )
-            except Exception:
-                dup_candidates = []
-
     base_parts = []
     if region and region.name:
         base_parts.append(region.name)
@@ -364,7 +338,6 @@ def kb_person_page(
             "visits": visits,
             "rating_avg": rating_avg,
             "amount_avg_yen": amount_avg_yen,
-            "dup_candidates": dup_candidates,
             "google_all_url": google_all_url,
             "google_cityheaven_url": google_cityheaven_url,
             "google_dto_url": google_dto_url,

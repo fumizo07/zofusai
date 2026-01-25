@@ -21,17 +21,6 @@
       <a href="/kb/person/{{ person.id }}/external_search" target="_blank">外部検索で調べる</a>
     </p>
 
-    {% if dup_candidates %}
-      <div class="result">
-        <div class="result-id">⚠️ 似ている人物が既に登録されている可能性があります</div>
-        <div class="muted">
-          {% for d in dup_candidates %}
-            <a href="/kb/person/{{ d.id }}">{{ d.name }}</a>{% if not loop.last %} / {% endif %}
-          {% endfor %}
-        </div>
-      </div>
-    {% endif %}
-
     <div class="thread-info">
       <div>地域：<strong>{{ region.name if region else "（不明）" }}</strong></div>
       <div>店舗：<strong>{{ store.name if store else "（不明）" }}</strong></div>
