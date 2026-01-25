@@ -260,6 +260,61 @@
     return a;
   }
 
+    // ============================================================
+  // ★追加：写メ日記ステータス表示（最終チェック/最新日記）
+  // - data-kb-diary-lastcheck / data-kb-diary-latest を更新
+  // - 5分おき再チェック + 1分おき表示更新（経過時間だけ進める）
+  // ============================================================
+  const DIARY_REFRESH_INTERVAL_MS = 5 * 60 * 1000; // 5分
+  const DIARY_RELATIVE_TICK_MS = 60 * 1000;        // 1分
+
+  // person_id -> { lastCheckMs: number, latestTsMs: number }
+  const diaryMeta = new Map();
+
+  function upsertDiaryMeta(pid, patch) {
+    const key = String(pid);
+    const cur = diaryMeta.get(key) || {};
+    diaryMeta.set(key, { ...cur, ...patch });
+  }
+
+  function minsAgo(nowMs, thenMs) {
+    if (!thenMs) return null;
+    const d = nowMs - thenMs;
+    if (!Number.isFinite(d) || d < 0) return 0;
+    return Math.floor(d / (60 * 1000));
+  }
+
+  function daysAgo(nowMs, thenMs) {
+    if (!thenMs) return null;
+    const d = nowMs - thenMs;
+    if (!Number.isFinite(d) || d < 0) return 0;
+    return Math.floor(d / (24 * 60 * 60 * 1000));
+  }
+
+  function renderDiaryInfoLabels() {
+    const now = Date.now();
+
+    // 最終チェック：○分前
+    const lastNodes = document.querySelectorAll("[data-kb-diary-lastcheck][data-person-id]");
+    lastNodes.forEach((n) => {
+      const pid = n.getAttribute("data-person-id");
+      if (!pid) return;
+      const meta = diaryMeta.get(String(pid));
+      const m = minsAgo(now, meta?.lastCheckMs);
+      n.textContent = (m == null) ? "最終チェック：-" : `最終チェック：${m}分前`;
+    });
+
+    // 最新日記：○日前（取得済み）
+    const latestNodes = document.querySelectorAll("[data-kb-diary-latest][data-person-id]");
+    latestNodes.forEach((n) => {
+      const pid = n.getAttribute("data-person-id");
+      if (!pid) return;
+      const meta = diaryMeta.get(String(pid));
+      const d = daysAgo(now, meta?.latestTsMs);
+      n.textContent = (d == null) ? "最新日記：-" : `最新日記：${d}日前（取得済み）`;
+    });
+  }
+
   async function fetchDiaryLatestAndRender() {
     const slots = Array.from(
       document.querySelectorAll("[data-kb-diary-slot][data-person-id]")
@@ -281,6 +336,7 @@
     if (!uniqIds.length) return;
 
     const qs = new URLSearchParams({ ids: uniqIds.join(",") });
+
     const res = await fetch(`${DIARY_LATEST_API}?${qs.toString()}`, {
       method: "GET",
       credentials: "same-origin",
@@ -293,14 +349,28 @@
     const items = (json && json.ok && Array.isArray(json.items)) ? json.items : [];
     if (!items.length) return;
 
+    const checkedAt = Date.now();
+
     // id -> item
     const byId = new Map();
     items.forEach((it) => {
       const pid = Number(it?.id || 0);
       if (!Number.isFinite(pid) || pid <= 0) return;
+
       byId.set(pid, it);
+
+      // メタ更新（表示用）
+      const latestTs = (it?.latest_ts != null) ? Number(it.latest_ts) : null;
+      upsertDiaryMeta(pid, {
+        lastCheckMs: checkedAt,
+        latestTsMs: (latestTs != null && Number.isFinite(latestTs) && latestTs > 0) ? latestTs : null,
+      });
     });
 
+    // まず表示を更新（最終チェック/最新日記）
+    renderDiaryInfoLabels();
+
+    // NEWバッジの差し込み
     slots.forEach((slot) => {
       const pid = parseInt(String(slot.getAttribute("data-person-id") || "0"), 10);
       if (!pid) return;
@@ -332,14 +402,21 @@
 
   function initKbDiaryNewBadges() {
     applyDiarySeenFromLocalStorage();
+
+    // 初期表示（枠があるページだけ）
+    renderDiaryInfoLabels();
     fetchDiaryLatestAndRender();
 
     // ★追加：ページを開いている間、5分おきに再チェック
-    // NOTE: Python側の diary_db_recheck_interval_sec より短くしても、
-    // サーバー側が「まだ再取得しない」と判断すれば外部fetchは抑制されます（DBキャッシュ優先）。
+    // NOTE: Python側が再取得不要ならサーバ側で抑制されます（DBキャッシュ優先）
     setInterval(() => {
       fetchDiaryLatestAndRender();
-    }, 5 * 60 * 1000);
+    }, DIARY_REFRESH_INTERVAL_MS);
+
+    // ★追加：表示（○分前/○日前）だけは1分おきに進める（再取得なし）
+    setInterval(() => {
+      renderDiaryInfoLabels();
+    }, DIARY_RELATIVE_TICK_MS);
 
     document.addEventListener("click", (e) => {
       const a = e.target?.closest?.("[data-kb-diary-new]");
@@ -354,6 +431,7 @@
       markDiarySeen(pid, diaryKey);
     }, true);
   }
+
 
 
 
