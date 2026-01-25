@@ -741,7 +741,7 @@
       modal.innerHTML = `
         <div style="max-width: 980px; margin: 5vh auto; background: #fff; border-radius: 12px; padding: 14px;">
           <div style="display:flex; justify-content: space-between; align-items:center; gap:10px;">
-            <strong>料金明細テンプレ 管理（店舗ごと / DB保存）</strong>
+            <strong>料金明細テンプレ 管理(店舗ごと/DB保存)</strong>
             <button type="button" data-role="close" class="btn-secondary">閉じる</button>
           </div>
 
@@ -756,7 +756,7 @@
             <label style="display:flex; align-items:center; gap:6px;">
               <input type="radio" name="kb_tpl_sortmode" value="manual"> 手動
             </label>
-            <span class="muted">（手動は↑↓で並び替え）</span>
+            <span class="muted">(手動は↑↓で並び替え)</span>
           </div>
 
           <hr style="margin:12px 0;">
@@ -776,7 +776,7 @@
               </div>
 
               <div class="muted" style="margin-top:8px;">
-                ※「よく使う順」「手動の並び」はこの端末のlocalStorageに保存されます（DBには影響しません）
+                ※「よく使う順」「手動の並び」はこの端末のlocalStorageに保存されます(DBには影響しません)
               </div>
             </div>
 
@@ -816,8 +816,8 @@
               <hr style="margin:12px 0;">
 
               <div style="display:flex; gap:10px; flex-wrap:wrap;">
-                <button type="button" data-role="export" class="btn-secondary">エクスポート（JSON）</button>
-                <button type="button" data-role="import" class="btn-secondary">インポート（JSON）</button>
+                <button type="button" data-role="export" class="btn-secondary">エクスポート(JSON)</button>
+                <button type="button" data-role="import" class="btn-secondary">インポート(JSON)</button>
               </div>
 
               <div class="muted" style="margin-top:10px;">
