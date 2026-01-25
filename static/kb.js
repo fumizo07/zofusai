@@ -1,17 +1,15 @@
-// 002
+// 003
 // static/kb.js
 (() => {
   "use strict";
 
   // ============================================================
   // 共通ヘルパ（※ init より前で必ず定義する）
-  //  - 今回の不具合：parseNumOrNull が未定義で sort が落ちていました
   // ============================================================
   function parseNumOrNull(v) {
     if (v == null) return null;
     const s = String(v).trim();
     if (!s) return null;
-    // 例: "12,345" / " 3.5 " / "¥12,000" などを雑に数値化
     const cleaned = s.replace(/[^\d.\-]/g, "");
     if (!cleaned) return null;
     const n = Number(cleaned);
@@ -64,7 +62,6 @@
     const c = String(cup || "").trim().toUpperCase();
     if (!c) return null;
     const code = c.charCodeAt(0);
-    // A=1, B=2, ... Z=26（無効なら null）
     if (code < 65 || code > 90) return null;
     return (code - 64);
   }
@@ -201,7 +198,9 @@
   }
 
   function hideDiaryBadges(personId) {
-    const nodes = document.querySelectorAll(`[data-kb-diary-new][data-person-id="${CSS.escape(String(personId))}"]`);
+    const nodes = document.querySelectorAll(
+      `[data-kb-diary-new][data-person-id="${CSS.escape(String(personId))}"]`
+    );
     nodes.forEach((n) => {
       try { n.remove(); } catch (_) { n.style.display = "none"; }
     });
@@ -254,12 +253,66 @@
     return a;
   }
 
+  // ★ここが今回の修正点：
+  // - Render側の /kb/api/diary_status が「GETのみ」になっていて POST が 405 で落ちている
+  // - まず POST（バッチ）を試し、405なら GET（1件ずつ）へ自動フォールバックします
+  function normalizeDiaryStatusResponse(json) {
+    // 期待：{ ok:true, items:[{person_id,is_new,diary_key,...},...] }
+    if (json && json.ok && Array.isArray(json.items)) return json.items;
+
+    // 代替：{ ok:true, item:{...} }
+    if (json && json.ok && json.item && typeof json.item === "object") return [json.item];
+
+    // 代替：{ person_id:..., is_new:..., diary_key:... } だけ返すタイプ
+    if (json && typeof json === "object" && ("person_id" in json) && ("is_new" in json)) return [json];
+
+    return [];
+  }
+
+  async function fetchDiaryStatusBatchPOST(items) {
+    const res = await fetch(DIARY_STATUS_API, {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ items }),
+    });
+
+    if (res.status === 405) {
+      const err = new Error("diary_status_post_405");
+      err.code = "METHOD_NOT_ALLOWED";
+      throw err;
+    }
+    if (!res.ok) return [];
+
+    const json = await res.json().catch(() => null);
+    return normalizeDiaryStatusResponse(json);
+  }
+
+  async function fetchDiaryStatusOneGET(personId, diaryUrl) {
+    // サーバー側が GET のとき、よくある形として query で渡す
+    const qs = new URLSearchParams({
+      person_id: String(personId),
+      diary_url: String(diaryUrl || ""),
+    });
+
+    const res = await fetch(`${DIARY_STATUS_API}?${qs.toString()}`, {
+      method: "GET",
+      credentials: "same-origin",
+      headers: { "Accept": "application/json" },
+    });
+
+    if (!res.ok) return null;
+    const json = await res.json().catch(() => null);
+    const items = normalizeDiaryStatusResponse(json);
+    return items && items.length ? items[0] : null;
+  }
+
   async function fetchDiaryStatusAndRender() {
     const slots = Array.from(document.querySelectorAll("[data-kb-diary-slot][data-person-id][data-diary-url]"));
     if (!slots.length) return;
 
     // person_id ごとに1回だけ問い合わせ
-    const uniq = new Map(); // pid -> {pid, url}
+    const uniq = new Map(); // pid -> {person_id, diary_url}
     slots.forEach((s) => {
       const pid = parseInt(String(s.getAttribute("data-person-id") || "0"), 10);
       const url = String(s.getAttribute("data-diary-url") || "").trim();
@@ -271,25 +324,34 @@
     const items = Array.from(uniq.values());
     if (!items.length) return;
 
-    let data = null;
+    let resultItems = [];
+
+    // ① まずは POST（バッチ）を試す
     try {
-      const res = await fetch(DIARY_STATUS_API, {
-        method: "POST",
-        credentials: "same-origin",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ items }),
-      });
-      if (!res.ok) return;
-      data = await res.json();
+      resultItems = await fetchDiaryStatusBatchPOST(items);
     } catch (e) {
-      return;
+      // ② 405 の場合だけ GET（1件ずつ）にフォールバック
+      if (e && e.code === "METHOD_NOT_ALLOWED") {
+        const oneByOne = await Promise.all(
+          items.map(async (it) => {
+            try {
+              return await fetchDiaryStatusOneGET(it.person_id, it.diary_url);
+            } catch (_) {
+              return null;
+            }
+          })
+        );
+        resultItems = oneByOne.filter(Boolean);
+      } else {
+        return;
+      }
     }
 
-    if (!data || !data.ok || !Array.isArray(data.items)) return;
+    if (!Array.isArray(resultItems) || !resultItems.length) return;
 
     // is_new のものだけ差し込み
     const byId = new Map();
-    data.items.forEach((it) => {
+    resultItems.forEach((it) => {
       const pid = Number(it?.person_id || 0);
       if (!Number.isFinite(pid) || pid <= 0) return;
       byId.set(pid, it);
@@ -321,10 +383,7 @@
   }
 
   function initKbDiaryNewBadges() {
-    // 既存バッジがあれば先に既読反映
     applyDiarySeenFromLocalStorage();
-
-    // ★点灯（API問い合わせ→NEW挿入）
     fetchDiaryStatusAndRender();
 
     document.addEventListener("click", (e) => {
@@ -436,7 +495,6 @@
 
   // ============================================================
   // KB：料金項目（行追加＆合計＆hidden JSON）＋ テンプレ（DB + 端末ローカルの並び/使用回数）
-  // （あなたの既存実装：そのまま）
   // ============================================================
   function getStoreIdFromPage() {
     const el = document.querySelector("[data-kb-store-id]");
@@ -1501,7 +1559,6 @@
   // 起動
   // ============================================================
   document.addEventListener("DOMContentLoaded", () => {
-    // KB
     initKbPersonSearchSort();
     initKbStarRating();
     initKbDiaryNewBadges();
