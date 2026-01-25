@@ -1,11 +1,11 @@
-# 001
+# 002
 # routers/kb_parts/pages.py
 from __future__ import annotations
 
 import json
 import unicodedata
 from datetime import datetime
-from typing import List, Optional
+from typing import List
 from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends, Form, Query, Request
@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 
 from app_context import templates
 from db import get_db
-from models import KBPerson, KBRegion, KBStore, KBVisit, KBPriceTemplate
+from models import KBPerson, KBRegion, KBStore, KBVisit
 
 from .diary_core import (
     diary_state_enabled,
@@ -54,8 +54,28 @@ from .utils import (
     token_set_norm,
 )
 
-
 router = APIRouter()
+
+
+def _coerce_bool(v) -> bool:
+    """
+    "0"/"1" の文字列や int を正しく bool に寄せる。
+    重要: bool("0") は True なので、それを避けるための関数。
+    """
+    if v is None:
+        return False
+    if isinstance(v, bool):
+        return v
+    if isinstance(v, (int, float)):
+        return v != 0
+    if isinstance(v, str):
+        s = v.strip().lower()
+        if s in ("1", "true", "on", "yes", "y", "t"):
+            return True
+        if s in ("0", "false", "off", "no", "n", "f", ""):
+            return False
+        return False
+    return False
 
 
 @router.get("/kb", response_class=HTMLResponse)
@@ -236,6 +256,7 @@ def kb_add_person(
             .first()
         )
         if exists_p:
+            # 重複検知（結果はURLに付けるだけ）。ユーザーの方針でここが不要なら丸ごと外してOK。
             dup = find_similar_persons_in_store(
                 db, int(store_id), name, exclude_person_id=int(exists_p.id)
             )
@@ -315,15 +336,14 @@ def kb_person_page(
     if diary_state_enabled():
         st = get_or_create_diary_state(db, state_map, int(person_id)) or st
 
+    # 重要: bool("0") == True の罠を避ける
     try:
-        track = get_person_diary_track(person, st)
-        # テンプレは person.track_diary を見ている前提なので、ここで確実に入れる
+        track_raw = get_person_diary_track(person, st)
         try:
-            setattr(person, "track_diary", bool(track))
+            setattr(person, "track_diary", _coerce_bool(track_raw))
         except Exception:
             pass
     except Exception:
-        # 表示が死ぬのを避ける
         try:
             setattr(person, "track_diary", False)
         except Exception:
@@ -368,7 +388,6 @@ def kb_person_page(
             "body_class": "page-kb",
         },
     )
-
 
 
 @router.get("/kb/person/{person_id}/external_search")
@@ -422,8 +441,8 @@ def kb_update_person(
     url: str = Form(""),
     image_urls_text: str = Form(""),
     memo: str = Form(""),
-    track_diary: str = Form(""),   # ✅ フロント name="track_diary"
-    diary_track: str = Form(""),   # ✅ 互換
+    track_diary: str = Form(""),  # ✅ フロント name="track_diary"
+    diary_track: str = Form(""),  # ✅ 互換
     db: Session = Depends(get_db),
 ):
     back_url = request.headers.get("referer") or f"/kb/person/{person_id}"
@@ -466,34 +485,22 @@ def kb_update_person(
 
         # ✅ track_diary 優先。空なら diary_track 互換。
         raw_track = (track_diary or "").strip() or (diary_track or "").strip()
-        new_track = raw_track.lower() in ("1", "true", "on", "yes")
+        new_track = _coerce_bool(raw_track)
 
-        old_track = get_person_diary_track(p, st)
+        old_track_raw = get_person_diary_track(p, st)
+        old_track = _coerce_bool(old_track_raw)
 
-        # ✅ まずは既存ロジックに任せる（Person or Stateどちらに保存するかは内部に依存）
         changed = set_person_diary_track(p, new_track, st)
 
-        # ✅ 保険：テンプレが person.track_diary を見ても必ず合うように、Person側へも直書き
-        try:
-            setattr(p, "track_diary", bool(new_track))
-        except Exception:
-            pass
-
-        # ✅ さらに保険：StateがあるならState側にも直書き（属性名はプロジェクト側の実装差があるので両候補）
-        if st is not None:
-            for attr in ("track_diary", "diary_track", "is_tracking", "tracking"):
-                if hasattr(st, attr):
-                    try:
-                        setattr(st, attr, bool(new_track))
-                        break
-                    except Exception:
-                        pass
+        if changed:
+            # DB実装によっては set_person_diary_track が state 側だけ更新し、
+            # person の表示が古いままになるケースがあるため、表示用にも同期する
             try:
-                db.add(st)
+                setattr(p, "track_diary", bool(new_track))
             except Exception:
                 pass
 
-        if (changed or (old_track != new_track)) and (not old_track) and new_track:
+        if (not old_track) and new_track:
             set_person_diary_checked_at(p, None, st)
 
         p.name_norm = norm_text(p.name or "")
@@ -506,16 +513,8 @@ def kb_update_person(
         db.commit()
     except Exception:
         db.rollback()
-        # 失敗を握り潰すと永遠に原因が分からないのでログに残します（RenderのLogsで確認できます）
-        try:
-            import traceback
-            traceback.print_exc()
-        except Exception:
-            pass
 
     return RedirectResponse(url=back_url, status_code=303)
-
-
 
 
 @router.post("/kb/person/{person_id}/visit")
@@ -709,12 +708,14 @@ def kb_delete_person(request: Request, person_id: int, db: Session = Depends(get
     try:
         db.query(KBVisit).filter(KBVisit.person_id == int(person_id)).delete(synchronize_session=False)
         db.query(KBPerson).filter(KBPerson.id == int(person_id)).delete(synchronize_session=False)
+
         if diary_state_enabled():
             try:
                 from models import KBDiaryState  # type: ignore
                 db.query(KBDiaryState).filter(KBDiaryState.person_id == int(person_id)).delete(synchronize_session=False)  # type: ignore
             except Exception:
                 pass
+
         db.commit()
     except Exception:
         db.rollback()
