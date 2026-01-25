@@ -65,7 +65,7 @@
   </section>
 
   <section class="card">
-    <h2>人物情報（編集）</h2>
+    <h2>人物情報(編集)</h2>
 
     <form method="post" action="/kb/person/{{ person.id }}/update">
       <div class="kb-profile-grid">
@@ -89,7 +89,7 @@
           <div class="kb-grid-label">カップ：</div>
           <div class="kb-grid-input">
             <select class="kb-input-sm kb-select" name="cup">
-              <option value="" {% if not person.cup %}selected{% endif %}>（未設定）</option>
+              <option value="" {% if not person.cup %}selected{% endif %}>(未設定)</option>
               {% for c in "ABCDEFGHIJKLMNOPQRSTUVWXYZ" %}
                 <option value="{{ c }}" {% if person.cup == c %}selected{% endif %}>{{ c }}カップ</option>
               {% endfor %}
@@ -130,11 +130,11 @@
                 <input type="checkbox" name="track_diary" value="1" {% if person.track_diary %}checked{% endif %}>
                 写メ日記を追跡する
               </label>
-              <div class="muted">※検索時の取得対象が「追跡ON」の人物だけになります（レスポンス改善）。</div>
+              <div class="muted">※検索時の取得対象が「追跡ON」の人物だけになります。</div>
             {% else %}
               <label class="muted">
                 <input type="checkbox" disabled>
-                写メ日記を追跡する（URL未登録のため不可）
+                写メ日記を追跡する(URL未登録のため不可)
               </label>
               <div class="muted">※まずURLを登録してください。</div>
             {% endif %}
@@ -144,7 +144,7 @@
         <div class="kb-grid-label">画像URL：</div>
         <div>
           <textarea name="image_urls_text" rows="6"
-                    placeholder="1行に1つ、http(s)の直リンクURLを貼ってください（例：https://.../a.jpg）">{% if person.image_urls %}{{ person.image_urls|join('\n') }}{% endif %}</textarea>
+                    placeholder="1行に1つ、http(s)の直リンクURLを貼ってください(例：https://.../a.jpg)">{% if person.image_urls %}{{ person.image_urls|join('\n') }}{% endif %}</textarea>
           <div class="muted">※画像自体は保存せず、URLだけ保存します。表示はブラウザが外部から読み込みます。</div>
         </div>
 

@@ -1,4 +1,4 @@
-# 002
+# 003
 # routers/kb_parts/pages.py
 from __future__ import annotations
 
@@ -21,8 +21,6 @@ from .diary_core import (
     diary_state_enabled,
     get_diary_state_map,
     get_or_create_diary_state,
-    get_person_diary_track,
-    set_person_diary_track,
     set_person_diary_checked_at,
 )
 from .utils import (
@@ -60,7 +58,7 @@ router = APIRouter()
 def _coerce_bool(v) -> bool:
     """
     "0"/"1" の文字列や int を正しく bool に寄せる。
-    重要: bool("0") は True なので、それを避けるための関数。
+    重要: bool("0") は True なので、それを避ける。
     """
     if v is None:
         return False
@@ -76,6 +74,72 @@ def _coerce_bool(v) -> bool:
             return False
         return False
     return False
+
+
+def _pick_attr(obj, candidates: List[str]) -> str:
+    for a in candidates:
+        if obj is not None and hasattr(obj, a):
+            return a
+    return ""
+
+
+def _read_track(person: KBPerson, st) -> bool:
+    """
+    追跡フラグを「どこに保存されていても」読めるようにします。
+    優先順：State → Person
+    """
+    # State側
+    if st is not None:
+        a = _pick_attr(st, ["track_diary", "diary_track", "is_tracking", "tracking", "track"])
+        if a:
+            try:
+                return _coerce_bool(getattr(st, a))
+            except Exception:
+                pass
+
+    # Person側（カラム/属性がある場合）
+    a = _pick_attr(person, ["track_diary", "diary_track", "is_tracking", "tracking"])
+    if a:
+        try:
+            return _coerce_bool(getattr(person, a))
+        except Exception:
+            pass
+
+    return False
+
+
+def _write_track(db: Session, person: KBPerson, st, value: bool) -> None:
+    """
+    追跡フラグを「存在する場所すべて」に同期して保存します。
+    これで「保存したのに外れる」「全員ONになる」系を潰します。
+    """
+    v = bool(value)
+
+    # State側に書く（存在する属性にのみ）
+    if st is not None:
+        a = _pick_attr(st, ["track_diary", "diary_track", "is_tracking", "tracking", "track"])
+        if a:
+            try:
+                setattr(st, a, v)
+            except Exception:
+                pass
+        try:
+            db.add(st)
+        except Exception:
+            pass
+
+    # Person側にも書く（存在する属性にのみ）
+    a = _pick_attr(person, ["track_diary", "diary_track", "is_tracking", "tracking"])
+    if a:
+        try:
+            setattr(person, a, v)
+        except Exception:
+            pass
+    # person は既に session 管理下のことが多いですが、念のため
+    try:
+        db.add(person)
+    except Exception:
+        pass
 
 
 @router.get("/kb", response_class=HTMLResponse)
@@ -256,7 +320,6 @@ def kb_add_person(
             .first()
         )
         if exists_p:
-            # 重複検知（結果はURLに付けるだけ）。ユーザーの方針でここが不要なら丸ごと外してOK。
             dup = find_similar_persons_in_store(
                 db, int(store_id), name, exclude_person_id=int(exists_p.id)
             )
@@ -330,24 +393,19 @@ def kb_person_page(
     except Exception:
         amount_avg_yen = None
 
-    # ✅ ここが重要：表示用に「追跡フラグ」を確実に同期する
-    state_map = get_diary_state_map(db, [int(person_id)])
-    st = state_map.get(int(person_id))
+    # ✅ 表示用：追跡フラグを「保存先に依存せず」確実に復元
+    st = None
     if diary_state_enabled():
+        state_map = get_diary_state_map(db, [int(person_id)])
+        st = state_map.get(int(person_id))
         st = get_or_create_diary_state(db, state_map, int(person_id)) or st
 
-    # 重要: bool("0") == True の罠を避ける
+    track = _read_track(person, st)
+    # テンプレは person.track_diary を見ているので、ここで必ず同期
     try:
-        track_raw = get_person_diary_track(person, st)
-        try:
-            setattr(person, "track_diary", _coerce_bool(track_raw))
-        except Exception:
-            pass
+        setattr(person, "track_diary", bool(track))
     except Exception:
-        try:
-            setattr(person, "track_diary", False)
-        except Exception:
-            pass
+        pass
 
     base_parts = []
     if region and region.name:
@@ -441,8 +499,8 @@ def kb_update_person(
     url: str = Form(""),
     image_urls_text: str = Form(""),
     memo: str = Form(""),
-    track_diary: str = Form(""),  # ✅ フロント name="track_diary"
-    diary_track: str = Form(""),  # ✅ 互換
+    track_diary: str = Form(""),  # フロント name="track_diary"
+    diary_track: str = Form(""),  # 互換
     db: Session = Depends(get_db),
 ):
     back_url = request.headers.get("referer") or f"/kb/person/{person_id}"
@@ -450,9 +508,10 @@ def kb_update_person(
     if not p:
         return RedirectResponse(url="/kb", status_code=303)
 
-    state_map = get_diary_state_map(db, [int(person_id)])
-    st = state_map.get(int(person_id))
+    st = None
     if diary_state_enabled():
+        state_map = get_diary_state_map(db, [int(person_id)])
+        st = state_map.get(int(person_id))
         st = get_or_create_diary_state(db, state_map, int(person_id)) or st
 
     try:
@@ -483,25 +542,30 @@ def kb_update_person(
 
         p.memo = (memo or "").strip() or None
 
-        # ✅ track_diary 優先。空なら diary_track 互換。
+        # ✅ チェックボックス：ON時は "1" が来る / OFF時は来ない（空文字）
         raw_track = (track_diary or "").strip() or (diary_track or "").strip()
         new_track = _coerce_bool(raw_track)
 
-        old_track_raw = get_person_diary_track(p, st)
-        old_track = _coerce_bool(old_track_raw)
+        old_track = _read_track(p, st)
 
-        changed = set_person_diary_track(p, new_track, st)
+        # ✅ 保存先に依存せず確実に書く（State/Person 両方に同期）
+        _write_track(db, p, st, new_track)
 
-        if changed:
-            # DB実装によっては set_person_diary_track が state 側だけ更新し、
-            # person の表示が古いままになるケースがあるため、表示用にも同期する
-            try:
-                setattr(p, "track_diary", bool(new_track))
-            except Exception:
-                pass
-
+        # ✅ OFF→ON のときは「未チェック扱い」に戻す（既存ヘルパー優先）
         if (not old_track) and new_track:
-            set_person_diary_checked_at(p, None, st)
+            try:
+                set_person_diary_checked_at(p, None, st)
+            except Exception:
+                # フォールバック：Stateにそれっぽいカラムがあれば null に
+                if st is not None:
+                    for a in ("diary_checked_at", "checked_at", "last_checked_at", "last_checked"):
+                        if hasattr(st, a):
+                            try:
+                                setattr(st, a, None)
+                                db.add(st)
+                                break
+                            except Exception:
+                                pass
 
         p.name_norm = norm_text(p.name or "")
         p.services_norm = norm_text(p.services or "")
