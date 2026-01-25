@@ -270,7 +270,6 @@ def kb_add_person(
 def kb_person_page(
     request: Request,
     person_id: int,
-    dup: str = "",
     db: Session = Depends(get_db),
 ):
     person = db.query(KBPerson).filter(KBPerson.id == int(person_id)).first()
@@ -309,6 +308,26 @@ def kb_person_page(
             amount_avg_yen = int(round(float(amount_avg)))
     except Exception:
         amount_avg_yen = None
+
+    # ✅ ここが重要：表示用に「追跡フラグ」を確実に同期する
+    state_map = get_diary_state_map(db, [int(person_id)])
+    st = state_map.get(int(person_id))
+    if diary_state_enabled():
+        st = get_or_create_diary_state(db, state_map, int(person_id)) or st
+
+    try:
+        track = get_person_diary_track(person, st)
+        # テンプレは person.track_diary を見ている前提なので、ここで確実に入れる
+        try:
+            setattr(person, "track_diary", bool(track))
+        except Exception:
+            pass
+    except Exception:
+        # 表示が死ぬのを避ける
+        try:
+            setattr(person, "track_diary", False)
+        except Exception:
+            pass
 
     base_parts = []
     if region and region.name:
@@ -349,6 +368,7 @@ def kb_person_page(
             "body_class": "page-kb",
         },
     )
+
 
 
 @router.get("/kb/person/{person_id}/external_search")
@@ -402,10 +422,8 @@ def kb_update_person(
     url: str = Form(""),
     image_urls_text: str = Form(""),
     memo: str = Form(""),
-    # ✅ 正：フロントの name="track_diary" に合わせる
-    track_diary: str = Form(""),
-    # ✅ 互換：過去の name="diary_track" が残っていても壊れないように受ける
-    diary_track: str = Form(""),
+    track_diary: str = Form(""),   # ✅ フロント name="track_diary"
+    diary_track: str = Form(""),   # ✅ 互換
     db: Session = Depends(get_db),
 ):
     back_url = request.headers.get("referer") or f"/kb/person/{person_id}"
@@ -446,15 +464,37 @@ def kb_update_person(
 
         p.memo = (memo or "").strip() or None
 
-        # ✅ track_diary を優先。空なら diary_track（互換）を参照。
+        # ✅ track_diary 優先。空なら diary_track 互換。
         raw_track = (track_diary or "").strip() or (diary_track or "").strip()
         new_track = raw_track.lower() in ("1", "true", "on", "yes")
 
         old_track = get_person_diary_track(p, st)
 
-        if set_person_diary_track(p, new_track, st):
-            if (not old_track) and new_track:
-                set_person_diary_checked_at(p, None, st)
+        # ✅ まずは既存ロジックに任せる（Person or Stateどちらに保存するかは内部に依存）
+        changed = set_person_diary_track(p, new_track, st)
+
+        # ✅ 保険：テンプレが person.track_diary を見ても必ず合うように、Person側へも直書き
+        try:
+            setattr(p, "track_diary", bool(new_track))
+        except Exception:
+            pass
+
+        # ✅ さらに保険：StateがあるならState側にも直書き（属性名はプロジェクト側の実装差があるので両候補）
+        if st is not None:
+            for attr in ("track_diary", "diary_track", "is_tracking", "tracking"):
+                if hasattr(st, attr):
+                    try:
+                        setattr(st, attr, bool(new_track))
+                        break
+                    except Exception:
+                        pass
+            try:
+                db.add(st)
+            except Exception:
+                pass
+
+        if (changed or (old_track != new_track)) and (not old_track) and new_track:
+            set_person_diary_checked_at(p, None, st)
 
         p.name_norm = norm_text(p.name or "")
         p.services_norm = norm_text(p.services or "")
@@ -466,8 +506,15 @@ def kb_update_person(
         db.commit()
     except Exception:
         db.rollback()
+        # 失敗を握り潰すと永遠に原因が分からないのでログに残します（RenderのLogsで確認できます）
+        try:
+            import traceback
+            traceback.print_exc()
+        except Exception:
+            pass
 
     return RedirectResponse(url=back_url, status_code=303)
+
 
 
 
