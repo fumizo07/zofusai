@@ -1,4 +1,4 @@
-# 001
+# 002
 # routers/kb_parts/diary_core.py
 from __future__ import annotations
 
@@ -342,6 +342,22 @@ def diary_state_enabled() -> bool:
 
 
 def safe_bool(v: object) -> bool:
+    """
+    重要: bool("0") は True なので、それを避ける。
+    """
+    if v is None:
+        return False
+    if isinstance(v, bool):
+        return v
+    if isinstance(v, (int, float)):
+        return v != 0
+    if isinstance(v, str):
+        s = v.strip().lower()
+        if s in ("1", "true", "on", "yes", "y", "t"):
+            return True
+        if s in ("0", "false", "off", "no", "n", "f", ""):
+            return False
+        return False
     try:
         return bool(v)
     except Exception:
@@ -398,38 +414,87 @@ def get_or_create_diary_state(db: Session, state_map: dict[int, object], person_
 
 
 def get_person_diary_track(p: KBPerson, st: Optional[object] = None) -> bool:
-    if st is not None and hasattr(st, "track"):
-        return safe_bool(getattr(st, "track", False))
+    """
+    追跡ON/OFF の読み取り。
+    models.py の定義に合わせて:
+      - KBDiaryState.track_enabled
+      - （互換）KBPerson.diary_track がある場合のみ読む
+    """
+    if st is not None:
+        # ✅ 新定義
+        if hasattr(st, "track_enabled"):
+            return safe_bool(getattr(st, "track_enabled", False))
+        # ✅ 旧互換
+        if hasattr(st, "track"):
+            return safe_bool(getattr(st, "track", False))
+
     if hasattr(p, "diary_track"):
         return safe_bool(getattr(p, "diary_track", False))
-    return True
+
+    # ✅ 「追跡ONがデフォルト」だと今回みたいに暴発するので、デフォルトは False にする
+    return False
 
 
 def set_person_diary_track(p: KBPerson, track: bool, st: Optional[object] = None) -> bool:
+    """
+    追跡ON/OFF の保存。
+    models.py の定義に合わせて:
+      - KBDiaryState.track_enabled に書く
+      - （互換）KBPerson.diary_track がある場合はそちらに書く
+    """
     changed = False
-    if st is not None and hasattr(st, "track"):
-        try:
-            setattr(st, "track", bool(track))
-            changed = True
-        except Exception:
-            pass
-    elif hasattr(p, "diary_track"):
+
+    if st is not None:
+        # ✅ 新定義
+        if hasattr(st, "track_enabled"):
+            try:
+                setattr(st, "track_enabled", bool(track))
+                changed = True
+            except Exception:
+                pass
+            return changed
+
+        # ✅ 旧互換
+        if hasattr(st, "track"):
+            try:
+                setattr(st, "track", bool(track))
+                changed = True
+            except Exception:
+                pass
+            return changed
+
+    if hasattr(p, "diary_track"):
         try:
             setattr(p, "diary_track", bool(track))
             changed = True
         except Exception:
             pass
+
     return changed
 
 
+# ---- 以下は互換のため残す（現状のmodels.pyと完全一致はしていませんが、壊しにくくする）
 def get_person_diary_latest_ts(p: KBPerson, st: Optional[object] = None) -> Optional[int]:
+    # state: latest_entry_at (datetime) があれば epoch ms に変換
     if st is not None:
+        if hasattr(st, "latest_entry_at"):
+            dt = getattr(st, "latest_entry_at", None)
+            if isinstance(dt, datetime):
+                return dt_to_epoch_ms(dt)
         for k in ("latest_ts_ms", "diary_latest_ts_ms", "latest_ts", "diary_latest_ts"):
             if hasattr(st, k):
                 return safe_int(getattr(st, k, None))
+
+    # person: diary_last_entry_at があれば epoch ms に変換
+    if hasattr(p, "diary_last_entry_at"):
+        dt = getattr(p, "diary_last_entry_at", None)
+        if isinstance(dt, datetime):
+            return dt_to_epoch_ms(dt)
+
     for k in ("diary_latest_ts_ms", "diary_latest_ts"):
         if hasattr(p, k):
             return safe_int(getattr(p, k, None))
+
     return None
 
 
@@ -437,7 +502,19 @@ def set_person_diary_latest_ts(p: KBPerson, ts: Optional[int], st: Optional[obje
     ts_i = safe_int(ts)
     changed = False
 
+    # state: latest_entry_at があるなら datetime 化して入れる（ts->dt）
     if st is not None:
+        if hasattr(st, "latest_entry_at"):
+            try:
+                if ts_i is None:
+                    setattr(st, "latest_entry_at", None)
+                else:
+                    setattr(st, "latest_entry_at", datetime.fromtimestamp(ts_i / 1000, tz=JST))
+                changed = True
+            except Exception:
+                pass
+            return changed
+
         for k in ("latest_ts_ms", "diary_latest_ts_ms", "latest_ts", "diary_latest_ts"):
             if hasattr(st, k):
                 try:
@@ -445,9 +522,19 @@ def set_person_diary_latest_ts(p: KBPerson, ts: Optional[int], st: Optional[obje
                     changed = True
                 except Exception:
                     pass
-                break
-        if changed:
-            return True
+                return changed
+
+    # person: diary_last_entry_at があるなら datetime 化して入れる
+    if hasattr(p, "diary_last_entry_at"):
+        try:
+            if ts_i is None:
+                setattr(p, "diary_last_entry_at", None)
+            else:
+                setattr(p, "diary_last_entry_at", datetime.fromtimestamp(ts_i / 1000, tz=JST))
+            changed = True
+        except Exception:
+            pass
+        return changed
 
     for k in ("diary_latest_ts_ms", "diary_latest_ts"):
         if hasattr(p, k):
@@ -456,18 +543,30 @@ def set_person_diary_latest_ts(p: KBPerson, ts: Optional[int], st: Optional[obje
                 changed = True
             except Exception:
                 pass
-            break
-    return changed
+            return changed
+
+    return False
 
 
 def get_person_diary_seen_ts(p: KBPerson, st: Optional[object] = None) -> Optional[int]:
     if st is not None:
+        if hasattr(st, "seen_at"):
+            dt = getattr(st, "seen_at", None)
+            if isinstance(dt, datetime):
+                return dt_to_epoch_ms(dt)
         for k in ("seen_ts_ms", "diary_seen_ts_ms", "seen_ts", "diary_seen_ts"):
             if hasattr(st, k):
                 return safe_int(getattr(st, k, None))
+
+    if hasattr(p, "diary_seen_at"):
+        dt = getattr(p, "diary_seen_at", None)
+        if isinstance(dt, datetime):
+            return dt_to_epoch_ms(dt)
+
     for k in ("diary_seen_ts_ms", "diary_seen_ts"):
         if hasattr(p, k):
             return safe_int(getattr(p, k, None))
+
     return None
 
 
@@ -476,6 +575,17 @@ def set_person_diary_seen_ts(p: KBPerson, ts: Optional[int], st: Optional[object
     changed = False
 
     if st is not None:
+        if hasattr(st, "seen_at"):
+            try:
+                if ts_i is None:
+                    setattr(st, "seen_at", None)
+                else:
+                    setattr(st, "seen_at", datetime.fromtimestamp(ts_i / 1000, tz=JST))
+                changed = True
+            except Exception:
+                pass
+            return changed
+
         for k in ("seen_ts_ms", "diary_seen_ts_ms", "seen_ts", "diary_seen_ts"):
             if hasattr(st, k):
                 try:
@@ -483,9 +593,18 @@ def set_person_diary_seen_ts(p: KBPerson, ts: Optional[int], st: Optional[object
                     changed = True
                 except Exception:
                     pass
-                break
-        if changed:
-            return True
+                return changed
+
+    if hasattr(p, "diary_seen_at"):
+        try:
+            if ts_i is None:
+                setattr(p, "diary_seen_at", None)
+            else:
+                setattr(p, "diary_seen_at", datetime.fromtimestamp(ts_i / 1000, tz=JST))
+            changed = True
+        except Exception:
+            pass
+        return changed
 
     for k in ("diary_seen_ts_ms", "diary_seen_ts"):
         if hasattr(p, k):
@@ -494,11 +613,13 @@ def set_person_diary_seen_ts(p: KBPerson, ts: Optional[int], st: Optional[object
                 changed = True
             except Exception:
                 pass
-            break
-    return changed
+            return changed
+
+    return False
 
 
 def get_person_diary_checked_at(p: KBPerson, st: Optional[object] = None) -> Optional[datetime]:
+    # 現行models.pyのstateには checked_at がないので、互換として person.diary_checked_at を使う
     if st is not None:
         for k in ("checked_at", "diary_checked_at", "last_checked_at"):
             if hasattr(st, k):
@@ -515,6 +636,7 @@ def get_person_diary_checked_at(p: KBPerson, st: Optional[object] = None) -> Opt
 
 
 def set_person_diary_checked_at(p: KBPerson, dt: Optional[datetime], st: Optional[object] = None) -> bool:
+    # 現行models.pyのstateには checked_at がないので、互換として person.diary_checked_at を使う
     if st is not None:
         for k in ("checked_at", "diary_checked_at", "last_checked_at"):
             if hasattr(st, k):
