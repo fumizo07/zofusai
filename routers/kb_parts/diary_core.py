@@ -31,7 +31,7 @@ _DIARY_MAX_BYTES = 1024 * 1024  # 1MB
 _DIARY_UA = "Mozilla/5.0 (compatible; PersonalSearchKB/1.0; +https://example.invalid)"
 
 # DBへの再チェック間隔（重い外部取得を間引く）
-_DIARY_DB_RECHECK_INTERVAL_SEC = 2 * 60 * 60  # 2時間
+_DIARY_DB_RECHECK_INTERVAL_SEC = 60 * 30  # 30分
 
 # ざっくり安全策（オープンプロキシ化を避ける）
 _DIARY_ALLOWED_HOST_SUFFIXES = (

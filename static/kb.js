@@ -190,7 +190,11 @@
   // ============================================================
   // KB：写メ日記 NEW バッジ（点灯：API / クリックで既読→消える）
   // ============================================================
-  const DIARY_STATUS_API = "/kb/api/diary_status";
+  // ★Python側に合わせる版：
+  // - 取得：GET /kb/api/diary_latest?ids=1,2,3 （DB更新＋is_new判定込み）
+  // - 既読：POST /kb/api/diary_seen  {id: 123}
+  // - diary_key は使わず、latest_ts を “既読キー” として localStorage に保存
+  const DIARY_LATEST_API = "/kb/api/diary_latest";
   const DIARY_SEEN_API = "/kb/api/diary_seen";
 
   function diarySeenKey(personId) {
@@ -213,10 +217,11 @@
     badges.forEach((a) => {
       const pid = a.getAttribute("data-person-id");
       if (!pid) return;
-      const key = diarySeenKey(pid);
+
       const stored = (() => {
-        try { return localStorage.getItem(key) || ""; } catch (_) { return ""; }
+        try { return localStorage.getItem(diarySeenKey(pid)) || ""; } catch (_) { return ""; }
       })();
+
       const diaryKey = a.getAttribute("data-diary-key") || "";
       if (diaryKey && stored && stored === diaryKey) {
         hideDiaryBadges(pid);
@@ -225,16 +230,18 @@
   }
 
   async function markDiarySeen(personId, diaryKey) {
+    // localStorage（端末ローカル）側の既読
     if (diaryKey) {
       try { localStorage.setItem(diarySeenKey(personId), String(diaryKey)); } catch (_) {}
     }
 
+    // サーバー側の既読（Python: {"id": pid}）
     try {
       await fetch(DIARY_SEEN_API, {
         method: "POST",
         credentials: "same-origin",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ person_id: Number(personId), diary_key: String(diaryKey || "") }),
+        body: JSON.stringify({ id: Number(personId) }),
         keepalive: true,
       });
     } catch (_) {}
@@ -246,136 +253,77 @@
     a.className = "kb-diary-new";
     a.setAttribute("data-kb-diary-new", "1");
     a.setAttribute("data-person-id", String(personId));
-    a.setAttribute("data-diary-key", String(diaryKey || ""));
+    a.setAttribute("data-diary-key", String(diaryKey || "")); // ★latest_ts をキーにする
     a.target = "_blank";
     a.rel = "noopener noreferrer";
     a.textContent = "NEW";
     return a;
   }
 
-  // ★ここが今回の修正点：
-  // - Render側の /kb/api/diary_status が「GETのみ」になっていて POST が 405 で落ちている
-  // - まず POST（バッチ）を試し、405なら GET（1件ずつ）へ自動フォールバックします
-  function normalizeDiaryStatusResponse(json) {
-    // 期待：{ ok:true, items:[{person_id,is_new,diary_key,...},...] }
-    if (json && json.ok && Array.isArray(json.items)) return json.items;
+  async function fetchDiaryLatestAndRender() {
+    const slots = Array.from(
+      document.querySelectorAll("[data-kb-diary-slot][data-person-id]")
+    );
+    if (!slots.length) return;
 
-    // 代替：{ ok:true, item:{...} }
-    if (json && json.ok && json.item && typeof json.item === "object") return [json.item];
+    // person_id をユニーク化（APIは ids=... 形式）
+    const uniqIds = [];
+    const seen = new Set();
 
-    // 代替：{ person_id:..., is_new:..., diary_key:... } だけ返すタイプ
-    if (json && typeof json === "object" && ("person_id" in json) && ("is_new" in json)) return [json];
-
-    return [];
-  }
-
-  async function fetchDiaryStatusBatchPOST(items) {
-    const res = await fetch(DIARY_STATUS_API, {
-      method: "POST",
-      credentials: "same-origin",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ items }),
+    slots.forEach((s) => {
+      const pid = parseInt(String(s.getAttribute("data-person-id") || "0"), 10);
+      if (!Number.isFinite(pid) || pid <= 0) return;
+      if (seen.has(pid)) return;
+      seen.add(pid);
+      uniqIds.push(pid);
     });
 
-    if (res.status === 405) {
-      const err = new Error("diary_status_post_405");
-      err.code = "METHOD_NOT_ALLOWED";
-      throw err;
-    }
-    if (!res.ok) return [];
+    if (!uniqIds.length) return;
 
-    const json = await res.json().catch(() => null);
-    return normalizeDiaryStatusResponse(json);
-  }
-
-  async function fetchDiaryStatusOneGET(personId, diaryUrl) {
-    // サーバー側が GET のとき、よくある形として query で渡す
-    const qs = new URLSearchParams({
-      person_id: String(personId),
-      diary_url: String(diaryUrl || ""),
-    });
-
-    const res = await fetch(`${DIARY_STATUS_API}?${qs.toString()}`, {
+    const qs = new URLSearchParams({ ids: uniqIds.join(",") });
+    const res = await fetch(`${DIARY_LATEST_API}?${qs.toString()}`, {
       method: "GET",
       credentials: "same-origin",
       headers: { "Accept": "application/json" },
-    });
+    }).catch(() => null);
 
-    if (!res.ok) return null;
+    if (!res || !res.ok) return;
+
     const json = await res.json().catch(() => null);
-    const items = normalizeDiaryStatusResponse(json);
-    return items && items.length ? items[0] : null;
-  }
-
-  async function fetchDiaryStatusAndRender() {
-    const slots = Array.from(document.querySelectorAll("[data-kb-diary-slot][data-person-id][data-diary-url]"));
-    if (!slots.length) return;
-
-    // person_id ごとに1回だけ問い合わせ
-    const uniq = new Map(); // pid -> {person_id, diary_url}
-    slots.forEach((s) => {
-      const pid = parseInt(String(s.getAttribute("data-person-id") || "0"), 10);
-      const url = String(s.getAttribute("data-diary-url") || "").trim();
-      if (!Number.isFinite(pid) || pid <= 0) return;
-      if (!url) return;
-      if (!uniq.has(pid)) uniq.set(pid, { person_id: pid, diary_url: url });
-    });
-
-    const items = Array.from(uniq.values());
+    const items = (json && json.ok && Array.isArray(json.items)) ? json.items : [];
     if (!items.length) return;
 
-    let resultItems = [];
-
-    // ① まずは POST（バッチ）を試す
-    try {
-      resultItems = await fetchDiaryStatusBatchPOST(items);
-    } catch (e) {
-      // ② 405 の場合だけ GET（1件ずつ）にフォールバック
-      if (e && e.code === "METHOD_NOT_ALLOWED") {
-        const oneByOne = await Promise.all(
-          items.map(async (it) => {
-            try {
-              return await fetchDiaryStatusOneGET(it.person_id, it.diary_url);
-            } catch (_) {
-              return null;
-            }
-          })
-        );
-        resultItems = oneByOne.filter(Boolean);
-      } else {
-        return;
-      }
-    }
-
-    if (!Array.isArray(resultItems) || !resultItems.length) return;
-
-    // is_new のものだけ差し込み
+    // id -> item
     const byId = new Map();
-    resultItems.forEach((it) => {
-      const pid = Number(it?.person_id || 0);
+    items.forEach((it) => {
+      const pid = Number(it?.id || 0);
       if (!Number.isFinite(pid) || pid <= 0) return;
       byId.set(pid, it);
     });
 
     slots.forEach((slot) => {
       const pid = parseInt(String(slot.getAttribute("data-person-id") || "0"), 10);
-      const url = String(slot.getAttribute("data-diary-url") || "").trim();
-      if (!pid || !url) return;
+      if (!pid) return;
 
       const st = byId.get(pid);
       if (!st) return;
 
-      const diaryKey = String(st.diary_key || "");
-      const isNew = !!st.is_new;
-
-      // 既にバッジがある場合は二重に作らない
+      // 既にバッジがあるなら二重生成しない
       const already = slot.querySelector("[data-kb-diary-new]");
       if (already) return;
 
-      if (isNew && diaryKey) {
-        const badge = createNewBadge(pid, url, diaryKey);
-        slot.appendChild(badge);
-      }
+      const isNew = !!st.is_new;
+      const latestTs = (st.latest_ts != null) ? String(st.latest_ts) : "";
+      if (!isNew || !latestTs) return;
+
+      // URLは、ページ側の data-diary-url を優先しつつ、APIが open_url を返していたらそれも使える
+      const attrUrl = String(slot.getAttribute("data-diary-url") || "").trim();
+      const openUrl = String(st.open_url || "").trim();
+      const url = openUrl || attrUrl;
+      if (!url) return;
+
+      const badge = createNewBadge(pid, url, latestTs);
+      slot.appendChild(badge);
     });
 
     // ローカル既読があれば消す（動的生成分も含む）
@@ -384,7 +332,14 @@
 
   function initKbDiaryNewBadges() {
     applyDiarySeenFromLocalStorage();
-    fetchDiaryStatusAndRender();
+    fetchDiaryLatestAndRender();
+
+    // ★追加：ページを開いている間、5分おきに再チェック
+    // NOTE: Python側の diary_db_recheck_interval_sec より短くしても、
+    // サーバー側が「まだ再取得しない」と判断すれば外部fetchは抑制されます（DBキャッシュ優先）。
+    setInterval(() => {
+      fetchDiaryLatestAndRender();
+    }, 5 * 60 * 1000);
 
     document.addEventListener("click", (e) => {
       const a = e.target?.closest?.("[data-kb-diary-new]");
@@ -399,6 +354,8 @@
       markDiarySeen(pid, diaryKey);
     }, true);
   }
+
+
 
   // ============================================================
   // ★追加：KB パニックボタン（チェックONで有効化）
