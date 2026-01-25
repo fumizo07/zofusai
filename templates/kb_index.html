@@ -245,12 +245,12 @@
               </div>
 
               <div class="muted">
-                <span data-kb-diary-lastcheck data-person-id="{{ p.id }}">最終チェック：-</span>/<span data-kb-diary-latest data-person-id="{{ p.id }}">最新日記：-</span>
+                {% if avg is not none %}平均評価:{{ "%.2f"|format(avg) }}{% endif %}
+                {%- if avg_amt is not none -%}/平均金額:{{ "{:,}".format(avg_amt) }}円{%- endif -%}
               </div>
 
               <div class="muted">
-                {% if avg is not none %}平均評価:{{ "%.2f"|format(avg) }}{% endif %}
-                {%- if avg_amt is not none -%}/平均金額:{{ "{:,}".format(avg_amt) }}円{%- endif -%}
+                <span data-kb-diary-lastcheck data-person-id="{{ p.id }}">最終チェック：-</span>/<span data-kb-diary-latest data-person-id="{{ p.id }}">最新日記：-</span>
               </div>
 
               <div class="muted">
