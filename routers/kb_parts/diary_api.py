@@ -162,6 +162,28 @@ def kb_api_diary_latest(
                 except Exception:
                     is_new = False
 
+        # --- 追加：表示用（最終チェック/最新日記の経過） ---
+        checked_ago_min = None
+        try:
+            if checked_at:
+                age_sec2 = (now_utc - checked_at).total_seconds()
+                if age_sec2 >= 0:
+                    checked_ago_min = int(age_sec2 // 60)
+        except Exception:
+            checked_ago_min = None
+
+        latest_ago_days = None
+        try:
+            if latest_ts is not None:
+                # latest_ts は ms（UTC基準）想定
+                dt_latest = datetime.utcfromtimestamp(int(latest_ts) / 1000.0)
+                dsec = (now_utc - dt_latest).total_seconds()
+                if dsec >= 0:
+                    latest_ago_days = int(dsec // 86400)
+        except Exception:
+            latest_ago_days = None
+        # --- 追加ここまで ---
+
         items.append(
             {
                 "id": int(pid),
@@ -171,6 +193,8 @@ def kb_api_diary_latest(
                 "is_new": bool(is_new),
                 "open_url": open_url,
                 "error": err,
+                "checked_ago_min": checked_ago_min,
+                "latest_ago_days": latest_ago_days,
             }
         )
 
