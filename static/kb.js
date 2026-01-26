@@ -372,6 +372,29 @@
 
     // NEWバッジの差し込み
     slots.forEach((slot) => {
+      // --- 追加：最終チェック/最新日記（追跡ONだけ表示）
+      try {
+        const root = slot.closest(".kb-person-result") || slot.parentElement || document;
+        const meta = root.querySelector('[data-kb-diary-meta="1"]');
+        const elChecked = root.querySelector("[data-kb-diary-checked]");
+        const elLatest = root.querySelector("[data-kb-diary-latest]");
+
+        if (meta) {
+          if (!st.tracked) {
+            // 追跡OFFは行ごと非表示（紛らわしいので）
+            meta.style.display = "none";
+          } else {
+            meta.style.display = "";
+            const cm = (st.checked_ago_min != null) ? String(st.checked_ago_min) : "";
+            const ld = (st.latest_ago_days != null) ? String(st.latest_ago_days) : "";
+
+            if (elChecked) elChecked.textContent = cm ? `最終チェック：${cm}分前` : `最終チェック：-`;
+            if (elLatest) elLatest.textContent = ld ? `最新日記：${ld}日前（取得済み）` : `最新日記：-`;
+          }
+        }
+      } catch (_) {}
+      // --- 追加ここまで
+
       const pid = parseInt(String(slot.getAttribute("data-person-id") || "0"), 10);
       if (!pid) return;
 
