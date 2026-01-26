@@ -194,8 +194,13 @@
   // - 取得：GET /kb/api/diary_latest?ids=1,2,3 （DB更新＋is_new判定込み）
   // - 既読：POST /kb/api/diary_seen  {id: 123}
   // - diary_key は使わず、latest_ts を “既読キー” として localStorage に保存
+  //
+  // ★要件：
+  // - 「写メ日記を追跡する」にチェックが入っている人（tracked=1）だけ
+  //   「最終チェック：/最新日記：」を表示する（tracked=0 は非表示）
   const DIARY_LATEST_API = "/kb/api/diary_latest";
   const DIARY_SEEN_API = "/kb/api/diary_seen";
+  const DIARY_REFRESH_INTERVAL_MS = 5 * 60 * 1000; // 5分
 
   function diarySeenKey(personId) {
     return `kb_diary_seen_${String(personId)}`;
@@ -260,48 +265,49 @@
     return a;
   }
 
-  // ============================================================
-  // ★写メ日記ステータス表示（最終チェック/最新日記）
-  // - 表示値はAPI（checked_ago_min / latest_ago_days / tracked）に統一
-  // - 5分おき再チェック（表示のために1分tickでの自前更新はしない）
-  // ============================================================
-  const DIARY_REFRESH_INTERVAL_MS = 5 * 60 * 1000; // 5分
+  function parseTrackedFromSlot(slot) {
+    // 既存のHTMLが data-diary-track="1|0" を持っている想定（無い場合は1扱い）
+    const v = String(slot?.getAttribute?.("data-diary-track") || "1").trim();
+    return v === "1";
+  }
 
   function setDiaryMetaUi(root, st) {
-    try {
-      const meta = root.querySelector('[data-kb-diary-meta="1"]');
-      const elChecked =
-        root.querySelector("[data-kb-diary-lastcheck]") ||
-        root.querySelector("[data-kb-diary-checked]");
-      const elLatest = root.querySelector("[data-kb-diary-latest]");
+    // st: { tracked: bool, checked_ago_min: number|null, latest_ago_days: number|null }
+    if (!root) return;
 
-      if (!meta && !elChecked && !elLatest) return;
+    const meta = root.querySelector('[data-kb-diary-meta="1"]');
+    if (!meta) return;
 
-      const tracked = (st && typeof st.tracked === "boolean") ? st.tracked : true;
+    const tracked = !!st?.tracked;
 
-      if (meta) {
-        meta.style.display = tracked ? "" : "none";
-      }
-      if (!tracked) return;
+    if (!tracked) {
+      meta.style.display = "none";
+      return;
+    }
 
-      const cm = (st && st.checked_ago_min != null) ? Number(st.checked_ago_min) : null;
-      const ld = (st && st.latest_ago_days != null) ? Number(st.latest_ago_days) : null;
+    meta.style.display = "";
 
-      if (elChecked) {
-        elChecked.textContent =
-          (cm != null && Number.isFinite(cm)) ? `最終チェック：${cm}分前/`:"最終チェック：-/";
-      }
-      if (elLatest) {
-        elLatest.textContent =
-          (ld != null && Number.isFinite(ld)) ? `最新日記：${ld}日前(取得済み)`:"最新日記：-";
-      }
-    } catch (_) {}
+    const elChecked = root.querySelector("[data-kb-diary-checked]");
+    const elLatest = root.querySelector("[data-kb-diary-latest]");
+
+    const cm = st?.checked_ago_min;
+    const ld = st?.latest_ago_days;
+
+    if (elChecked) {
+      elChecked.textContent = (cm != null && Number.isFinite(Number(cm)))
+        ? `最終チェック:${Number(cm)}分前/`
+        : "最終チェック:-/";
+    }
+
+    if (elLatest) {
+      elLatest.textContent = (ld != null && Number.isFinite(Number(ld)))
+        ? `最新日記:${Number(ld)}日前(取得済み)`
+        : "最新日記:-";
+    }
   }
 
   async function fetchDiaryLatestAndRender() {
-    const slots = Array.from(
-      document.querySelectorAll('[data-kb-diary-slot][data-person-id][data-diary-track="1"]')
-    );
+    const slots = Array.from(document.querySelectorAll('[data-kb-diary-slot][data-person-id]'));
     if (!slots.length) return;
 
     // person_id をユニーク化（APIは ids=... 形式）
@@ -340,37 +346,57 @@
       byId.set(pid, it);
     });
 
-    // ステータス表示 + NEWバッジ差し込み
     slots.forEach((slot) => {
       const pid = parseInt(String(slot.getAttribute("data-person-id") || "0"), 10);
-      if (!pid) return;
+      if (!Number.isFinite(pid) || pid <= 0) return;
 
+      const root = slot.closest(".kb-person-result") || slot.parentElement || document;
       const st = byId.get(pid);
 
-      // --- 最終チェック/最新日記（API値に統一）
-      try {
-        const root = slot.closest(".kb-person-result") || slot.parentElement || document;
-        setDiaryMetaUi(root, st || null);
-      } catch (_) {}
+      // ---- 最終チェック/最新日記（追跡ONだけ表示）
+      if (st) {
+        // APIが tracked を返している想定（無ければHTML側のdata-diary-trackにフォールバック）
+        const tracked = (typeof st.tracked === "boolean") ? st.tracked : parseTrackedFromSlot(slot);
+        const checkedAgo = (st.checked_ago_min != null) ? Number(st.checked_ago_min) : null;
+        const latestAgo = (st.latest_ago_days != null) ? Number(st.latest_ago_days) : null;
+        setDiaryMetaUi(root, {
+          tracked,
+          checked_ago_min: (checkedAgo != null && Number.isFinite(checkedAgo)) ? checkedAgo : null,
+          latest_ago_days: (latestAgo != null && Number.isFinite(latestAgo)) ? latestAgo : null,
+        });
+      } else {
+        // 取得できない場合でも、追跡ONなら「-」を維持（追跡OFFは非表示）
+        setDiaryMetaUi(root, {
+          tracked: parseTrackedFromSlot(slot),
+          checked_ago_min: null,
+          latest_ago_days: null,
+        });
+      }
 
-      if (!st) return;
+      // ---- NEWバッジ制御
+      const existing = slot.querySelector("[data-kb-diary-new]");
+      const isNew = !!st?.is_new;
+      const latestTs = (st?.latest_ts != null) ? String(st.latest_ts) : "";
+      const openUrl = String(st?.open_url || "").trim();
+      const attrUrl = String(slot.getAttribute("data-diary-url") || "").trim();
+      const url = openUrl || attrUrl;
+
+      // NEWじゃない/情報不足なら既存バッジを消す
+      if (!isNew || !latestTs || !url) {
+        if (existing) {
+          try { existing.remove(); } catch (_) { existing.style.display = "none"; }
+        }
+        return;
+      }
 
       // 既にバッジがあるなら二重生成しない
-      const already = slot.querySelector("[data-kb-diary-new]");
-      if (already) return;
-
-      const isNew = !!st.is_new;
-      const latestTs = (st.latest_ts != null) ? String(st.latest_ts) : "";
-      if (!isNew || !latestTs) return;
-
-      // URLは、ページ側の data-diary-url を優先しつつ、APIが open_url を返していたらそれも使える
-      const attrUrl = String(slot.getAttribute("data-diary-url") || "").trim();
-      const openUrl = String(st.open_url || "").trim();
-      const url = openUrl || attrUrl;
-      if (!url) return;
-
-      const badge = createNewBadge(pid, url, latestTs);
-      slot.appendChild(badge);
+      if (!existing) {
+        const badge = createNewBadge(pid, url, latestTs);
+        slot.appendChild(badge);
+      } else {
+        // 既存のキーを更新（万一の差分）
+        try { existing.setAttribute("data-diary-key", latestTs); } catch (_) {}
+      }
     });
 
     // ローカル既読があれば消す（動的生成分も含む）
@@ -380,10 +406,17 @@
   function initKbDiaryNewBadges() {
     applyDiarySeenFromLocalStorage();
 
-    // 初期表示（枠があるページだけ）
+    // ★初期プレースホルダ：追跡ONだけ「-」を出す（追跡OFFは非表示）
+    const slots0 = Array.from(document.querySelectorAll('[data-kb-diary-slot][data-person-id]'));
+    slots0.forEach((slot) => {
+      try {
+        const root = slot.closest(".kb-person-result") || slot.parentElement || document;
+        setDiaryMetaUi(root, { tracked: parseTrackedFromSlot(slot), checked_ago_min: null, latest_ago_days: null });
+      } catch (_) {}
+    });
+
     fetchDiaryLatestAndRender();
 
-    // ページを開いている間、5分おきに再チェック
     setInterval(() => {
       fetchDiaryLatestAndRender();
     }, DIARY_REFRESH_INTERVAL_MS);
