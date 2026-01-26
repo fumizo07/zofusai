@@ -104,7 +104,8 @@ def _http_get_text(url: str, timeout_sec: int = _DIARY_HTTP_TIMEOUT_SEC) -> str:
         },
         method="GET",
     )
-t0 = time.time()
+
+    t0 = time.time()
     print(f"[diary] http_get start url={url}")
 
     try:
@@ -153,6 +154,7 @@ t0 = time.time()
     except Exception as e:
         print(f"[diary] http_get fail url={url} err={repr(e)} sec={time.time()-t0:.2f}")
         return ""
+
 
 
 def _infer_year_for_md(month: int, day: int, now_jst: datetime) -> int:
