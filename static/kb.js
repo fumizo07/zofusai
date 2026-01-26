@@ -295,7 +295,7 @@
     const now = Date.now();
 
     // 最終チェック：○分前
-    const lastNodes = document.querySelectorAll("[data-kb-diary-lastcheck][data-person-id]");
+    const lastNodes = document.querySelectorAll('[data-kb-diary-lastcheck][data-person-id][data-diary-track="1"]');
     lastNodes.forEach((n) => {
       const pid = n.getAttribute("data-person-id");
       if (!pid) return;
@@ -305,7 +305,7 @@
     });
 
     // 最新日記：○日前（取得済み）
-    const latestNodes = document.querySelectorAll("[data-kb-diary-latest][data-person-id]");
+    const latestNodes = document.querySelectorAll('[data-kb-diary-latest][data-person-id][data-diary-track="1"]');
     latestNodes.forEach((n) => {
       const pid = n.getAttribute("data-person-id");
       if (!pid) return;
@@ -317,7 +317,7 @@
 
   async function fetchDiaryLatestAndRender() {
     const slots = Array.from(
-      document.querySelectorAll("[data-kb-diary-slot][data-person-id]")
+      document.querySelectorAll('[data-kb-diary-slot][data-person-id][data-diary-track="1"]')
     );
     if (!slots.length) return;
 
