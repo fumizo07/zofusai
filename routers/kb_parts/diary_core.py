@@ -104,33 +104,57 @@ def _http_get_text(url: str, timeout_sec: int = _DIARY_HTTP_TIMEOUT_SEC) -> str:
         },
         method="GET",
     )
-    with urllib.request.urlopen(req, timeout=timeout_sec) as res:
-        raw = res.read(_DIARY_MAX_BYTES + 1)
-        if len(raw) > _DIARY_MAX_BYTES:
-            raw = raw[:_DIARY_MAX_BYTES]
 
-        enc = ""
-        try:
-            enc = (res.headers.get("Content-Encoding") or "").lower()
-        except Exception:
+    t0 = time.time()
+    print(f"[diary] http_get start url={url}")
+
+    try:
+        with urllib.request.urlopen(req, timeout=timeout_sec) as res:
+            status = getattr(res, "status", None)
+            if status is None:
+                try:
+                    status = res.getcode()
+                except Exception:
+                    status = None
+
+            raw = res.read(_DIARY_MAX_BYTES + 1)
+            if len(raw) > _DIARY_MAX_BYTES:
+                raw = raw[:_DIARY_MAX_BYTES]
+
             enc = ""
+            try:
+                enc = (res.headers.get("Content-Encoding") or "").lower()
+            except Exception:
+                enc = ""
 
-        if "gzip" in enc:
-            raw = _gzip_decompress_limited(raw, _DIARY_MAX_BYTES)
+            ct = ""
+            try:
+                ct = res.headers.get("Content-Type") or ""
+            except Exception:
+                ct = ""
 
-        charset = "utf-8"
-        try:
-            ct = res.headers.get("Content-Type") or ""
-            m = re.search(r"charset=([a-zA-Z0-9_\-]+)", ct)
-            if m:
-                charset = m.group(1)
-        except Exception:
+            print(f"[diary] http_get ok status={status} bytes={len(raw)} enc={enc} ct={ct} sec={time.time()-t0:.2f}")
+
+            if "gzip" in enc:
+                raw = _gzip_decompress_limited(raw, _DIARY_MAX_BYTES)
+
             charset = "utf-8"
+            try:
+                m = re.search(r"charset=([a-zA-Z0-9_\-]+)", ct)
+                if m:
+                    charset = m.group(1)
+            except Exception:
+                charset = "utf-8"
 
-        try:
-            return raw.decode(charset, errors="replace")
-        except Exception:
-            return raw.decode("utf-8", errors="replace")
+            try:
+                return raw.decode(charset, errors="replace")
+            except Exception:
+                return raw.decode("utf-8", errors="replace")
+
+    except Exception as e:
+        print(f"[diary] http_get fail url={url} err={repr(e)} sec={time.time()-t0:.2f}")
+        return ""
+
 
 
 def _infer_year_for_md(month: int, day: int, now_jst: datetime) -> int:
