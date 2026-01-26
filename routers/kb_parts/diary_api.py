@@ -96,8 +96,11 @@ def kb_api_diary_latest(
                     "is_new": False,
                     "open_url": open_url,
                     "error": "not_tracked",
+                    "checked_ago_min": None,
+                    "latest_ago_days": None,
                 }
             )
+
             continue
 
         pu = ""
