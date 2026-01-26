@@ -1,4 +1,4 @@
-// 003
+// 004
 // static/kb.js
 (() => {
   "use strict";
@@ -260,59 +260,42 @@
     return a;
   }
 
-    // ============================================================
-  // ★追加：写メ日記ステータス表示（最終チェック/最新日記）
-  // - data-kb-diary-lastcheck / data-kb-diary-latest を更新
-  // - 5分おき再チェック + 1分おき表示更新（経過時間だけ進める）
+  // ============================================================
+  // ★写メ日記ステータス表示（最終チェック/最新日記）
+  // - 表示値はAPI（checked_ago_min / latest_ago_days / tracked）に統一
+  // - 5分おき再チェック（表示のために1分tickでの自前更新はしない）
   // ============================================================
   const DIARY_REFRESH_INTERVAL_MS = 5 * 60 * 1000; // 5分
-  const DIARY_RELATIVE_TICK_MS = 60 * 1000;        // 1分
 
-  // person_id -> { lastCheckMs: number, latestTsMs: number }
-  const diaryMeta = new Map();
+  function setDiaryMetaUi(root, st) {
+    try {
+      const meta = root.querySelector('[data-kb-diary-meta="1"]');
+      const elChecked =
+        root.querySelector("[data-kb-diary-lastcheck]") ||
+        root.querySelector("[data-kb-diary-checked]");
+      const elLatest = root.querySelector("[data-kb-diary-latest]");
 
-  function upsertDiaryMeta(pid, patch) {
-    const key = String(pid);
-    const cur = diaryMeta.get(key) || {};
-    diaryMeta.set(key, { ...cur, ...patch });
-  }
+      if (!meta && !elChecked && !elLatest) return;
 
-  function minsAgo(nowMs, thenMs) {
-    if (!thenMs) return null;
-    const d = nowMs - thenMs;
-    if (!Number.isFinite(d) || d < 0) return 0;
-    return Math.floor(d / (60 * 1000));
-  }
+      const tracked = (st && typeof st.tracked === "boolean") ? st.tracked : true;
 
-  function daysAgo(nowMs, thenMs) {
-    if (!thenMs) return null;
-    const d = nowMs - thenMs;
-    if (!Number.isFinite(d) || d < 0) return 0;
-    return Math.floor(d / (24 * 60 * 60 * 1000));
-  }
+      if (meta) {
+        meta.style.display = tracked ? "" : "none";
+      }
+      if (!tracked) return;
 
-  function renderDiaryInfoLabels() {
-    const now = Date.now();
+      const cm = (st && st.checked_ago_min != null) ? Number(st.checked_ago_min) : null;
+      const ld = (st && st.latest_ago_days != null) ? Number(st.latest_ago_days) : null;
 
-    // 最終チェック：○分前
-    const lastNodes = document.querySelectorAll('[data-kb-diary-lastcheck][data-person-id][data-diary-track="1"]');
-    lastNodes.forEach((n) => {
-      const pid = n.getAttribute("data-person-id");
-      if (!pid) return;
-      const meta = diaryMeta.get(String(pid));
-      const m = minsAgo(now, meta?.lastCheckMs);
-      n.textContent = (m == null) ? "最終チェック：-" : `最終チェック：${m}分前`;
-    });
-
-    // 最新日記：○日前（取得済み）
-    const latestNodes = document.querySelectorAll('[data-kb-diary-latest][data-person-id][data-diary-track="1"]');
-    latestNodes.forEach((n) => {
-      const pid = n.getAttribute("data-person-id");
-      if (!pid) return;
-      const meta = diaryMeta.get(String(pid));
-      const d = daysAgo(now, meta?.latestTsMs);
-      n.textContent = (d == null) ? "最新日記：-" : `最新日記：${d}日前（取得済み）`;
-    });
+      if (elChecked) {
+        elChecked.textContent =
+          (cm != null && Number.isFinite(cm)) ? `最終チェック：${cm}分前/`:"最終チェック：-/";
+      }
+      if (elLatest) {
+        elLatest.textContent =
+          (ld != null && Number.isFinite(ld)) ? `最新日記：${ld}日前(取得済み)`:"最新日記：-";
+      }
+    } catch (_) {}
   }
 
   async function fetchDiaryLatestAndRender() {
@@ -349,56 +332,27 @@
     const items = (json && json.ok && Array.isArray(json.items)) ? json.items : [];
     if (!items.length) return;
 
-    const checkedAt = Date.now();
-
     // id -> item
     const byId = new Map();
     items.forEach((it) => {
       const pid = Number(it?.id || 0);
       if (!Number.isFinite(pid) || pid <= 0) return;
-
       byId.set(pid, it);
-
-      // メタ更新（表示用）
-      const latestTs = (it?.latest_ts != null) ? Number(it.latest_ts) : null;
-      upsertDiaryMeta(pid, {
-        lastCheckMs: checkedAt,
-        latestTsMs: (latestTs != null && Number.isFinite(latestTs) && latestTs > 0) ? latestTs : null,
-      });
     });
 
-    // まず表示を更新（最終チェック/最新日記）
-    renderDiaryInfoLabels();
-
-    // NEWバッジの差し込み
+    // ステータス表示 + NEWバッジ差し込み
     slots.forEach((slot) => {
-      // --- 追加：最終チェック/最新日記（追跡ONだけ表示）
-      try {
-        const root = slot.closest(".kb-person-result") || slot.parentElement || document;
-        const meta = root.querySelector('[data-kb-diary-meta="1"]');
-        const elChecked = root.querySelector("[data-kb-diary-checked]");
-        const elLatest = root.querySelector("[data-kb-diary-latest]");
-
-        if (meta) {
-          if (!st.tracked) {
-            // 追跡OFFは行ごと非表示（紛らわしいので）
-            meta.style.display = "none";
-          } else {
-            meta.style.display = "";
-            const cm = (st.checked_ago_min != null) ? String(st.checked_ago_min) : "";
-            const ld = (st.latest_ago_days != null) ? String(st.latest_ago_days) : "";
-
-            if (elChecked) elChecked.textContent = cm ? `最終チェック：${cm}分前` : `最終チェック：-`;
-            if (elLatest) elLatest.textContent = ld ? `最新日記：${ld}日前（取得済み）` : `最新日記：-`;
-          }
-        }
-      } catch (_) {}
-      // --- 追加ここまで
-
       const pid = parseInt(String(slot.getAttribute("data-person-id") || "0"), 10);
       if (!pid) return;
 
       const st = byId.get(pid);
+
+      // --- 最終チェック/最新日記（API値に統一）
+      try {
+        const root = slot.closest(".kb-person-result") || slot.parentElement || document;
+        setDiaryMetaUi(root, st || null);
+      } catch (_) {}
+
       if (!st) return;
 
       // 既にバッジがあるなら二重生成しない
@@ -427,19 +381,12 @@
     applyDiarySeenFromLocalStorage();
 
     // 初期表示（枠があるページだけ）
-    renderDiaryInfoLabels();
     fetchDiaryLatestAndRender();
 
-    // ★追加：ページを開いている間、5分おきに再チェック
-    // NOTE: Python側が再取得不要ならサーバ側で抑制されます（DBキャッシュ優先）
+    // ページを開いている間、5分おきに再チェック
     setInterval(() => {
       fetchDiaryLatestAndRender();
     }, DIARY_REFRESH_INTERVAL_MS);
-
-    // ★追加：表示（○分前/○日前）だけは1分おきに進める（再取得なし）
-    setInterval(() => {
-      renderDiaryInfoLabels();
-    }, DIARY_RELATIVE_TICK_MS);
 
     document.addEventListener("click", (e) => {
       const a = e.target?.closest?.("[data-kb-diary-new]");
@@ -454,9 +401,6 @@
       markDiarySeen(pid, diaryKey);
     }, true);
   }
-
-
-
 
   // ============================================================
   // ★追加：KB パニックボタン（チェックONで有効化）
