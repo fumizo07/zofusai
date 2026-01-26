@@ -101,8 +101,8 @@
                 {% if avg is not none %}平均評価:{{ "%.2f"|format(avg) }}{% endif %}
                 {%- if avg_amt is not none -%}/平均金額:{{ "{:,}".format(avg_amt) }}円{%- endif -%}
               </div>
-              <div class="muted">
-                <span data-kb-diary-lastcheck data-person-id="{{ p.id }}" data-diary-track="1">最終チェック：-</span>/<span data-kb-diary-latest data-person-id="{{ p.id }}" data-diary-track="1">最新日記：-</span>
+              <div class="muted" data-kb-diary-meta="1">
+                <span data-kb-diary-checked></span>/<span data-kb-diary-latest></span>
               </div>
               <div class="muted">
                 <a href="/kb/person/{{ p.id }}/external_search" target="_blank">外部検索で調べる</a>{%- if p.url -%}/<a href="{{ p.url|e }}" target="_blank" rel="noopener noreferrer">プロフ(外部)</a>{%- endif -%}
