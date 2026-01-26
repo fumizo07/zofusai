@@ -6,3 +6,4 @@ psycopg2-binary
 requests
 beautifulsoup4
 python-multipart
+playwright==1.49.0
