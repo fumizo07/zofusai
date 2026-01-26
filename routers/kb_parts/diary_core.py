@@ -302,39 +302,82 @@ def dt_to_epoch_ms(dt: datetime) -> int:
         return 0
 
 
-def get_latest_diary_ts_ms(person_url: str) -> Tuple[Optional[int], str]:
-    url = (person_url or "").strip()
-    if not url:
+# --- ここから：get_latest_diary_ts_ms を丸ごと差し替え ---
+def get_latest_diary_ts_ms(person_url: str) -> tuple[int | None, str]:
+    """
+    person_url から diary の最新投稿時刻(ms)を返す。
+    失敗時は (None, "http_403" 等のエラー文字列) を返す。
+    """
+    pu = (person_url or "").strip()
+    if not pu:
         return None, "url_empty"
-    if not is_allowed_diary_url(url):
-        return None, "unsupported_host"
 
-    now_m = time.monotonic()
-    cached = _DIARY_CACHE.get(url)
-    if cached:
-        saved_m, latest_ts, err = cached
-        if now_m - saved_m <= _DIARY_CACHE_TTL_SEC:
-            return latest_ts, err
+    # 末尾スラッシュ除去して /diary を付ける（要件どおり）
+    base = pu[:-1] if pu.endswith("/") else pu
+    diary_url = base + "/diary"
+
+    t0 = time.time()
+
+    # ※あなたが入れている print ログと整合させる（logging にしてもOK）
+    print(f"[diary] http_get start url={diary_url}")
 
     try:
-        html = _http_get_text(url, timeout_sec=_DIARY_HTTP_TIMEOUT_SEC)
-        dt = extract_latest_diary_dt(html)
-        if not dt:
-            _DIARY_CACHE[url] = (now_m, None, "no_datetime_found")
-            return None, "no_datetime_found"
-        ts = dt_to_epoch_ms(dt)
-        if ts <= 0:
-            _DIARY_CACHE[url] = (now_m, None, "bad_datetime")
-            return None, "bad_datetime"
-        _DIARY_CACHE[url] = (now_m, ts, "")
-        return ts, ""
+        html = _http_get_text(diary_url, timeout_sec=_DIARY_HTTP_TIMEOUT_SEC)
+        sec = time.time() - t0
+        print(f"[diary] http_get ok url={diary_url} bytes={len(html)} sec={sec:.2f}")
     except urllib.error.HTTPError as e:
-        msg = f"http_error_{getattr(e, 'code', '')}"
-        _DIARY_CACHE[url] = (now_m, None, msg)
-        return None, msg
+        sec = time.time() - t0
+        code = getattr(e, "code", None)
+        print(f"[diary] http_get fail url={diary_url} err={repr(e)} sec={sec:.2f}")
+        if code:
+            return None, f"http_{int(code)}"
+        return None, "http_error"
+    except urllib.error.URLError as e:
+        sec = time.time() - t0
+        print(f"[diary] http_get fail url={diary_url} err={repr(e)} sec={sec:.2f}")
+        return None, "url_error"
+    except Exception as e:
+        sec = time.time() - t0
+        print(f"[diary] http_get fail url={diary_url} err={repr(e)} sec={sec:.2f}")
+        return None, "exception"
+
+    # 投稿日時：最初に出てきた <span class="diary_time">1/24 17:17</span> を取る
+    m = re.search(r'<span[^>]*class=["\']diary_time["\'][^>]*>\s*([^<]+?)\s*</span>', html)
+    if not m:
+        return None, "parse_no_diary_time"
+
+    s = m.group(1).strip()  # 例: "1/24 17:17"
+    m2 = re.match(r"^(\d{1,2})/(\d{1,2})\s+(\d{1,2}):(\d{2})$", s)
+    if not m2:
+        return None, "parse_bad_format"
+
+    mon = int(m2.group(1))
+    day = int(m2.group(2))
+    hh = int(m2.group(3))
+    mm = int(m2.group(4))
+
+    # 年が無い問題：基本は今年扱い、ただし「未来日」になったら前年扱い
+    # （例：1月に 12/31 が出る等）
+    now_jst = datetime.now(timezone(timedelta(hours=9)))
+    year = now_jst.year
+
+    try:
+        dt_jst = datetime(year, mon, day, hh, mm, tzinfo=timezone(timedelta(hours=9)))
     except Exception:
-        _DIARY_CACHE[url] = (now_m, None, "fetch_error")
-        return None, "fetch_error"
+        return None, "parse_invalid_date"
+
+    # 未来すぎる（今より先）なら前年に倒す
+    if dt_jst > now_jst + timedelta(minutes=5):
+        try:
+            dt_jst = datetime(year - 1, mon, day, hh, mm, tzinfo=timezone(timedelta(hours=9)))
+        except Exception:
+            return None, "parse_invalid_date"
+
+    dt_utc = dt_jst.astimezone(timezone.utc)
+    ts_ms = int(dt_utc.timestamp() * 1000)
+    return ts_ms, ""
+# --- ここまで：get_latest_diary_ts_ms を丸ごと差し替え ---
+
 
 
 def build_diary_open_url_from_maps(
