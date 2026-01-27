@@ -16,6 +16,7 @@ from .diary_core import (
     parse_ids_csv,
     get_diary_state_map,
     get_or_create_diary_state,
+    get_latest_diary_ts_ms,  # ★ diary_core 側（内部でPlaywright優先→urllibフォールバック）
     get_person_diary_checked_at,
     get_person_diary_latest_ts,
     get_person_diary_seen_ts,
@@ -25,7 +26,6 @@ from .diary_core import (
     set_person_diary_seen_ts,
     build_diary_open_url_from_maps,
 )
-from .diary_fetcher_pw import get_latest_diary_ts_ms  # ★Playwright版
 from .utils import parse_int
 
 
@@ -76,6 +76,8 @@ def kb_api_diary_latest(
                     "is_new": False,
                     "open_url": "",
                     "error": "not_found",
+                    "checked_ago_min": None,
+                    "latest_ago_days": None,
                 }
             )
             continue
@@ -115,6 +117,8 @@ def kb_api_diary_latest(
                     "is_new": False,
                     "open_url": open_url,
                     "error": "url_empty",
+                    "checked_ago_min": None,
+                    "latest_ago_days": None,
                 }
             )
             continue
@@ -161,7 +165,7 @@ def kb_api_diary_latest(
                 except Exception:
                     is_new = False
 
-        # --- 表示用（最終チェック/最新日記の経過） ---
+        # 表示用（最終チェック/最新日記の経過）
         checked_ago_min = None
         try:
             if checked_at:
@@ -180,7 +184,6 @@ def kb_api_diary_latest(
                     latest_ago_days = int(dsec // 86400)
         except Exception:
             latest_ago_days = None
-        # --- ここまで ---
 
         items.append(
             {
