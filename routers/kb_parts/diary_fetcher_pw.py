@@ -1,4 +1,4 @@
-# 003
+# 004
 # routers/kb_parts/diary_fetcher_pw.py
 from __future__ import annotations
 
@@ -86,13 +86,14 @@ def get_latest_diary_ts_ms(url: str) -> Tuple[Optional[int], str]:
     if not u.rstrip("/").endswith("/diary"):
         u = u.rstrip("/") + "/diary"
 
-    # ★ Playwrightは「ここで」遅延import（起動時ImportError回避）
+    # ★ Playwrightはここで遅延import（サーバー起動時のImportError回避）
     try:
         from playwright.sync_api import sync_playwright, TimeoutError as PWTimeoutError  # type: ignore
     except Exception as e:
         return None, f"playwright_import_error:{type(e).__name__}"
 
     nav_timeout_ms = 25_000
+    t0 = datetime.now(timezone.utc)
 
     try:
         with sync_playwright() as p:
@@ -126,9 +127,7 @@ def get_latest_diary_ts_ms(url: str) -> Tuple[Optional[int], str]:
             # webdriver痕跡を軽く潰す（playwright-stealth無しの最低限）
             try:
                 context.add_init_script(
-                    """
-                    Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
-                    """
+                    "Object.defineProperty(navigator, 'webdriver', {get: () => undefined});"
                 )
             except Exception:
                 pass
@@ -152,6 +151,36 @@ def get_latest_diary_ts_ms(url: str) -> Tuple[Optional[int], str]:
 
             resp = page.goto(u, wait_until="domcontentloaded")
             status = resp.status if resp is not None else 0
+
+            # --- ★ デバッグ用ログ（403の実体を見る） ---
+            final_url = ""
+            title = ""
+            head200 = ""
+            try:
+                final_url = page.url or ""
+            except Exception:
+                final_url = ""
+            try:
+                title = page.title() or ""
+            except Exception:
+                title = ""
+            try:
+                html = page.content() or ""
+                head200 = (html[:200].replace("\n", " ").replace("\r", " ").strip())
+            except Exception:
+                head200 = ""
+
+            # 失敗時だけでなく、状況把握のため常に出す（必要なら後で条件付け）
+            try:
+                dt = datetime.now(timezone.utc) - t0
+                sec = dt.total_seconds()
+            except Exception:
+                sec = -1
+            print(
+                f"[diary_pw] goto status={status} sec={sec:.2f} url={u} final_url={final_url} title={title!r} head200={head200!r}"
+            )
+            # --- ★ ここまでデバッグ用ログ ---
+
             if status >= 400:
                 try:
                     context.close()
@@ -168,7 +197,7 @@ def get_latest_diary_ts_ms(url: str) -> Tuple[Optional[int], str]:
             except Exception:
                 pass
 
-            html = page.content() or ""
+            html2 = page.content() or ""
 
             try:
                 context.close()
@@ -179,7 +208,7 @@ def get_latest_diary_ts_ms(url: str) -> Tuple[Optional[int], str]:
             except Exception:
                 pass
 
-            return _parse_latest_ts_ms_from_text(html)
+            return _parse_latest_ts_ms_from_text(html2)
 
     except PWTimeoutError:
         return None, "timeout"
