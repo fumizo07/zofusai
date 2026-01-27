@@ -193,6 +193,7 @@
           {% set rg = (regions_map or {}).get(st.region_id) if st else None %}
           {% set avg = (rating_avg_map or {}).get(p.id) %}
           {% set avg_amt = (amount_avg_map or {}).get(p.id) %}
+          {% set tracked = (diary_track_map or {}).get(p.id, False) %}
 
           {# 日記URL（URL+/diary） #}
           {% set base_url = (p.url or '') %}
@@ -221,7 +222,6 @@
 
             <div class="kb-person-result-text">
               <div class="result-id">
-                {% set tracked = (diary_track_map or {}).get(p.id, False) %}
                 {% if tracked and diary_url %}
                   <span
                     class="kb-diary-slot"
