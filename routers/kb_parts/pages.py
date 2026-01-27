@@ -1,4 +1,4 @@
-# 004
+# 005
 # routers/kb_parts/pages.py
 from __future__ import annotations
 
@@ -164,6 +164,44 @@ def _sync_track_to_models(db: Session, person: KBPerson, st, v: bool) -> None:
         pass
 
 
+def _build_diary_track_map(db: Session, persons: List[KBPerson]) -> dict[int, bool]:
+    """
+    一覧ページ用：person_id -> tracked(bool)
+    - KBDiaryState が有効なら state をまとめて取得して参照
+    - 無効なら Person 側のみで判定
+    """
+    out: dict[int, bool] = {}
+    if not persons:
+        return out
+
+    person_ids = []
+    for p in persons:
+        try:
+            pid = int(getattr(p, "id", 0) or 0)
+        except Exception:
+            pid = 0
+        if pid > 0:
+            person_ids.append(pid)
+
+    state_map = {}
+    if diary_state_enabled() and person_ids:
+        try:
+            state_map = get_diary_state_map(db, person_ids)
+        except Exception:
+            state_map = {}
+
+    for p in persons:
+        try:
+            pid = int(getattr(p, "id", 0) or 0)
+        except Exception:
+            pid = 0
+        if pid <= 0:
+            continue
+        st = state_map.get(pid) if isinstance(state_map, dict) else None
+        out[pid] = bool(_read_track(p, st))
+    return out
+
+
 @router.get("/kb", response_class=HTMLResponse)
 def kb_index(request: Request, db: Session = Depends(get_db)):
     regions, stores_by_region, counts = build_tree_data(db)
@@ -205,6 +243,7 @@ def kb_index(request: Request, db: Session = Depends(get_db)):
             "rating_avg_map": {},
             "amount_avg_map": {},
             "last_visit_map": {},
+            "diary_track_map": {},  # ★検索結果なしなので空
             "svc_options": svc_options,
             "tag_options": tag_options,
             "active_page": "kb",
@@ -301,6 +340,9 @@ def kb_store_page(
     persons = filter_persons_by_rating_min(persons, rmin, rating_avg_map)
     persons = sort_persons(persons, sort_eff, order_eff, rating_avg_map, amount_avg_map, last_visit_map)
 
+    # ★ここが本命：一覧ページ用の追跡map（person_id -> bool）
+    diary_track_map = _build_diary_track_map(db, persons)
+
     return templates.TemplateResponse(
         "kb_store.html",
         {
@@ -311,6 +353,7 @@ def kb_store_page(
             "rating_avg_map": rating_avg_map,
             "amount_avg_map": amount_avg_map,
             "last_visit_map": last_visit_map,
+            "diary_track_map": diary_track_map,
             "active_page": "kb",
             "page_title_suffix": "KB",
             "body_class": "page-kb",
@@ -955,6 +998,9 @@ def kb_search(
     persons = filter_persons_by_rating_min(persons, rmin, rating_avg_map)
     persons = sort_persons(persons, sort_eff, order_eff, rating_avg_map, amount_avg_map, last_visit_map)
 
+    # ★検索結果一覧用の追跡map（person_id -> bool）
+    diary_track_map = _build_diary_track_map(db, persons)
+
     return templates.TemplateResponse(
         "kb_index.html",
         {
@@ -984,6 +1030,7 @@ def kb_search(
             "rating_avg_map": rating_avg_map,
             "amount_avg_map": amount_avg_map,
             "last_visit_map": last_visit_map,
+            "diary_track_map": diary_track_map,
             "svc_options": svc_options,
             "tag_options": tag_options,
             "active_page": "kb",
