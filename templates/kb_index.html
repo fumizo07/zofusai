@@ -221,14 +221,14 @@
 
             <div class="kb-person-result-text">
               <div class="result-id">
-                {# ★NEW差し込み口（JSが /kb/api/diary_status の結果で挿入） #}
-                {% if diary_url %}
+                {% set tracked = (diary_track_map or {}).get(p.id, False) %}
+                {% if tracked and diary_url %}
                   <span
                     class="kb-diary-slot"
                     data-kb-diary-slot="1"
                     data-person-id="{{ p.id }}"
                     data-diary-url="{{ diary_url }}"
-                    data-diary-track="{{ 1 if track_diary else 0 }}"
+                    data-diary-track="1"
                   ></span>
                 {% endif %}
 
@@ -251,12 +251,11 @@
                 {% if avg is not none %}平均評価:{{ "%.2f"|format(avg) }}{% endif %}
                 {%- if avg_amt is not none -%}/平均金額:{{ "{:,}".format(avg_amt) }}円{%- endif -%}
               </div>
-
-              {% set tracked = (p.diary_track if p is defined and p.diary_track is defined else False) %}
-              {% if tracked %}
-              <div class="muted" data-kb-diary-meta="1">
-                <span data-kb-diary-checked></span><span data-kb-diary-latest></span>
-              </div>
+              
+              {% if tracked and diary_url %}
+                <div class="muted" data-kb-diary-meta="1">
+                  <span data-kb-diary-checked></span><span data-kb-diary-latest></span>
+                </div>
               {% endif %}
 
               <div class="muted">
