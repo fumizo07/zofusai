@@ -75,18 +75,15 @@
             {%- endif -%}
             <div class="kb-person-result-text">
               <div class="result-id">
-                {# personごとの追跡フラグ（サーバから diary_track_map を渡してもらう） #}
                 {% set tracked = (diary_track_map or {}).get(p.id, False) %}
-                
-                {# ★NEW差し込み口（JSが /kb/api/diary_status の結果で挿入） #}
-                {% if diary_url %}
-                <span
-                  class="kb-diary-slot"
-                  data-kb-diary-slot="1"
-                  data-person-id="{{ p.id }}"
-                  data-diary-url="{{ diary_url }}"
-                  data-diary-track="{{ 1 if tracked else 0 }}"
-                ></span>
+                {% if tracked and diary_url %}
+                  <span
+                    class="kb-diary-slot"
+                    data-kb-diary-slot="1"
+                    data-person-id="{{ p.id }}"
+                    data-diary-url="{{ diary_url }}"
+                    data-diary-track="1"
+                  ></span>
                 {% endif %}
 
                 <a href="/kb/person/{{ p.id }}">{{ p.name }}</a><!-- 空白対策
@@ -107,8 +104,7 @@
                 {% if avg is not none %}平均評価:{{ "%.2f"|format(avg) }}{% endif %}
                 {%- if avg_amt is not none -%}/平均金額:{{ "{:,}".format(avg_amt) }}円{%- endif -%}
               </div>
-              {# metaは tracked のときだけ出す（あなたの要望通り） #}
-              {% if tracked %}
+              {% if tracked and diary_url %}
                 <div class="muted" data-kb-diary-meta="1">
                   <span data-kb-diary-checked></span><span data-kb-diary-latest></span>
                 </div>
