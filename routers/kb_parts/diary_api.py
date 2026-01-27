@@ -1,8 +1,11 @@
-# 002
+# 003
 # routers/kb_parts/diary_api.py
 from __future__ import annotations
 
+import os
 from datetime import datetime
+from typing import Any, Dict, List, Optional, Tuple
+
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
@@ -16,7 +19,7 @@ from .diary_core import (
     parse_ids_csv,
     get_diary_state_map,
     get_or_create_diary_state,
-    get_latest_diary_ts_ms,  # ★ diary_core 側（内部でPlaywright優先→urllibフォールバック）
+    get_latest_diary_ts_ms,  # diary_core 側（Playwright優先→urllibフォールバック）
     get_person_diary_checked_at,
     get_person_diary_latest_ts,
     get_person_diary_seen_ts,
@@ -30,6 +33,35 @@ from .utils import parse_int
 
 
 router = APIRouter()
+
+
+def _env_bool(name: str, default: bool = False) -> bool:
+    v = (os.getenv(name, "") or "").strip().lower()
+    if not v:
+        return default
+    return v in ("1", "true", "on", "yes", "y", "t")
+
+
+def _server_fetch_disabled() -> bool:
+    # 403地獄を止めたい時は Render の env に KB_DIARY_DISABLE_SERVER_FETCH=1
+    return _env_bool("KB_DIARY_DISABLE_SERVER_FETCH", default=False)
+
+
+def _get_push_token() -> str:
+    return (os.getenv("KB_DIARY_PUSH_TOKEN", "") or "").strip()
+
+
+def _require_push_auth(request: Request) -> Optional[str]:
+    """
+    Returns error string if unauthorized, else None.
+    """
+    token = _get_push_token()
+    if not token:
+        return "server_token_not_set"
+    got = (request.headers.get("X-KB-Diary-Token") or "").strip()
+    if not got or got != token:
+        return "unauthorized"
+    return None
 
 
 @router.get("/kb/api/diary_latest")
@@ -61,6 +93,8 @@ def kb_api_diary_latest(
     now_utc = datetime.utcnow()
     dirty = False
     items = []
+
+    disable_fetch = _server_fetch_disabled()
 
     for pid in person_ids:
         p = pmap.get(int(pid))
@@ -130,7 +164,9 @@ def kb_api_diary_latest(
         checked_at = get_person_diary_checked_at(p, st)
 
         need_fetch = True
-        if checked_at and latest_ts is not None:
+        if disable_fetch:
+            need_fetch = False
+        elif checked_at and latest_ts is not None:
             try:
                 age_sec = (now_utc - checked_at).total_seconds()
                 if age_sec >= 0 and age_sec < float(diary_db_recheck_interval_sec()):
@@ -165,7 +201,6 @@ def kb_api_diary_latest(
                 except Exception:
                     is_new = False
 
-        # 表示用（最終チェック/最新日記の経過）
         checked_ago_min = None
         try:
             if checked_at:
@@ -196,6 +231,7 @@ def kb_api_diary_latest(
                 "error": err,
                 "checked_ago_min": checked_ago_min,
                 "latest_ago_days": latest_ago_days,
+                "server_fetch_disabled": bool(disable_fetch),
             }
         )
 
@@ -206,6 +242,113 @@ def kb_api_diary_latest(
             db.rollback()
 
     return JSONResponse({"ok": True, "items": items})
+
+
+@router.post("/kb/api/diary_push")
+async def kb_api_diary_push(
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    auth_err = _require_push_auth(request)
+    if auth_err:
+        return JSONResponse({"ok": False, "error": auth_err}, status_code=401)
+
+    try:
+        data = await request.json()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "invalid_json"}, status_code=400)
+
+    items = None
+    if isinstance(data, dict):
+        items = data.get("items")
+    if not isinstance(items, list):
+        return JSONResponse({"ok": False, "error": "items_required"}, status_code=400)
+
+    # 受け取り上限（暴走防止）
+    if len(items) > 50:
+        items = items[:50]
+
+    # まとめて person を引く
+    ids: List[int] = []
+    for it in items:
+        if not isinstance(it, dict):
+            continue
+        pid = parse_int(it.get("id", ""))
+        if pid is None or pid <= 0:
+            continue
+        ids.append(int(pid))
+
+    ids = list(dict.fromkeys(ids))
+    if not ids:
+        return JSONResponse({"ok": True, "saved": 0})
+
+    persons = db.query(KBPerson).filter(KBPerson.id.in_(ids)).all()
+    pmap = {int(getattr(p, "id", 0)): p for p in persons if p and getattr(p, "id", None)}
+    state_map = get_diary_state_map(db, ids)
+
+    saved = 0
+    dirty = False
+
+    for it in items:
+        if not isinstance(it, dict):
+            continue
+
+        pid = parse_int(it.get("id", ""))
+        if pid is None or pid <= 0:
+            continue
+        pid_i = int(pid)
+
+        p = pmap.get(pid_i)
+        if not p:
+            continue
+
+        st = state_map.get(pid_i)
+        if diary_state_enabled():
+            st = get_or_create_diary_state(db, state_map, pid_i) or st
+
+        # tracked 以外は保存しない（仕様）
+        if not get_person_diary_track(p, st):
+            continue
+
+        latest_ts = parse_int(it.get("latest_ts", ""))
+        err = (it.get("error", "") or "").strip()
+        checked_at_ms = parse_int(it.get("checked_at_ms", ""))
+
+        # checked_at はクライアントが送ってくればそれ、なければ今
+        checked_dt = None
+        try:
+            if checked_at_ms is not None and checked_at_ms > 0:
+                checked_dt = datetime.utcfromtimestamp(int(checked_at_ms) / 1000.0)
+            else:
+                checked_dt = datetime.utcnow()
+        except Exception:
+            checked_dt = datetime.utcnow()
+
+        if set_person_diary_checked_at(p, checked_dt, st):
+            dirty = True
+
+        # latest_ts が取れた時だけ更新
+        if latest_ts is not None and latest_ts > 0:
+            if set_person_diary_latest_ts(p, int(latest_ts), st):
+                dirty = True
+
+        # seen_ts 初期化（未設定なら latest_ts で初期化して「初回からNEW」にならないようにする）
+        if latest_ts is not None and latest_ts > 0:
+            seen_ts = get_person_diary_seen_ts(p, st)
+            if seen_ts is None:
+                if set_person_diary_seen_ts(p, int(latest_ts), st):
+                    dirty = True
+
+        saved += 1
+
+    if dirty:
+        try:
+            db.commit()
+        except Exception:
+            db.rollback()
+            return JSONResponse({"ok": False, "error": "db_error"}, status_code=500)
+
+    return JSONResponse({"ok": True, "saved": int(saved)})
 
 
 @router.post("/kb/api/diary_seen")
