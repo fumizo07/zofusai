@@ -1,4 +1,4 @@
-# 002
+# 003
 # routers/kb_parts/diary_core.py
 from __future__ import annotations
 
@@ -21,6 +21,13 @@ try:
     from models import KBDiaryState  # type: ignore
 except Exception:
     KBDiaryState = None  # type: ignore
+
+# ---- optional: playwright fetcher (if exists)
+try:
+    # routers/kb_parts/diary_fetcher_pw.py
+    from .diary_fetcher_pw import fetch_diary_html as _pw_fetch_diary_html  # type: ignore
+except Exception:
+    _pw_fetch_diary_html = None  # type: ignore
 
 
 JST = timezone(timedelta(hours=9))
@@ -94,10 +101,15 @@ def _gzip_decompress_limited(raw: bytes, limit: int) -> bytes:
         return raw
 
 
-def _http_get_text(url: str, timeout_sec: int = _DIARY_HTTP_TIMEOUT_SEC) -> str:
+def _urllib_get_text_and_status(url: str, timeout_sec: int = _DIARY_HTTP_TIMEOUT_SEC) -> Tuple[str, int, str]:
+    """
+    Returns: (html_text, status_code, err)
+      - err == "" on success
+      - err examples: "http_403", "url_error", "exception", "too_large"
+    """
     req = urllib.request.Request(
         url,
-        headers = {
+        headers={
             "User-Agent": (
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
                 "AppleWebKit/537.36 (KHTML, like Gecko) "
@@ -113,7 +125,7 @@ def _http_get_text(url: str, timeout_sec: int = _DIARY_HTTP_TIMEOUT_SEC) -> str:
     )
 
     t0 = time.time()
-    print(f"[diary] http_get start url={url}")
+    print(f"[diary] urllib start url={url}")
 
     try:
         with urllib.request.urlopen(req, timeout=timeout_sec) as res:
@@ -122,11 +134,14 @@ def _http_get_text(url: str, timeout_sec: int = _DIARY_HTTP_TIMEOUT_SEC) -> str:
                 try:
                     status = res.getcode()
                 except Exception:
-                    status = None
+                    status = 0
+            status_i = int(status or 0)
 
             raw = res.read(_DIARY_MAX_BYTES + 1)
             if len(raw) > _DIARY_MAX_BYTES:
                 raw = raw[:_DIARY_MAX_BYTES]
+                print(f"[diary] urllib too_large url={url} bytes>{_DIARY_MAX_BYTES} sec={time.time()-t0:.2f}")
+                return raw.decode("utf-8", errors="replace"), status_i, "too_large"
 
             enc = ""
             try:
@@ -140,8 +155,6 @@ def _http_get_text(url: str, timeout_sec: int = _DIARY_HTTP_TIMEOUT_SEC) -> str:
             except Exception:
                 ct = ""
 
-            print(f"[diary] http_get ok status={status} bytes={len(raw)} enc={enc} ct={ct} sec={time.time()-t0:.2f}")
-
             if "gzip" in enc:
                 raw = _gzip_decompress_limited(raw, _DIARY_MAX_BYTES)
 
@@ -154,14 +167,28 @@ def _http_get_text(url: str, timeout_sec: int = _DIARY_HTTP_TIMEOUT_SEC) -> str:
                 charset = "utf-8"
 
             try:
-                return raw.decode(charset, errors="replace")
+                html = raw.decode(charset, errors="replace")
             except Exception:
-                return raw.decode("utf-8", errors="replace")
+                html = raw.decode("utf-8", errors="replace")
+
+            print(
+                f"[diary] urllib ok status={status_i} bytes={len(html)} ct={ct} enc={enc} sec={time.time()-t0:.2f}"
+            )
+            return html, status_i, ""
+
+    except urllib.error.HTTPError as e:
+        code = getattr(e, "code", None)
+        status_i = int(code or 0)
+        print(f"[diary] urllib http_error status={status_i} url={url} sec={time.time()-t0:.2f}")
+        return "", status_i, f"http_{status_i}" if status_i else "http_error"
+
+    except urllib.error.URLError as e:
+        print(f"[diary] urllib url_error url={url} err={repr(e)} sec={time.time()-t0:.2f}")
+        return "", 0, "url_error"
 
     except Exception as e:
-        print(f"[diary] http_get fail url={url} err={repr(e)} sec={time.time()-t0:.2f}")
-        return ""
-
+        print(f"[diary] urllib exception url={url} err={repr(e)} sec={time.time()-t0:.2f}")
+        return "", 0, "exception"
 
 
 def _infer_year_for_md(month: int, day: int, now_jst: datetime) -> int:
@@ -184,20 +211,16 @@ def extract_latest_diary_dt(html: str) -> Optional[datetime]:
     if idx < 0:
         idx = scope.find("日記")
     if idx >= 0:
-        scope = scope[idx: idx + 200000]
+        scope = scope[idx : idx + 200000]
     else:
         scope = scope[:200000]
 
     now_jst = datetime.now(JST)
     best: Optional[datetime] = None
 
-    re_ymd_hm = re.compile(
-        r"(\d{4})[/\-\.](\d{1,2})[/\-\.](\d{1,2})(?:\s+|T)?(\d{1,2}):(\d{2})"
-    )
+    re_ymd_hm = re.compile(r"(\d{4})[/\-\.](\d{1,2})[/\-\.](\d{1,2})(?:\s+|T)?(\d{1,2}):(\d{2})")
     re_ymd = re.compile(r"(\d{4})[/\-\.](\d{1,2})[/\-\.](\d{1,2})")
-    re_jp_hm = re.compile(
-        r"(\d{4})年\s*(\d{1,2})月\s*(\d{1,2})日(?:\s*|　)*(\d{1,2}):(\d{2})"
-    )
+    re_jp_hm = re.compile(r"(\d{4})年\s*(\d{1,2})月\s*(\d{1,2})日(?:\s*|　)*(\d{1,2}):(\d{2})")
     re_jp = re.compile(r"(\d{4})年\s*(\d{1,2})月\s*(\d{1,2})日")
     re_md_hm = re.compile(r"(\d{1,2})[/\-](\d{1,2})(?:\s*|　)*(\d{1,2}):(\d{2})")
     re_md_jp_hm = re.compile(r"(\d{1,2})月\s*(\d{1,2})日(?:\s*|　)*(\d{1,2}):(\d{2})")
@@ -302,11 +325,30 @@ def dt_to_epoch_ms(dt: datetime) -> int:
         return 0
 
 
+def _cache_get(url: str) -> Optional[Tuple[Optional[int], str]]:
+    now_m = time.monotonic()
+    v = _DIARY_CACHE.get(url)
+    if not v:
+        return None
+    saved_m, ts, err = v
+    if (now_m - saved_m) <= float(_DIARY_CACHE_TTL_SEC):
+        return ts, err
+    return None
+
+
+def _cache_set(url: str, ts: Optional[int], err: str) -> None:
+    _DIARY_CACHE[url] = (time.monotonic(), ts, err or "")
+
+
 # --- ここから：get_latest_diary_ts_ms を丸ごと差し替え ---
 def get_latest_diary_ts_ms(person_url: str) -> tuple[int | None, str]:
     """
     person_url から diary の最新投稿時刻(ms)を返す。
     失敗時は (None, "http_403" 等のエラー文字列) を返す。
+
+    取得順:
+      1) Playwright（あれば優先：403回避の可能性がある）
+      2) urllib（軽量フォールバック）
     """
     pu = (person_url or "").strip()
     if not pu:
@@ -316,68 +358,68 @@ def get_latest_diary_ts_ms(person_url: str) -> tuple[int | None, str]:
     base = pu[:-1] if pu.endswith("/") else pu
     diary_url = base + "/diary"
 
-    t0 = time.time()
+    if not is_allowed_diary_url(diary_url):
+        return None, "url_not_allowed"
 
-    # ※あなたが入れている print ログと整合させる（logging にしてもOK）
-    print(f"[diary] http_get start url={diary_url}")
+    cached = _cache_get(diary_url)
+    if cached is not None:
+        ts, err = cached
+        return ts, err
 
-    try:
-        html = _http_get_text(diary_url, timeout_sec=_DIARY_HTTP_TIMEOUT_SEC)
-        sec = time.time() - t0
-        print(f"[diary] http_get ok url={diary_url} bytes={len(html)} sec={sec:.2f}")
-    except urllib.error.HTTPError as e:
-        sec = time.time() - t0
-        code = getattr(e, "code", None)
-        print(f"[diary] http_get fail url={diary_url} err={repr(e)} sec={sec:.2f}")
-        if code:
-            return None, f"http_{int(code)}"
-        return None, "http_error"
-    except urllib.error.URLError as e:
-        sec = time.time() - t0
-        print(f"[diary] http_get fail url={diary_url} err={repr(e)} sec={sec:.2f}")
-        return None, "url_error"
-    except Exception as e:
-        sec = time.time() - t0
-        print(f"[diary] http_get fail url={diary_url} err={repr(e)} sec={sec:.2f}")
-        return None, "exception"
+    # ---- 1) Playwright 優先 ----
+    if _pw_fetch_diary_html is not None:
+        t0 = time.time()
+        print(f"[diary] pw start url={diary_url}")
+        html, status, final_url, err = _pw_fetch_diary_html(diary_url)
+        print(
+            f"[diary] pw done url={diary_url} status={status} final={final_url} bytes={len(html)} err={err} sec={time.time()-t0:.2f}"
+        )
 
-    # 投稿日時：最初に出てきた <span class="diary_time">1/24 17:17</span> を取る
-    m = re.search(r'<span[^>]*class=["\']diary_time["\'][^>]*>\s*([^<]+?)\s*</span>', html)
-    if not m:
-        return None, "parse_no_diary_time"
+        if err:
+            # 403 は「弾かれた」ので、そのまま返す（urllibで改善しない可能性が高い）
+            if err.startswith("http_403") or err == "http_403":
+                _cache_set(diary_url, None, "http_403")
+                return None, "http_403"
+            # それ以外は urllib を試す
+        else:
+            dt = extract_latest_diary_dt(html)
+            if dt is None:
+                _cache_set(diary_url, None, "parse_failed")
+                return None, "parse_failed"
+            ts = dt_to_epoch_ms(dt)
+            if ts <= 0:
+                _cache_set(diary_url, None, "parse_failed")
+                return None, "parse_failed"
+            _cache_set(diary_url, ts, "")
+            return ts, ""
 
-    s = m.group(1).strip()  # 例: "1/24 17:17"
-    m2 = re.match(r"^(\d{1,2})/(\d{1,2})\s+(\d{1,2}):(\d{2})$", s)
-    if not m2:
-        return None, "parse_bad_format"
+    # ---- 2) urllib フォールバック ----
+    html2, status2, err2 = _urllib_get_text_and_status(diary_url, timeout_sec=_DIARY_HTTP_TIMEOUT_SEC)
 
-    mon = int(m2.group(1))
-    day = int(m2.group(2))
-    hh = int(m2.group(3))
-    mm = int(m2.group(4))
+    if err2:
+        # urllib 側が http_403 を返した場合も、ここまでで Playwright が無い/失敗なのでそのまま返す
+        _cache_set(diary_url, None, err2)
+        return None, err2
 
-    # 年が無い問題：基本は今年扱い、ただし「未来日」になったら前年扱い
-    # （例：1月に 12/31 が出る等）
-    now_jst = datetime.now(timezone(timedelta(hours=9)))
-    year = now_jst.year
+    # status が 4xx/5xx っぽい場合
+    if status2 >= 400:
+        e = f"http_{int(status2)}"
+        _cache_set(diary_url, None, e)
+        return None, e
 
-    try:
-        dt_jst = datetime(year, mon, day, hh, mm, tzinfo=timezone(timedelta(hours=9)))
-    except Exception:
-        return None, "parse_invalid_date"
+    dt2 = extract_latest_diary_dt(html2)
+    if dt2 is None:
+        _cache_set(diary_url, None, "parse_failed")
+        return None, "parse_failed"
 
-    # 未来すぎる（今より先）なら前年に倒す
-    if dt_jst > now_jst + timedelta(minutes=5):
-        try:
-            dt_jst = datetime(year - 1, mon, day, hh, mm, tzinfo=timezone(timedelta(hours=9)))
-        except Exception:
-            return None, "parse_invalid_date"
+    ts2 = dt_to_epoch_ms(dt2)
+    if ts2 <= 0:
+        _cache_set(diary_url, None, "parse_failed")
+        return None, "parse_failed"
 
-    dt_utc = dt_jst.astimezone(timezone.utc)
-    ts_ms = int(dt_utc.timestamp() * 1000)
-    return ts_ms, ""
+    _cache_set(diary_url, ts2, "")
+    return ts2, ""
 # --- ここまで：get_latest_diary_ts_ms を丸ごと差し替え ---
-
 
 
 def build_diary_open_url_from_maps(
