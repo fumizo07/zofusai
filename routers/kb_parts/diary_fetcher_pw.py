@@ -3,92 +3,91 @@
 from __future__ import annotations
 
 import re
+from datetime import datetime, timezone, timedelta
 from typing import Optional, Tuple
 
 from playwright.sync_api import sync_playwright, TimeoutError as PWTimeoutError
 
-# ざっくり「年齢確認っぽい」文言
-_RE_AGE_GATE = re.compile(r"(年齢確認|18歳以上|18才以上|あなたは18|成人|このサイトは18)", re.IGNORECASE)
 
-# 「入場/同意」ボタンっぽい
-_AGE_OK_TEXTS = [
-    "18歳以上",
-    "18才以上",
-    "はい",
-    "同意",
-    "入場",
-    "ENTER",
-    "Yes",
-    "OK",
-]
+_JST = timezone(timedelta(hours=9))
+
+# 例: "12/30 23:47"
+_RE_MMDD_HHMM = re.compile(r"(\d{1,2})/(\d{1,2})\s+(\d{1,2}):(\d{2})")
+
+# 例: "2026年1月"
+_RE_YEARMON = re.compile(r"(\d{4})年\s*(\d{1,2})月")
 
 
-def _should_block_resource(url: str) -> bool:
-    u = (url or "").lower()
-    # 速度重視：画像/フォント/動画/広告系を落とす（HTML解析だけ欲しい）
-    return any(
-        s in u
-        for s in (
-            ".png",
-            ".jpg",
-            ".jpeg",
-            ".gif",
-            ".webp",
-            ".svg",
-            ".woff",
-            ".woff2",
-            ".ttf",
-            ".otf",
-            ".mp4",
-            ".webm",
-            "googletagmanager",
-            "doubleclick",
-            "google-analytics",
-        )
-    )
-
-
-def _try_age_gate(page) -> None:
-    """
-    年齢確認ページを踏んでいたら、ありそうなボタンを雑に押して本ページへ寄せる。
-    失敗しても例外を投げない（ただの最適化）。
-    """
+def _extract_year_month(text: str) -> Tuple[Optional[int], Optional[int]]:
+    m = _RE_YEARMON.search(text or "")
+    if not m:
+        return None, None
     try:
-        txt = page.content() or ""
-        if not _RE_AGE_GATE.search(txt):
-            return
-    except Exception:
-        return
-
-    # ボタン or リンクで押せそうなものを探す
-    try:
-        for t in _AGE_OK_TEXTS:
-            loc = page.locator(f"button:has-text('{t}')").first
-            if loc and loc.is_visible():
-                loc.click(timeout=1500)
-                return
+        y = int(m.group(1))
+        mo = int(m.group(2))
+        if 1900 <= y <= 2100 and 1 <= mo <= 12:
+            return y, mo
     except Exception:
         pass
+    return None, None
+
+
+def _guess_year(header_year: Optional[int], header_month: Optional[int], entry_month: int) -> Optional[int]:
+    if header_year is None:
+        return None
+    if header_month is None:
+        return header_year
+    if header_month == 1 and entry_month == 12:
+        return header_year - 1
+    return header_year
+
+
+def _parse_latest_ts_ms_from_text(text: str) -> Tuple[Optional[int], str]:
+    if not text:
+        return None, "empty_html"
+
+    m = _RE_MMDD_HHMM.search(text)
+    if not m:
+        return None, "no_datetime_found"
 
     try:
-        for t in _AGE_OK_TEXTS:
-            loc = page.locator(f"a:has-text('{t}')").first
-            if loc and loc.is_visible():
-                loc.click(timeout=1500)
-                return
+        mm = int(m.group(1))
+        dd = int(m.group(2))
+        hh = int(m.group(3))
+        mi = int(m.group(4))
+        if not (1 <= mm <= 12 and 1 <= dd <= 31 and 0 <= hh <= 23 and 0 <= mi <= 59):
+            return None, "datetime_out_of_range"
     except Exception:
-        pass
+        return None, "datetime_parse_error"
+
+    hy, hmo = _extract_year_month(text)
+    y = _guess_year(hy, hmo, mm)
+    if y is None:
+        y = datetime.now(_JST).year
+
+    try:
+        dt_jst = datetime(y, mm, dd, hh, mi, 0, tzinfo=_JST)
+        dt_utc = dt_jst.astimezone(timezone.utc)
+        ts_ms = int(dt_utc.timestamp() * 1000)
+        return ts_ms, ""
+    except Exception:
+        return None, "datetime_to_epoch_failed"
 
 
-def fetch_diary_html(url: str) -> Tuple[str, int, str, str]:
+def get_latest_diary_ts_ms(url: str) -> Tuple[Optional[int], str]:
     """
-    Returns: (html, status, final_url, err)
-      - err == "" on success
-      - err examples: "http_403", "timeout", "playwright_error"
+    Returns:
+      (latest_ts_ms_utc, err)
+      - latest_ts_ms_utc: int milliseconds since epoch (UTC)
+      - err: "" on success, otherwise short reason
     """
     u = (url or "").strip()
     if not u:
-        return "", 0, "", "url_empty"
+        return None, "url_empty"
+
+    # 念のため /diary を付ける（呼び出し側がperson_urlでも動くように）
+    if not u.rstrip("/").endswith("/diary"):
+        u = u.rstrip("/") + "/diary"
 
     nav_timeout_ms = 25_000
 
@@ -117,67 +116,66 @@ def fetch_diary_html(url: str) -> Tuple[str, int, str, str]:
                     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
                     "Accept-Language": "ja,en-US;q=0.9,en;q=0.8",
                     "Upgrade-Insecure-Requests": "1",
-                    "Cache-Control": "no-cache",
-                    "Pragma": "no-cache",
                 },
+                viewport={"width": 1280, "height": 720},
             )
 
-            # 軽量化
-            try:
-                context.route(
-                    "**/*",
-                    lambda route, request: route.abort()
-                    if _should_block_resource(request.url)
-                    else route.continue_(),
-                )
-            except Exception:
-                pass
+            # webdriver痕跡を軽く潰す（playwright-stealth無しの最低限）
+            context.add_init_script(
+                """
+                Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
+                """
+            )
 
             page = context.new_page()
             page.set_default_navigation_timeout(nav_timeout_ms)
             page.set_default_timeout(nav_timeout_ms)
 
+            # 重いリソースを切って速度と安定性を上げる
+            try:
+                def _route_handler(route):
+                    r = route.request
+                    rt = r.resource_type
+                    if rt in ("image", "media", "font"):
+                        return route.abort()
+                    return route.continue_()
+
+                page.route("**/*", _route_handler)
+            except Exception:
+                pass
+
             resp = page.goto(u, wait_until="domcontentloaded")
             status = resp.status if resp is not None else 0
-
-            # 403/404 などは即返す
             if status >= 400:
                 try:
-                    final_url = page.url
+                    context.close()
                 except Exception:
-                    final_url = ""
+                    pass
                 try:
                     browser.close()
                 except Exception:
                     pass
-                return "", int(status), final_url, f"http_{int(status)}"
+                return None, f"http_{status}"
 
-            # 年齢確認っぽければ押してみる（成功すれば本ページへ）
-            _try_age_gate(page)
-
-            # JSレンダが絡む場合の保険（ただし待ちすぎない）
             try:
                 page.wait_for_load_state("networkidle", timeout=10_000)
             except Exception:
                 pass
 
             html = page.content() or ""
-            try:
-                final_url = page.url
-            except Exception:
-                final_url = ""
 
+            try:
+                context.close()
+            except Exception:
+                pass
             try:
                 browser.close()
             except Exception:
                 pass
 
-            if not html:
-                return "", int(status or 0), final_url, "empty_html"
-
-            return html, int(status or 0), final_url, ""
+            return _parse_latest_ts_ms_from_text(html)
 
     except PWTimeoutError:
-        return "", 0, "", "timeout"
-    except Exception:
-        return "", 0, "", "playwright_error"
+        return None, "timeout"
+    except Exception as e:
+        return None, f"playwright_error:{type(e).__name__}"
