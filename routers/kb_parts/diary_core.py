@@ -22,20 +22,12 @@ try:
 except Exception:
     KBDiaryState = None  # type: ignore
 
-# ---- optional: playwright fetcher (if exists)
-try:
-    # routers/kb_parts/diary_fetcher_pw.py
-    from .diary_fetcher_pw import fetch_diary_html as _pw_fetch_diary_html  # type: ignore
-except Exception:
-    _pw_fetch_diary_html = None  # type: ignore
-
 
 JST = timezone(timedelta(hours=9))
 
 _DIARY_HTTP_TIMEOUT_SEC = 8
-_DIARY_CACHE_TTL_SEC = 10 * 60  # 10分（HTTP取得結果のメモリキャッシュ）
+_DIARY_CACHE_TTL_SEC = 10 * 60  # 10分（取得結果のメモリキャッシュ）
 _DIARY_MAX_BYTES = 1024 * 1024  # 1MB
-_DIARY_UA = "Mozilla/5.0 (compatible; PersonalSearchKB/1.0; +https://example.invalid)"
 
 # DBへの再チェック間隔（重い外部取得を間引く）
 _DIARY_DB_RECHECK_INTERVAL_SEC = 60 * 30  # 30分
@@ -46,7 +38,7 @@ _DIARY_ALLOWED_HOST_SUFFIXES = (
     "dto.jp",
 )
 
-# url -> (saved_monotonic, latest_ts_ms_or_None, err_str)
+# diary_url -> (saved_monotonic, latest_ts_ms_or_None, err_str)
 _DIARY_CACHE: Dict[str, Tuple[float, Optional[int], str]] = {}
 
 
@@ -101,12 +93,7 @@ def _gzip_decompress_limited(raw: bytes, limit: int) -> bytes:
         return raw
 
 
-def _urllib_get_text_and_status(url: str, timeout_sec: int = _DIARY_HTTP_TIMEOUT_SEC) -> Tuple[str, int, str]:
-    """
-    Returns: (html_text, status_code, err)
-      - err == "" on success
-      - err examples: "http_403", "url_error", "exception", "too_large"
-    """
+def _http_get_text(url: str, timeout_sec: int = _DIARY_HTTP_TIMEOUT_SEC) -> str:
     req = urllib.request.Request(
         url,
         headers={
@@ -125,7 +112,7 @@ def _urllib_get_text_and_status(url: str, timeout_sec: int = _DIARY_HTTP_TIMEOUT
     )
 
     t0 = time.time()
-    print(f"[diary] urllib start url={url}")
+    print(f"[diary] http_get start url={url}")
 
     try:
         with urllib.request.urlopen(req, timeout=timeout_sec) as res:
@@ -134,14 +121,11 @@ def _urllib_get_text_and_status(url: str, timeout_sec: int = _DIARY_HTTP_TIMEOUT
                 try:
                     status = res.getcode()
                 except Exception:
-                    status = 0
-            status_i = int(status or 0)
+                    status = None
 
             raw = res.read(_DIARY_MAX_BYTES + 1)
             if len(raw) > _DIARY_MAX_BYTES:
                 raw = raw[:_DIARY_MAX_BYTES]
-                print(f"[diary] urllib too_large url={url} bytes>{_DIARY_MAX_BYTES} sec={time.time()-t0:.2f}")
-                return raw.decode("utf-8", errors="replace"), status_i, "too_large"
 
             enc = ""
             try:
@@ -155,6 +139,10 @@ def _urllib_get_text_and_status(url: str, timeout_sec: int = _DIARY_HTTP_TIMEOUT
             except Exception:
                 ct = ""
 
+            print(
+                f"[diary] http_get ok status={status} bytes={len(raw)} enc={enc} ct={ct} sec={time.time()-t0:.2f}"
+            )
+
             if "gzip" in enc:
                 raw = _gzip_decompress_limited(raw, _DIARY_MAX_BYTES)
 
@@ -167,28 +155,13 @@ def _urllib_get_text_and_status(url: str, timeout_sec: int = _DIARY_HTTP_TIMEOUT
                 charset = "utf-8"
 
             try:
-                html = raw.decode(charset, errors="replace")
+                return raw.decode(charset, errors="replace")
             except Exception:
-                html = raw.decode("utf-8", errors="replace")
-
-            print(
-                f"[diary] urllib ok status={status_i} bytes={len(html)} ct={ct} enc={enc} sec={time.time()-t0:.2f}"
-            )
-            return html, status_i, ""
-
-    except urllib.error.HTTPError as e:
-        code = getattr(e, "code", None)
-        status_i = int(code or 0)
-        print(f"[diary] urllib http_error status={status_i} url={url} sec={time.time()-t0:.2f}")
-        return "", status_i, f"http_{status_i}" if status_i else "http_error"
-
-    except urllib.error.URLError as e:
-        print(f"[diary] urllib url_error url={url} err={repr(e)} sec={time.time()-t0:.2f}")
-        return "", 0, "url_error"
+                return raw.decode("utf-8", errors="replace")
 
     except Exception as e:
-        print(f"[diary] urllib exception url={url} err={repr(e)} sec={time.time()-t0:.2f}")
-        return "", 0, "exception"
+        print(f"[diary] http_get fail url={url} err={repr(e)} sec={time.time()-t0:.2f}")
+        return ""
 
 
 def _infer_year_for_md(month: int, day: int, now_jst: datetime) -> int:
@@ -218,9 +191,13 @@ def extract_latest_diary_dt(html: str) -> Optional[datetime]:
     now_jst = datetime.now(JST)
     best: Optional[datetime] = None
 
-    re_ymd_hm = re.compile(r"(\d{4})[/\-\.](\d{1,2})[/\-\.](\d{1,2})(?:\s+|T)?(\d{1,2}):(\d{2})")
+    re_ymd_hm = re.compile(
+        r"(\d{4})[/\-\.](\d{1,2})[/\-\.](\d{1,2})(?:\s+|T)?(\d{1,2}):(\d{2})"
+    )
     re_ymd = re.compile(r"(\d{4})[/\-\.](\d{1,2})[/\-\.](\d{1,2})")
-    re_jp_hm = re.compile(r"(\d{4})年\s*(\d{1,2})月\s*(\d{1,2})日(?:\s*|　)*(\d{1,2}):(\d{2})")
+    re_jp_hm = re.compile(
+        r"(\d{4})年\s*(\d{1,2})月\s*(\d{1,2})日(?:\s*|　)*(\d{1,2}):(\d{2})"
+    )
     re_jp = re.compile(r"(\d{4})年\s*(\d{1,2})月\s*(\d{1,2})日")
     re_md_hm = re.compile(r"(\d{1,2})[/\-](\d{1,2})(?:\s*|　)*(\d{1,2}):(\d{2})")
     re_md_jp_hm = re.compile(r"(\d{1,2})月\s*(\d{1,2})日(?:\s*|　)*(\d{1,2}):(\d{2})")
@@ -325,101 +302,126 @@ def dt_to_epoch_ms(dt: datetime) -> int:
         return 0
 
 
-def _cache_get(url: str) -> Optional[Tuple[Optional[int], str]]:
-    now_m = time.monotonic()
-    v = _DIARY_CACHE.get(url)
-    if not v:
-        return None
-    saved_m, ts, err = v
-    if (now_m - saved_m) <= float(_DIARY_CACHE_TTL_SEC):
-        return ts, err
-    return None
+def _cache_get(url: str) -> Tuple[Optional[int], str, bool]:
+    """
+    Returns: (ts, err, hit)
+    """
+    if not url:
+        return None, "", False
+    item = _DIARY_CACHE.get(url)
+    if not item:
+        return None, "", False
+    saved_mono, ts, err = item
+    try:
+        if (time.monotonic() - float(saved_mono)) <= float(_DIARY_CACHE_TTL_SEC):
+            return ts, err, True
+    except Exception:
+        pass
+    return None, "", False
 
 
 def _cache_set(url: str, ts: Optional[int], err: str) -> None:
-    _DIARY_CACHE[url] = (time.monotonic(), ts, err or "")
+    if not url:
+        return
+    try:
+        _DIARY_CACHE[url] = (time.monotonic(), ts, (err or ""))
+    except Exception:
+        pass
 
 
-# --- ここから：get_latest_diary_ts_ms を丸ごと差し替え ---
+def _fetch_latest_ts_via_urllib(diary_url: str) -> Tuple[Optional[int], str]:
+    """
+    urllibでHTML取得→日時抽出（extract_latest_diary_dt）でepoch(ms)化
+    """
+    html = _http_get_text(diary_url, timeout_sec=_DIARY_HTTP_TIMEOUT_SEC)
+    if not html:
+        return None, "http_empty"
+
+    dt = extract_latest_diary_dt(html)
+    if dt is None:
+        return None, "parse_no_datetime"
+
+    ts = dt_to_epoch_ms(dt.astimezone(timezone.utc))
+    if ts <= 0:
+        return None, "epoch_failed"
+    return ts, ""
+
+
+def _fetch_latest_ts_via_playwright(diary_url: str) -> Tuple[Optional[int], str]:
+    """
+    Playwright版（routers/kb_parts/diary_fetcher_pw.py）を遅延importして呼ぶ。
+    import失敗やPlaywright未導入でもサーバー起動が落ちないようにする。
+    """
+    try:
+        from .diary_fetcher_pw import get_latest_diary_ts_ms as pw_get_latest_diary_ts_ms  # type: ignore
+    except Exception as e:
+        return None, f"pw_import_error:{type(e).__name__}"
+
+    try:
+        return pw_get_latest_diary_ts_ms(diary_url)
+    except Exception as e:
+        return None, f"pw_call_error:{type(e).__name__}"
+
+
+# --- ここから：get_latest_diary_ts_ms を Playwright優先に（失敗時urllibフォールバック） ---
 def get_latest_diary_ts_ms(person_url: str) -> tuple[int | None, str]:
     """
-    person_url から diary の最新投稿時刻(ms)を返す。
-    失敗時は (None, "http_403" 等のエラー文字列) を返す。
-
-    取得順:
-      1) Playwright（あれば優先：403回避の可能性がある）
-      2) urllib（軽量フォールバック）
+    person_url から diary の最新投稿時刻(ms, UTC epoch)を返す。
+    戻り: (latest_ts_ms_or_None, err_str)
+      - 成功: (ts_ms, "")
+      - 失敗: (None, "http_403" 等)
     """
     pu = (person_url or "").strip()
     if not pu:
         return None, "url_empty"
 
-    # 末尾スラッシュ除去して /diary を付ける（要件どおり）
     base = pu[:-1] if pu.endswith("/") else pu
     diary_url = base + "/diary"
 
+    # host制限（オープンプロキシ化防止）
     if not is_allowed_diary_url(diary_url):
-        return None, "url_not_allowed"
+        return None, "host_not_allowed"
 
-    cached = _cache_get(diary_url)
-    if cached is not None:
-        ts, err = cached
-        return ts, err
+    # メモリキャッシュ（Playwrightを毎回起動しない）
+    ts_c, err_c, hit = _cache_get(diary_url)
+    if hit:
+        return ts_c, (err_c or "")
 
-    # ---- 1) Playwright 優先 ----
-    if _pw_fetch_diary_html is not None:
-        t0 = time.time()
-        print(f"[diary] pw start url={diary_url}")
-        html, status, final_url, err = _pw_fetch_diary_html(diary_url)
-        print(
-            f"[diary] pw done url={diary_url} status={status} final={final_url} bytes={len(html)} err={err} sec={time.time()-t0:.2f}"
-        )
+    t0 = time.time()
+    print(f"[diary] fetch start url={diary_url}")
 
-        if err:
-            # 403 は「弾かれた」ので、そのまま返す（urllibで改善しない可能性が高い）
-            if err.startswith("http_403") or err == "http_403":
-                _cache_set(diary_url, None, "http_403")
-                return None, "http_403"
-            # それ以外は urllib を試す
-        else:
-            dt = extract_latest_diary_dt(html)
-            if dt is None:
-                _cache_set(diary_url, None, "parse_failed")
-                return None, "parse_failed"
-            ts = dt_to_epoch_ms(dt)
-            if ts <= 0:
-                _cache_set(diary_url, None, "parse_failed")
-                return None, "parse_failed"
-            _cache_set(diary_url, ts, "")
-            return ts, ""
+    # 1) Playwright優先（Renderの共有IP/TLS指紋/地域判定の403対策）
+    ts_pw, err_pw = _fetch_latest_ts_via_playwright(diary_url)
+    if ts_pw is not None and not err_pw:
+        _cache_set(diary_url, ts_pw, "")
+        print(f"[diary] fetch ok via=playwright url={diary_url} sec={time.time()-t0:.2f}")
+        return ts_pw, ""
 
-    # ---- 2) urllib フォールバック ----
-    html2, status2, err2 = _urllib_get_text_and_status(diary_url, timeout_sec=_DIARY_HTTP_TIMEOUT_SEC)
+    # 2) フォールバック：urllib（環境によってはこれで通るケースもある）
+    ts_u, err_u = _fetch_latest_ts_via_urllib(diary_url)
+    if ts_u is not None and not err_u:
+        _cache_set(diary_url, ts_u, "")
+        print(f"[diary] fetch ok via=urllib url={diary_url} sec={time.time()-t0:.2f}")
+        return ts_u, ""
 
-    if err2:
-        # urllib 側が http_403 を返した場合も、ここまでで Playwright が無い/失敗なのでそのまま返す
-        _cache_set(diary_url, None, err2)
-        return None, err2
+    # 失敗：どちらのエラーを返すか
+    # - PlaywrightでHTTP系（http_403等）が取れているならそれを優先
+    final_err = ""
+    if err_pw and err_pw.startswith("http_"):
+        final_err = err_pw
+    elif err_u and err_u.startswith("http_"):
+        final_err = err_u
+    elif err_pw:
+        final_err = err_pw
+    else:
+        final_err = err_u or "fetch_failed"
 
-    # status が 4xx/5xx っぽい場合
-    if status2 >= 400:
-        e = f"http_{int(status2)}"
-        _cache_set(diary_url, None, e)
-        return None, e
-
-    dt2 = extract_latest_diary_dt(html2)
-    if dt2 is None:
-        _cache_set(diary_url, None, "parse_failed")
-        return None, "parse_failed"
-
-    ts2 = dt_to_epoch_ms(dt2)
-    if ts2 <= 0:
-        _cache_set(diary_url, None, "parse_failed")
-        return None, "parse_failed"
-
-    _cache_set(diary_url, ts2, "")
-    return ts2, ""
-# --- ここまで：get_latest_diary_ts_ms を丸ごと差し替え ---
+    _cache_set(diary_url, None, final_err)
+    print(
+        f"[diary] fetch fail url={diary_url} err_pw={err_pw!r} err_u={err_u!r} final={final_err!r} sec={time.time()-t0:.2f}"
+    )
+    return None, final_err
+# --- ここまで：get_latest_diary_ts_ms ---
 
 
 def build_diary_open_url_from_maps(
@@ -547,7 +549,7 @@ def get_person_diary_track(p: KBPerson, st: Optional[object] = None) -> bool:
     if hasattr(p, "diary_track"):
         return safe_bool(getattr(p, "diary_track", False))
 
-    # ✅ 「追跡ONがデフォルト」だと今回みたいに暴発するので、デフォルトは False にする
+    # ✅ デフォルトは False
     return False
 
 
@@ -589,7 +591,7 @@ def set_person_diary_track(p: KBPerson, track: bool, st: Optional[object] = None
     return changed
 
 
-# ---- 以下は互換のため残す（現状のmodels.pyと完全一致はしていませんが、壊しにくくする）
+# ---- 以下は互換のため残す
 def get_person_diary_latest_ts(p: KBPerson, st: Optional[object] = None) -> Optional[int]:
     # state: latest_entry_at (datetime) があれば epoch ms に変換
     if st is not None:
@@ -735,7 +737,6 @@ def set_person_diary_seen_ts(p: KBPerson, ts: Optional[int], st: Optional[object
 
 
 def get_person_diary_checked_at(p: KBPerson, st: Optional[object] = None) -> Optional[datetime]:
-    # 現行models.pyのstateには checked_at がないので、互換として person.diary_checked_at を使う
     if st is not None:
         for k in ("checked_at", "diary_checked_at", "last_checked_at"):
             if hasattr(st, k):
@@ -752,7 +753,6 @@ def get_person_diary_checked_at(p: KBPerson, st: Optional[object] = None) -> Opt
 
 
 def set_person_diary_checked_at(p: KBPerson, dt: Optional[datetime], st: Optional[object] = None) -> bool:
-    # 現行models.pyのstateには checked_at がないので、互換として person.diary_checked_at を使う
     if st is not None:
         for k in ("checked_at", "diary_checked_at", "last_checked_at"):
             if hasattr(st, k):
