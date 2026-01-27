@@ -1,13 +1,10 @@
-# 002
+# 003
 # routers/kb_parts/diary_fetcher_pw.py
 from __future__ import annotations
 
 import re
 from datetime import datetime, timezone, timedelta
 from typing import Optional, Tuple
-
-from playwright.sync_api import sync_playwright, TimeoutError as PWTimeoutError
-
 
 _JST = timezone(timedelta(hours=9))
 
@@ -89,6 +86,12 @@ def get_latest_diary_ts_ms(url: str) -> Tuple[Optional[int], str]:
     if not u.rstrip("/").endswith("/diary"):
         u = u.rstrip("/") + "/diary"
 
+    # ★ Playwrightは「ここで」遅延import（起動時ImportError回避）
+    try:
+        from playwright.sync_api import sync_playwright, TimeoutError as PWTimeoutError  # type: ignore
+    except Exception as e:
+        return None, f"playwright_import_error:{type(e).__name__}"
+
     nav_timeout_ms = 25_000
 
     try:
@@ -121,11 +124,14 @@ def get_latest_diary_ts_ms(url: str) -> Tuple[Optional[int], str]:
             )
 
             # webdriver痕跡を軽く潰す（playwright-stealth無しの最低限）
-            context.add_init_script(
-                """
-                Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
-                """
-            )
+            try:
+                context.add_init_script(
+                    """
+                    Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
+                    """
+                )
+            except Exception:
+                pass
 
             page = context.new_page()
             page.set_default_navigation_timeout(nav_timeout_ms)
