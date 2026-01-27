@@ -1,190 +1,149 @@
 # 001
-# diary_fetcher_pw.py
-import asyncio
-import json
+# routers/kb_parts/diary_fetcher_pw.py
+from __future__ import annotations
+
 import re
-from dataclasses import dataclass
 from datetime import datetime, timezone, timedelta
-from typing import Optional, List
+from typing import Optional, Tuple
 
-from playwright.async_api import async_playwright, Browser
+from playwright.sync_api import sync_playwright, TimeoutError as PWTimeoutError
 
-JST = timezone(timedelta(hours=9))
 
-# それっぽい日付を拾う（YYYY/MM/DD, YYYY-MM-DD, さらに時刻付きも）
-DATE_PATTERNS = [
-    re.compile(r"(?P<y>20\d{2})[\/\-\.](?P<m>\d{1,2})[\/\-\.](?P<d>\d{1,2})\s*(?:(?P<h>\d{1,2}):(?P<mi>\d{2}))?"),
-    re.compile(r"(?P<y>20\d{2})年(?P<m>\d{1,2})月(?P<d>\d{1,2})日\s*(?:(?P<h>\d{1,2}):(?P<mi>\d{2}))?"),
-]
+# JST（サイト表示の日時が日本時間前提のため）
+_JST = timezone(timedelta(hours=9))
 
-def _to_epoch_ms(dt: datetime) -> int:
-    if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=JST)
-    return int(dt.timestamp() * 1000)
+# 例: "12/30 23:47"
+_RE_MMDD_HHMM = re.compile(r"(\d{1,2})/(\d{1,2})\s+(\d{1,2}):(\d{2})")
 
-def _parse_candidate_dates(text: str) -> List[int]:
-    out: List[int] = []
+# 例: "2025年12月"
+_RE_YEARMON = re.compile(r"(\d{4})年\s*(\d{1,2})月")
+
+
+def _extract_year_month(text: str) -> Tuple[Optional[int], Optional[int]]:
+    m = _RE_YEARMON.search(text or "")
+    if not m:
+        return None, None
+    try:
+        y = int(m.group(1))
+        mo = int(m.group(2))
+        if 1900 <= y <= 2100 and 1 <= mo <= 12:
+            return y, mo
+    except Exception:
+        pass
+    return None, None
+
+
+def _guess_year(header_year: Optional[int], header_month: Optional[int], entry_month: int) -> Optional[int]:
+    """
+    ページのヘッダ月(例: 2026年1月) と、エントリ月(例: 12) が食い違う境界を吸収。
+    1月ページに12月表示が混ざる場合は前年扱い、など。
+    """
+    if header_year is None:
+        return None
+    if header_month is None:
+        return header_year
+    if header_month == 1 and entry_month == 12:
+        return header_year - 1
+    return header_year
+
+
+def _parse_latest_ts_ms_from_text(text: str) -> Tuple[Optional[int], str]:
     if not text:
-        return out
-    for pat in DATE_PATTERNS:
-        for m in pat.finditer(text):
-            try:
-                y = int(m.group("y"))
-                mo = int(m.group("m"))
-                d = int(m.group("d"))
-                h = int(m.group("h") or 0)
-                mi = int(m.group("mi") or 0)
-                dt = datetime(y, mo, d, h, mi, tzinfo=JST)
-                out.append(_to_epoch_ms(dt))
-            except Exception:
-                continue
-    return out
+        return None, "empty_html"
 
-@dataclass
-class _PwState:
-    pw: any
-    browser: Browser
-
-_pw_state: Optional[_PwState] = None
-_pw_lock = asyncio.Lock()
-
-async def _get_browser() -> Browser:
-    global _pw_state
-    if _pw_state and _pw_state.browser:
-        return _pw_state.browser
-    async with _pw_lock:
-        if _pw_state and _pw_state.browser:
-            return _pw_state.browser
-        pw = await async_playwright().start()
-        browser = await pw.chromium.launch(
-            headless=True,
-            args=[
-                "--no-sandbox",
-                "--disable-dev-shm-usage",
-            ],
-        )
-        _pw_state = _PwState(pw=pw, browser=browser)
-        return browser
-
-async def close_browser() -> None:
-    global _pw_state
-    async with _pw_lock:
-        if not _pw_state:
-            return
-        try:
-            await _pw_state.browser.close()
-        except Exception:
-            pass
-        try:
-            await _pw_state.pw.stop()
-        except Exception:
-            pass
-        _pw_state = None
-
-async def fetch_latest_ts_ms(url: str, timeout_ms: int = 25000) -> Optional[int]:
-    """
-    外部URL（日記ページ）をPlaywrightで開き、最新の投稿日時(epoch ms)を推定して返す。
-    """
-    browser = await _get_browser()
-
-    context = await browser.new_context(
-        locale="ja-JP",
-        timezone_id="Asia/Tokyo",
-        user_agent=(
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/122.0.0.0 Safari/537.36"
-        ),
-        extra_http_headers={
-            "Accept-Language": "ja,en-US;q=0.9,en;q=0.8",
-        },
-    )
-    page = await context.new_page()
+    # 最新日記の日時は、一覧の先頭付近に "MM/DD HH:MM" が出る（例のページで確認済み）
+    m = _RE_MMDD_HHMM.search(text)
+    if not m:
+        return None, "no_datetime_found"
 
     try:
-        await page.goto(url, wait_until="domcontentloaded", timeout=timeout_ms)
-        # 多少待つ（反ボットや遅延レンダの保険）
-        try:
-            await page.wait_for_load_state("networkidle", timeout=8000)
-        except Exception:
-            pass
+        mm = int(m.group(1))
+        dd = int(m.group(2))
+        hh = int(m.group(3))
+        mi = int(m.group(4))
+        if not (1 <= mm <= 12 and 1 <= dd <= 31 and 0 <= hh <= 23 and 0 <= mi <= 59):
+            return None, "datetime_out_of_range"
+    except Exception:
+        return None, "datetime_parse_error"
 
-        # 1) <time datetime="..."> を優先
-        try:
-            dts: List[str] = await page.eval_on_selector_all(
-                "time[datetime]",
-                "els => els.map(e => e.getAttribute('datetime')).filter(Boolean)"
+    hy, hmo = _extract_year_month(text)
+    y = _guess_year(hy, hmo, mm)
+    if y is None:
+        # 年が見つからない場合は「今年」を仮置き（誤差が出得るのでエラーを返すよりは動かす）
+        # ※この分岐に入るサイトは少ない想定
+        y = datetime.now(_JST).year
+
+    try:
+        dt_jst = datetime(y, mm, dd, hh, mi, 0, tzinfo=_JST)
+        dt_utc = dt_jst.astimezone(timezone.utc)
+        ts_ms = int(dt_utc.timestamp() * 1000)
+        return ts_ms, ""
+    except Exception:
+        return None, "datetime_to_epoch_failed"
+
+
+def get_latest_diary_ts_ms(url: str) -> Tuple[Optional[int], str]:
+    """
+    Returns:
+      (latest_ts_ms_utc, err)
+      - latest_ts_ms_utc: int milliseconds since epoch (UTC)
+      - err: "" on success, otherwise short reason
+    """
+    u = (url or "").strip()
+    if not u:
+        return None, "url_empty"
+
+    # Playwright本体が重いので、できるだけ軽量に/短時間で諦める
+    nav_timeout_ms = 25_000
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch(
+                headless=True,
+                args=[
+                    "--no-sandbox",
+                    "--disable-dev-shm-usage",
+                    "--disable-gpu",
+                    "--disable-features=IsolateOrigins,site-per-process",
+                ],
             )
-            cands: List[int] = []
-            for s in dts:
-                # ISOっぽいのをJSTとして扱う（厳密でないが実務優先）
+            context = browser.new_context(
+                locale="ja-JP",
+                timezone_id="Asia/Tokyo",
+                user_agent=(
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/120.0.0.0 Safari/537.36"
+                ),
+            )
+            page = context.new_page()
+            page.set_default_navigation_timeout(nav_timeout_ms)
+            page.set_default_timeout(nav_timeout_ms)
+
+            resp = page.goto(u, wait_until="domcontentloaded")
+            status = resp.status if resp is not None else 0
+            if status >= 400:
+                # 403 を含む
                 try:
-                    # 例: 2026-01-26T12:34:00+09:00 / 2026-01-26
-                    dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
-                    if dt.tzinfo is None:
-                        dt = dt.replace(tzinfo=JST)
-                    cands.append(_to_epoch_ms(dt.astimezone(JST)))
+                    browser.close()
                 except Exception:
-                    cands.extend(_parse_candidate_dates(s))
-            if cands:
-                return max(cands)
-        except Exception:
-            pass
+                    pass
+                return None, f"http_{status}"
 
-        html = await page.content()
+            # JSレンダが絡む場合の保険（ただし長く待ちすぎない）
+            try:
+                page.wait_for_load_state("networkidle", timeout=10_000)
+            except Exception:
+                pass
 
-        # 2) JSON-LD（構造化データ）から datePublished / dateModified
-        try:
-            scripts = re.findall(r'<script[^>]+type="application/ld\+json"[^>]*>(.*?)</script>', html, flags=re.S | re.I)
-            cands: List[int] = []
-            for raw in scripts:
-                raw = raw.strip()
-                if not raw:
-                    continue
-                try:
-                    obj = json.loads(raw)
-                except Exception:
-                    continue
+            html = page.content() or ""
+            try:
+                browser.close()
+            except Exception:
+                pass
 
-                def pick(o):
-                    if isinstance(o, dict):
-                        for k in ("datePublished", "dateModified", "uploadDate"):
-                            v = o.get(k)
-                            if isinstance(v, str):
-                                try:
-                                    dt = datetime.fromisoformat(v.replace("Z", "+00:00"))
-                                    if dt.tzinfo is None:
-                                        dt = dt.replace(tzinfo=JST)
-                                    cands.append(_to_epoch_ms(dt.astimezone(JST)))
-                                except Exception:
-                                    cands.extend(_parse_candidate_dates(v))
-                        # 入れ子も探索
-                        for vv in o.values():
-                            pick(vv)
-                    elif isinstance(o, list):
-                        for it in o:
-                            pick(it)
+            return _parse_latest_ts_ms_from_text(html)
 
-                pick(obj)
-
-            if cands:
-                return max(cands)
-        except Exception:
-            pass
-
-        # 3) 最後の手段：HTML全体から日付っぽいのを拾って最大値
-        cands = _parse_candidate_dates(html)
-        if cands:
-            return max(cands)
-
-        return None
-
-    finally:
-        try:
-            await page.close()
-        except Exception:
-            pass
-        try:
-            await context.close()
-        except Exception:
-            pass
+    except PWTimeoutError:
+        return None, "timeout"
+    except Exception:
+        return None, "playwright_error"
