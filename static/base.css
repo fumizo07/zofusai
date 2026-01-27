@@ -1464,3 +1464,10 @@ input[type="time"] {
     }
 }
 
+.kb-diary-new {
+    background-color: #f00;
+    color: #fff;
+    padding: 1px 3px;
+    font-size: 12px;
+    text-decoration: none;
+}
