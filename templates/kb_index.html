@@ -223,10 +223,13 @@
               <div class="result-id">
                 {# ★NEW差し込み口（JSが /kb/api/diary_status の結果で挿入） #}
                 {% if diary_url %}
-                  <span class="kb-diary-slot"
-                        data-kb-diary-slot="1"
-                        data-person-id="{{ p.id }}"
-                        data-diary-url="{{ diary_url|e }}"></span>
+                  <span
+                    class="kb-diary-slot"
+                    data-kb-diary-slot="1"
+                    data-person-id="{{ p.id }}"
+                    data-diary-url="{{ diary_url }}"
+                    data-diary-track="{{ 1 if track_diary else 0 }}"
+                  ></span>
                 {% endif %}
 
                 <a href="/kb/person/{{ p.id }}">{{ p.name }}</a>
@@ -249,10 +252,11 @@
                 {%- if avg_amt is not none -%}/平均金額:{{ "{:,}".format(avg_amt) }}円{%- endif -%}
               </div>
 
+              {% if track_diary %}
               <div class="muted" data-kb-diary-meta="1">
                 <span data-kb-diary-checked></span><span data-kb-diary-latest></span>
               </div>
-
+              {% endif %}
 
               <div class="muted">
                 <a href="/kb/person/{{ p.id }}/external_search" target="_blank">外部検索で調べる</a>{%- if p.url -%}/<a href="{{ p.url|e }}" target="_blank" rel="noopener noreferrer">プロフ(外部)</a>{%- endif -%}
