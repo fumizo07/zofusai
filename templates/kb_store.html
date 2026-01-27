@@ -104,7 +104,8 @@
                 {% if avg is not none %}平均評価:{{ "%.2f"|format(avg) }}{% endif %}
                 {%- if avg_amt is not none -%}/平均金額:{{ "{:,}".format(avg_amt) }}円{%- endif -%}
               </div>
-              {% if track_diary %}
+              {% set tracked = (p.diary_track if p is defined and p.diary_track is defined else False) %}
+              {% if tracked %}
               <div class="muted" data-kb-diary-meta="1">
                 <span data-kb-diary-checked></span><span data-kb-diary-latest></span>
               </div>
