@@ -301,7 +301,7 @@
 
     if (elLatest) {
       elLatest.textContent = (ld != null && Number.isFinite(Number(ld)))
-        ? `最新日記:${Number(ld)}日前(取得済み)`
+        ? `最新日記:${Number(ld)}日前(取得)`
         : "最新日記:-";
     }
   }
