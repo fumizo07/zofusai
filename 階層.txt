@@ -7,6 +7,7 @@ routers/kb_parts/__init__.py
 routers/kb_parts/backup.py
 routers/kb_parts/diary_api.py
 routers/kb_parts/diary_core.py
+routers/kb_parts/diary_fetcher_pw.py
 routers/kb_parts/pages.py
 routers/kb_parts/price_templates_api.py
 routers/kb_parts/utils.py

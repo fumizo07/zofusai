@@ -1,4 +1,4 @@
-# 001
+# 002
 # routers/kb_parts/diary_api.py
 from __future__ import annotations
 
@@ -16,7 +16,6 @@ from .diary_core import (
     parse_ids_csv,
     get_diary_state_map,
     get_or_create_diary_state,
-    get_latest_diary_ts_ms,
     get_person_diary_checked_at,
     get_person_diary_latest_ts,
     get_person_diary_seen_ts,
@@ -26,6 +25,7 @@ from .diary_core import (
     set_person_diary_seen_ts,
     build_diary_open_url_from_maps,
 )
+from .diary_fetcher_pw import get_latest_diary_ts_ms  # ★Playwright版
 from .utils import parse_int
 
 
@@ -100,7 +100,6 @@ def kb_api_diary_latest(
                     "latest_ago_days": None,
                 }
             )
-
             continue
 
         pu = ""
@@ -162,7 +161,7 @@ def kb_api_diary_latest(
                 except Exception:
                     is_new = False
 
-        # --- 追加：表示用（最終チェック/最新日記の経過） ---
+        # --- 表示用（最終チェック/最新日記の経過） ---
         checked_ago_min = None
         try:
             if checked_at:
@@ -175,14 +174,13 @@ def kb_api_diary_latest(
         latest_ago_days = None
         try:
             if latest_ts is not None:
-                # latest_ts は ms（UTC基準）想定
                 dt_latest = datetime.utcfromtimestamp(int(latest_ts) / 1000.0)
                 dsec = (now_utc - dt_latest).total_seconds()
                 if dsec >= 0:
                     latest_ago_days = int(dsec // 86400)
         except Exception:
             latest_ago_days = None
-        # --- 追加ここまで ---
+        # --- ここまで ---
 
         items.append(
             {
