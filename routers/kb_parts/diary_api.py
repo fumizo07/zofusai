@@ -1,10 +1,11 @@
-# 003
+# 004
 # routers/kb_parts/diary_api.py
 from __future__ import annotations
 
 import os
+import secrets
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Tuple
+from typing import List, Optional
 
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import JSONResponse
@@ -34,6 +35,9 @@ from .utils import parse_int
 
 router = APIRouter()
 
+CSRF_COOKIE_NAME = "kb_csrf"
+CSRF_HEADER_NAME = "X-KB-CSRF"
+
 
 def _env_bool(name: str, default: bool = False) -> bool:
     v = (os.getenv(name, "") or "").strip().lower()
@@ -47,21 +51,85 @@ def _server_fetch_disabled() -> bool:
     return _env_bool("KB_DIARY_DISABLE_SERVER_FETCH", default=False)
 
 
-def _get_push_token() -> str:
-    return (os.getenv("KB_DIARY_PUSH_TOKEN", "") or "").strip()
+def _get_cookie(request: Request, name: str) -> str:
+    try:
+        return (request.cookies.get(name) or "").strip()
+    except Exception:
+        return ""
 
 
-def _require_push_auth(request: Request) -> Optional[str]:
+def _same_origin_basic_check(request: Request) -> bool:
     """
-    Returns error string if unauthorized, else None.
+    任意：Origin/Referer があれば host/scheme を軽く確認する（無い場合は通す）。
+    ※プロキシ配下で壊れやすいので「強制」ではなく、あくまで補助。
     """
-    token = _get_push_token()
-    if not token:
-        return "server_token_not_set"
-    got = (request.headers.get("X-KB-Diary-Token") or "").strip()
-    if not got or got != token:
-        return "unauthorized"
+    try:
+        base = str(request.base_url).rstrip("/")  # e.g. https://example.com
+    except Exception:
+        return True
+
+    origin = (request.headers.get("origin") or "").strip()
+    referer = (request.headers.get("referer") or "").strip()
+
+    if origin:
+        return origin.startswith(base)
+    if referer:
+        return referer.startswith(base)
+
+    return True
+
+
+def _require_csrf(request: Request) -> Optional[str]:
+    """
+    二重送信クッキー方式：
+      - Cookie kb_csrf
+      - Header X-KB-CSRF
+    が一致すること。
+    """
+    if not _same_origin_basic_check(request):
+        return "origin_mismatch"
+
+    c = _get_cookie(request, CSRF_COOKIE_NAME)
+    h = (request.headers.get(CSRF_HEADER_NAME) or "").strip()
+
+    if not c or not h:
+        return "csrf_missing"
+
+    try:
+        if not secrets.compare_digest(c, h):
+            return "csrf_invalid"
+    except Exception:
+        return "csrf_invalid"
+
     return None
+
+
+@router.get("/kb/api/csrf_init")
+def kb_api_csrf_init(request: Request):
+    """
+    CSRFトークンを発行してクッキーにセットする。
+    - HttpOnly は付けない（Userscriptが読む必要があるため）
+    - SameSite=Lax
+    - Secure は https のときだけ True
+    """
+    token = secrets.token_urlsafe(32)
+    secure = False
+    try:
+        secure = (request.url.scheme == "https")
+    except Exception:
+        secure = False
+
+    resp = JSONResponse({"ok": True})
+    resp.set_cookie(
+        key=CSRF_COOKIE_NAME,
+        value=token,
+        max_age=60 * 60 * 24 * 30,  # 30日
+        path="/",
+        secure=secure,
+        httponly=False,
+        samesite="lax",
+    )
+    return resp
 
 
 @router.get("/kb/api/diary_latest")
@@ -249,9 +317,10 @@ async def kb_api_diary_push(
     request: Request,
     db: Session = Depends(get_db),
 ):
-    auth_err = _require_push_auth(request)
-    if auth_err:
-        return JSONResponse({"ok": False, "error": auth_err}, status_code=401)
+    # ✅ トークン廃止：ログインセッション + CSRF（二重送信クッキー）
+    csrf_err = _require_csrf(request)
+    if csrf_err:
+        return JSONResponse({"ok": False, "error": csrf_err}, status_code=403)
 
     try:
         data = await request.json()
@@ -339,6 +408,9 @@ async def kb_api_diary_push(
                 if set_person_diary_seen_ts(p, int(latest_ts), st):
                     dirty = True
 
+        # err は今の仕様では保存していない（仕様のまま）
+        _ = err
+
         saved += 1
 
     if dirty:
@@ -356,6 +428,8 @@ async def kb_api_diary_seen(
     request: Request,
     db: Session = Depends(get_db),
 ):
+    # ここは kb.js からの same-origin JSON POST 前提。
+    # （CSRFを厳密にやるならここにも _require_csrf を入れて kb.js も合わせる必要あり）
     try:
         data = await request.json()
     except Exception:
