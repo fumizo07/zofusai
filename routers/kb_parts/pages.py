@@ -1,7 +1,8 @@
-# 005
+# 006
 # routers/kb_parts/pages.py
 from __future__ import annotations
 
+import os
 import json
 import unicodedata
 from datetime import datetime
@@ -55,6 +56,10 @@ from .utils import (
 )
 
 router = APIRouter()
+
+
+def _get_kb_allow_secret() -> str:
+    return (os.getenv("KB_ALLOW_SECRET", "") or "").strip()
 
 
 def _coerce_bool(v) -> bool:
@@ -218,6 +223,7 @@ def kb_index(request: Request, db: Session = Depends(get_db)):
         "kb_index.html",
         {
             "request": request,
+            "kb_allow_secret": _get_kb_allow_secret(),
             "regions": regions,
             "stores_by_region": stores_by_region,
             "person_counts": counts,
@@ -347,6 +353,7 @@ def kb_store_page(
         "kb_store.html",
         {
             "request": request,
+            "kb_allow_secret": _get_kb_allow_secret(),
             "region": region,
             "store": store,
             "persons": persons,
@@ -489,6 +496,7 @@ def kb_person_page(
         "kb_person.html",
         {
             "request": request,
+            "kb_allow_secret": _get_kb_allow_secret(),
             "region": region,
             "store": store,
             "person": person,
@@ -1005,6 +1013,7 @@ def kb_search(
         "kb_index.html",
         {
             "request": request,
+            "kb_allow_secret": _get_kb_allow_secret(),
             "regions": regions,
             "stores_by_region": stores_by_region,
             "person_counts": counts,
