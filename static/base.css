@@ -1477,3 +1477,9 @@ input[type="time"] {
     align-items:center;
     gap:6px;
 }
+
+.kb-fav-btn {
+    padding: 0;
+    background: none;
+    border: none;
+}
