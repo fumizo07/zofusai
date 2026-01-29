@@ -185,6 +185,11 @@
           <option value="price">価格が安い順</option>
           <option value="rating">評価が高い順</option>
         </select>
+        <label style="display:inline-flex; align-items:center; gap:6px;">
+          <input type="checkbox" name="diary_tracked" value="1"
+                 {% if request.query_params.get('diary_tracked') == '1' %}checked{% endif %}>
+          日記追跡
+        </label>
       </div>
 
       <div class="thread-results" id="kb_person_results">
