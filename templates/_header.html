@@ -6,9 +6,7 @@
     <meta charset="UTF-8">
     <title>Personal Search{% if page_title_suffix %} - {{ page_title_suffix }}{% endif %}</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    {% if active_page == 'kb' %}
-    <meta name="kb-allow-konbankonban" content="{{ kb_allow_secret }}">
-    {% endif %}
+    {% if active_page == 'kb' %}<meta name="kb-allow-konbankonban" content="{{ kb_allow_secret }}">{% endif %}
     <link rel="icon" href="/static/favicon.ico">
     <link rel="stylesheet" href="/static/base.css">
 </head>
