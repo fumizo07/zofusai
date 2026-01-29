@@ -1,4 +1,4 @@
-// 005
+// 006
 // static/kb.js
 (() => {
   "use strict";
@@ -416,6 +416,22 @@
     });
 
     fetchDiaryLatestAndRender();
+
+    // ★追加：Userscript の push 完了通知で即時再取得（5分待たない）
+    try {
+      if (window.__kbDiaryPushHooked !== "1") {
+        window.__kbDiaryPushHooked = "1";
+
+        window.addEventListener("kb-diary-pushed", () => {
+          fetchDiaryLatestAndRender();
+        }, { passive: true });
+
+        // Userscript が直接呼べる逃げ道も用意（未使用でも害なし）
+        window.kbDiaryRefresh = () => {
+          fetchDiaryLatestAndRender();
+        };
+      }
+    } catch (_) {}
 
     setInterval(() => {
       fetchDiaryLatestAndRender();
