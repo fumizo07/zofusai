@@ -200,7 +200,7 @@
   //   「最終チェック：/最新日記：」を表示する（tracked=0 は非表示）
   const DIARY_LATEST_API = "/kb/api/diary_latest";
   const DIARY_SEEN_API = "/kb/api/diary_seen";
-  const DIARY_REFRESH_INTERVAL_MS = 5 * 60 * 1000; // 5分
+  const DIARY_REFRESH_INTERVAL_MS = 10 * 60 * 1000; // 10分
 
   function diarySeenKey(personId) {
     return `kb_diary_seen_${String(personId)}`;
