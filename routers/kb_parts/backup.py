@@ -1,4 +1,4 @@
-# 001
+# 002
 # routers/kb_parts/backup.py
 from __future__ import annotations
 
@@ -18,6 +18,14 @@ from models import KBPerson, KBRegion, KBStore, KBVisit, KBPriceTemplate
 from .diary_core import (
     diary_state_enabled,
     get_diary_state_map,
+    get_or_create_diary_state,
+    get_person_diary_track,
+    get_person_diary_latest_ts,
+    get_person_diary_seen_ts,
+    get_person_diary_checked_at,
+    set_person_diary_checked_at,
+    set_person_diary_latest_ts,
+    set_person_diary_seen_ts,
 )
 from .utils import (
     norm_text,
@@ -54,6 +62,7 @@ def kb_panic_delete_all(
         if diary_state_enabled():
             try:
                 from models import KBDiaryState  # type: ignore
+
                 db.query(KBDiaryState).delete(synchronize_session=False)  # type: ignore
             except Exception:
                 pass
@@ -93,20 +102,6 @@ def kb_export(db: Session = Depends(get_db)):
                 d[k] = getattr(s, k)
         return d
 
-    def _safe_bool(v) -> bool:
-        try:
-            return bool(v)
-        except Exception:
-            return False
-
-    def _safe_int(v) -> Optional[int]:
-        if v is None:
-            return None
-        try:
-            return int(v)
-        except Exception:
-            return None
-
     def person_to_dict(p: KBPerson) -> dict:
         pid = int(getattr(p, "id"))
         st = state_map.get(pid)
@@ -125,54 +120,29 @@ def kb_export(db: Session = Depends(get_db)):
             "tags": getattr(p, "tags", None),
             "memo": getattr(p, "memo", None),
         }
+
+        # ★ favorite（お気に入り）
+        if hasattr(p, "favorite"):
+            try:
+                d["favorite"] = bool(getattr(p, "favorite", False))
+            except Exception:
+                d["favorite"] = False
+
+        # URL / image_urls
         if hasattr(p, "url"):
             d["url"] = getattr(p, "url", None)
         if hasattr(p, "image_urls"):
             d["image_urls"] = getattr(p, "image_urls", None)
 
-        # diary fields（state優先、無ければperson列）
-        track = None
-        latest = None
-        seen = None
-        checked_at = None
-
-        if st is not None and hasattr(st, "track"):
-            track = _safe_bool(getattr(st, "track", None))
-        elif hasattr(p, "diary_track"):
-            track = _safe_bool(getattr(p, "diary_track", None))
-        else:
-            track = True
-
-        if st is not None:
-            for k in ("latest_ts_ms", "diary_latest_ts_ms", "latest_ts", "diary_latest_ts"):
-                if hasattr(st, k):
-                    latest = _safe_int(getattr(st, k, None))
-                    break
-            for k in ("seen_ts_ms", "diary_seen_ts_ms", "seen_ts", "diary_seen_ts"):
-                if hasattr(st, k):
-                    seen = _safe_int(getattr(st, k, None))
-                    break
-            for k in ("checked_at", "diary_checked_at", "last_checked_at"):
-                if hasattr(st, k):
-                    checked_at = getattr(st, k, None)
-                    break
-
-        if latest is None:
-            for k in ("diary_latest_ts_ms", "diary_latest_ts"):
-                if hasattr(p, k):
-                    latest = _safe_int(getattr(p, k, None))
-                    break
-        if seen is None:
-            for k in ("diary_seen_ts_ms", "diary_seen_ts"):
-                if hasattr(p, k):
-                    seen = _safe_int(getattr(p, k, None))
-                    break
-        if checked_at is None and hasattr(p, "diary_checked_at"):
-            checked_at = getattr(p, "diary_checked_at", None)
+        # ★ diary fields（diary_core の getter で統一：DB state / person列 どちらでもOK）
+        track = get_person_diary_track(p, st)
+        latest_ts = get_person_diary_latest_ts(p, st)
+        seen_ts = get_person_diary_seen_ts(p, st)
+        checked_at = get_person_diary_checked_at(p, st)
 
         d["diary_track"] = bool(track)
-        d["diary_latest_ts_ms"] = latest
-        d["diary_seen_ts_ms"] = seen
+        d["diary_latest_ts_ms"] = int(latest_ts) if latest_ts is not None else None
+        d["diary_seen_ts_ms"] = int(seen_ts) if seen_ts is not None else None
         try:
             d["diary_checked_at_utc"] = checked_at.strftime("%Y-%m-%dT%H:%M:%SZ") if checked_at else None
         except Exception:
@@ -204,7 +174,7 @@ def kb_export(db: Session = Depends(get_db)):
         }
 
     payload = {
-        "version": 3,
+        "version": 4,  # ★ favorite + diary を確実に含める
         "exported_at_utc": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
         "regions": [region_to_dict(r) for r in regions],
         "stores": [store_to_dict(s) for s in stores],
@@ -265,6 +235,7 @@ def kb_import(
         if diary_state_enabled():
             try:
                 from models import KBDiaryState  # type: ignore
+
                 db.query(KBDiaryState).delete(synchronize_session=False)  # type: ignore
             except Exception:
                 pass
@@ -364,6 +335,13 @@ def kb_import(
             obj.tags = (p.get("tags", "") or "").strip() or None
             obj.memo = (p.get("memo", "") or "").strip() or None
 
+            # ★ favorite（お気に入り）
+            if hasattr(obj, "favorite"):
+                try:
+                    obj.favorite = bool(p.get("favorite") or False)
+                except Exception:
+                    obj.favorite = False
+
             if hasattr(obj, "url"):
                 u = (p.get("url", "") or "").strip()
                 obj.url = u or None
@@ -375,6 +353,7 @@ def kb_import(
                 if isinstance(iu, list):
                     obj.image_urls = [str(x or "").strip() for x in iu if str(x or "").strip()] or None
 
+            # ★ diary（旧JSON/新JSONどっちでも拾う）
             diary_payloads.append(
                 {
                     "person_id": int(pid),
@@ -395,40 +374,69 @@ def kb_import(
 
         db.flush()
 
-        if diary_state_enabled() and diary_payloads:
-            try:
-                from models import KBDiaryState  # type: ignore
-            except Exception:
-                KBDiaryState = None  # type: ignore
+        # ★ diary state の復元（diary_core の setter で統一）
+        if diary_payloads:
+            # まず state_map を取得（必要なら作る）
+            ids_for_state = [int(it.get("person_id")) for it in diary_payloads if it.get("person_id")]
+            ids_for_state = list(dict.fromkeys([i for i in ids_for_state if i > 0]))
+            state_map = get_diary_state_map(db, ids_for_state) if ids_for_state else {}
 
-            if KBDiaryState is not None:
-                for it in diary_payloads:
-                    pid = int(it.get("person_id"))
+            # person_id -> person obj
+            pmap = {int(getattr(p, "id", 0)): p for p in person_objs if p and getattr(p, "id", None)}
+
+            for it in diary_payloads:
+                pid = int(it.get("person_id") or 0)
+                if pid <= 0:
+                    continue
+                p = pmap.get(pid)
+                if not p:
+                    continue
+
+                st = state_map.get(pid)
+                if diary_state_enabled():
+                    st = get_or_create_diary_state(db, state_map, pid) or st
+
+                # track
+                try:
+                    # note: diary_core が「state優先/互換person列」どちらも扱う前提
+                    if hasattr(p, "diary_track") or (st is not None):
+                        # 追跡ON/OFFは setter が無い設計もあり得るので、trackは互換的に反映
+                        # ここは「KBPerson側の古い列」が無い可能性もあるため、可能なら state に直接書く
+                        # → diary_core の get_person_diary_track が st を見てくれる設計なら十分
+                        if st is not None:
+                            for k in ("track_enabled", "track", "diary_track"):
+                                if hasattr(st, k):
+                                    setattr(st, k, bool(it.get("track") or False))
+                                    break
+                        elif hasattr(p, "diary_track"):
+                            setattr(p, "diary_track", bool(it.get("track") or False))
+                except Exception:
+                    pass
+
+                # checked_at
+                cd = it.get("checked_at", None)
+                if isinstance(cd, datetime):
+                    set_person_diary_checked_at(p, cd, st)
+
+                # latest/seen
+                latest_ts = it.get("latest_ts_ms", None)
+                seen_ts = it.get("seen_ts_ms", None)
+
+                if latest_ts is not None:
                     try:
-                        st = KBDiaryState(person_id=pid)  # type: ignore
+                        set_person_diary_latest_ts(p, int(latest_ts), st)
                     except Exception:
-                        try:
-                            st = KBDiaryState()  # type: ignore
-                            if hasattr(st, "person_id"):
-                                setattr(st, "person_id", pid)
-                        except Exception:
-                            continue
+                        pass
 
-                    if hasattr(st, "track"):
-                        setattr(st, "track", bool(it.get("track") or False))
-                    for k in ("latest_ts_ms", "diary_latest_ts_ms"):
-                        if hasattr(st, k):
-                            setattr(st, k, it.get("latest_ts_ms", None))
-                            break
-                    for k in ("seen_ts_ms", "diary_seen_ts_ms"):
-                        if hasattr(st, k):
-                            setattr(st, k, it.get("seen_ts_ms", None))
-                            break
-                    for k in ("checked_at", "diary_checked_at", "last_checked_at"):
-                        if hasattr(st, k):
-                            setattr(st, k, it.get("checked_at", None))
-                            break
-                    db.add(st)
+                # seen が無い場合は latest で初期化（初回からNEWにしない）
+                if seen_ts is None and latest_ts is not None:
+                    seen_ts = latest_ts
+
+                if seen_ts is not None:
+                    try:
+                        set_person_diary_seen_ts(p, int(seen_ts), st)
+                    except Exception:
+                        pass
 
         db.flush()
 
@@ -516,6 +524,7 @@ def kb_import(
         if diary_state_enabled():
             try:
                 from models import KBDiaryState  # type: ignore
+
                 reset_postgres_pk_sequence(db, KBDiaryState)  # type: ignore
             except Exception:
                 pass
