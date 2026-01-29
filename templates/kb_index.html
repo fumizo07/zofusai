@@ -3,6 +3,7 @@
 {% set body_class = "page-kb" %}
 {% set active_page = "kb" %}
 {% include "_header.html" %}
+{% set kb_diary_filter_js = true %}
 
 {% set search_region_id = search_region_id|default('') %}
 {% set search_budget_min = search_budget_min|default('') %}
@@ -185,6 +186,10 @@
           <option value="price">価格が安い順</option>
           <option value="rating">評価が高い順</option>
         </select>
+        <label style="display:inline-flex; align-items:center; gap:6px;">
+          <input type="checkbox" id="kb_diary_tracked_only" name="diary_tracked" value="1">
+          日記追跡
+        </label>
       </div>
 
       <div class="thread-results" id="kb_person_results">
