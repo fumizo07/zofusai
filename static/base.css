@@ -1471,3 +1471,9 @@ input[type="time"] {
     font-size: 12px;
     text-decoration: none;
 }
+
+.kb-person-sort-row .sort-checkbox-label{
+    display:inline-flex;
+    align-items:center;
+    gap:6px;
+}

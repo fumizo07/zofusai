@@ -1,4 +1,4 @@
-# 009
+# 010
 # models.py
 from datetime import datetime
 
@@ -155,6 +155,9 @@ class KBPerson(Base):
 
     # フリーワード検索のためのまとめ列
     search_norm = Column(Text, nullable=True, index=True)
+
+    # ★追加：お気に入り（DB: favorite boolean default false）
+    favorite = Column(Boolean, nullable=False, default=False, index=True)
 
     # 既存の diary_* は残します（互換性のため）
     diary_last_entry_at = Column(DateTime, nullable=True, index=True)

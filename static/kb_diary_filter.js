@@ -1,5 +1,5 @@
 // 001
-// static/kb_diary_filter.js
+// static/kb_sort_filter.js
 (() => {
   "use strict";
 

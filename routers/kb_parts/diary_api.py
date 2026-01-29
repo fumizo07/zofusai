@@ -1,4 +1,4 @@
-# 004
+# 005
 # routers/kb_parts/diary_api.py
 from __future__ import annotations
 
@@ -130,6 +130,70 @@ def kb_api_csrf_init(request: Request):
         samesite="lax",
     )
     return resp
+
+
+# ============================================================
+# ★追加：お気に入りON/OFF（DB保存）
+# - payload: {"id": 123, "favorite": true/false or 1/0}
+# - CSRF（二重送信クッキー）必須
+# ============================================================
+@router.post("/kb/api/person_favorite")
+async def kb_api_person_favorite(
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    csrf_err = _require_csrf(request)
+    if csrf_err:
+        return JSONResponse({"ok": False, "error": csrf_err}, status_code=403)
+
+    try:
+        data = await request.json()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "invalid_json"}, status_code=400)
+
+    if not isinstance(data, dict):
+        return JSONResponse({"ok": False, "error": "invalid_payload"}, status_code=400)
+
+    pid = parse_int(data.get("id", ""))
+    if pid is None or pid <= 0:
+        return JSONResponse({"ok": False, "error": "id_required"}, status_code=400)
+
+    fav_raw = data.get("favorite", None)
+    favorite = False
+    try:
+        if isinstance(fav_raw, bool):
+            favorite = bool(fav_raw)
+        elif fav_raw is None:
+            return JSONResponse({"ok": False, "error": "favorite_required"}, status_code=400)
+        else:
+            # "1"/"0", 1/0, "true"/"false" などを許容
+            s = str(fav_raw).strip().lower()
+            if s in ("1", "true", "on", "yes", "y", "t"):
+                favorite = True
+            elif s in ("0", "false", "off", "no", "n", "f"):
+                favorite = False
+            else:
+                return JSONResponse({"ok": False, "error": "favorite_invalid"}, status_code=400)
+    except Exception:
+        return JSONResponse({"ok": False, "error": "favorite_invalid"}, status_code=400)
+
+    p = db.query(KBPerson).filter(KBPerson.id == int(pid)).first()
+    if not p:
+        return JSONResponse({"ok": False, "error": "not_found"}, status_code=404)
+
+    # models.py に favorite が入っていて、DBにも favorite がある前提
+    try:
+        setattr(p, "favorite", bool(favorite))
+    except Exception:
+        return JSONResponse({"ok": False, "error": "not_supported"}, status_code=409)
+
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+        return JSONResponse({"ok": False, "error": "db_error"}, status_code=500)
+
+    return JSONResponse({"ok": True, "id": int(pid), "favorite": bool(favorite)})
 
 
 @router.get("/kb/api/diary_latest")

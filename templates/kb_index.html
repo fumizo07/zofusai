@@ -186,9 +186,13 @@
           <option value="price">価格が安い順</option>
           <option value="rating">評価が高い順</option>
         </select>
-        <label style="display:inline-flex; align-items:center; gap:6px;">
+        <label class="sort-checkbox-label">
           <input type="checkbox" id="kb_diary_tracked_only" name="diary_tracked" value="1">
           日記追跡
+        </label>
+        <label class="sort-checkbox-label">
+          <input type="checkbox" id="kb_fav_only" value="1">
+          オキニ
         </label>
       </div>
 
@@ -211,6 +215,8 @@
           {% endif %}
 
           <div class="result kb-person-result"
+               data-person-id="{{ p.id }}"
+               data-fav="{{ 1 if p.favorite else 0 }}"
                data-sort-name="{{ (p.name or '')|e }}"
                data-sort-rating="{{ avg if avg is not none else '' }}"
                data-sort-cup="{{ (p.cup or '')|e }}"
@@ -236,7 +242,13 @@
                     data-diary-track="1"
                   ></span>
                 {% endif %}
-
+                <button type="button"
+                  class="kb-fav-btn"
+                  data-kb-fav-toggle="1"
+                  data-person-id="{{ p.id }}"
+                  aria-pressed="{{ 'true' if p.favorite else 'false' }}">
+                  {{ '★' if p.favorite else '☆' }}
+                </button>
                 <a href="/kb/person/{{ p.id }}">{{ p.name }}</a>
                 {%- if p.services -%}/{{ p.services }}{%- endif -%}
                 {% if p.age %}/{{ p.age }}歳{% endif %}
@@ -352,7 +364,7 @@
     <div class="form-row">
       <button type="button" class="btn-primary" id="kb_backup_generate">バックアップJSONを生成</button>
       <button type="button" class="btn-secondary" id="kb_backup_copy" disabled>コピー</button>
-      <a class="btn-secondary" href="/kb/export" target="_blank" rel="noopener noreferrer">別タブで開く</a>
+      <a href="/kb/export" target="_blank" rel="noopener noreferrer">別タブで開く</a>
     </div>
     <div class="form-row">
       <textarea id="kb_backup_text" rows="10" readonly placeholder="ここにバックアップJSONが表示されます（生成ボタンを押してください）"></textarea>

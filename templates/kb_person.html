@@ -22,6 +22,13 @@
     </p>
 
     <div class="thread-info">
+      <div>オキニ：<button type="button"
+        class="kb-fav-btn"
+        data-kb-fav-toggle="1"
+        data-person-id="{{ person.id }}"
+        aria-pressed="{{ 'true' if person.favorite else 'false' }}">
+        {{ '★' if person.favorite else '☆' }}
+      </button></div>
       <div>地域：<strong>{{ region.name if region else "（不明）" }}</strong></div>
       <div>店舗：<strong>{{ store.name if store else "（不明）" }}</strong></div>
       <div>
