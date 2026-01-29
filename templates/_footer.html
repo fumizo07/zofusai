@@ -3,8 +3,7 @@
 <div id="anchorPreviewTooltip" class="anchor-preview-tooltip" aria-hidden="true"></div>
 {% endif %}
 <script src="/static/function.js"></script>
-{% if active_page == 'kb' %}
-<script src="/static/kb.js"></script>
-{% endif %}
+{% if active_page == 'kb' %}<script src="/static/kb.js"></script>{% endif %}
+{% if kb_diary_filter_js %}<script src="/static/kb_diary_filter.js"></script>{% endif %}
 </body>
 </html>
