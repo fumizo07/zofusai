@@ -188,12 +188,13 @@
         </select>
         <label class="sort-checkbox-label">
           <input type="checkbox" id="kb_diary_tracked_only" name="diary_tracked" value="1">
-          日記追跡
+          日記追跡中
         </label>
         <label class="sort-checkbox-label">
           <input type="checkbox" id="kb_fav_only" value="1">
           オキニ
         </label>
+        <button type="button" onclick="window.kbDiaryForcePush?.(); setTimeout(()=>window.kbDiaryRefresh?.(), 1200);">今すぐ日記取得</button>
       </div>
 
       <div class="thread-results" id="kb_person_results">
