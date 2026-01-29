@@ -3,7 +3,7 @@
 (() => {
   "use strict";
 
-  const CB_SELECTOR = 'input[type="checkbox"][name="diary_tracked"]';
+  const CB_SELECTOR = 'input[type="checkbox"][id="kb_diary_tracked_only"][name="diary_tracked"]';
   const LIST_SELECTOR = "#kb_person_results";
   const CARD_SELECTOR = ".kb-person-result";
   const SLOT_SELECTOR = '.kb-diary-slot[data-kb-diary-slot="1"][data-person-id]';
