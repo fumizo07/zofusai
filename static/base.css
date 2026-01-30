@@ -21,6 +21,7 @@ img {
 
 a {
     word-wrap: break-word;
+    text-decoration: none;
 }
 
 body {
