@@ -66,6 +66,15 @@
     return (code - 64);
   }
 
+    function normalizeDiaryUrl(u) {
+    const s = String(u || "").trim();
+    if (!s) return "";
+    const noSlash = s.replace(/\/+$/, "");
+    if (noSlash.endsWith("/diary")) return noSlash;
+    return noSlash + "/diary";
+  }
+
+
   // ============================================================
   // KB：人物検索結果の並び替え（再読み込みなし）
   // ============================================================
@@ -379,7 +388,7 @@
       const latestTs = (st?.latest_ts != null) ? String(st.latest_ts) : "";
       const openUrl = String(st?.open_url || "").trim();
       const attrUrl = String(slot.getAttribute("data-diary-url") || "").trim();
-      const url = openUrl || attrUrl;
+      const url = normalizeDiaryUrl(openUrl || attrUrl);
 
       // NEWじゃない/情報不足なら既存バッジを消す
       if (!isNew || !latestTs || !url) {
@@ -417,7 +426,7 @@
 
     fetchDiaryLatestAndRender();
 
-    // ★追加：Userscript の push 完了通知で即時再取得（5分待たない）
+    // Userscript の push 完了通知で即時再取得（5分待たない）
     try {
       if (window.__kbDiaryPushHooked !== "1") {
         window.__kbDiaryPushHooked = "1";
@@ -425,6 +434,52 @@
         window.addEventListener("kb-diary-pushed", () => {
           fetchDiaryLatestAndRender();
         }, { passive: true });
+
+    // ★追加：人物検索の結果DOMが差し替わったら即時に日記取得＆再描画（暴走しない版）
+    try {
+      const list = document.getElementById("kb_person_results");
+      if (list && window.__kbDiaryDomWatchApplied !== "1") {
+        window.__kbDiaryDomWatchApplied = "1";
+
+        let t = null;
+        const schedule = () => {
+          if (t) clearTimeout(t);
+          t = setTimeout(() => {
+            fetchDiaryLatestAndRender();
+          }, 450); // デバウンス（連続DOM更新を1回にまとめる）
+        };
+
+        const mo = new MutationObserver((mutations) => {
+          // 追加/削除のみ見る（テキスト更新では動かない）
+          for (const m of mutations) {
+            if (m.type !== "childList") continue;
+
+            // ★「日記スロットが追加された」時だけ反応
+            const nodes = [];
+            if (m.addedNodes && m.addedNodes.length) nodes.push(...m.addedNodes);
+            if (m.removedNodes && m.removedNodes.length) nodes.push(...m.removedNodes);
+
+            for (const n of nodes) {
+              if (!n || n.nodeType !== 1) continue; // Elementのみ
+              const el = n;
+
+              // 検索結果の差し替えで入ってくる要素だけをトリガーにする
+              // （NEWバッジaタグ追加では発火しない）
+              if (
+                el.matches?.('[data-kb-diary-slot][data-person-id], .kb-person-result') ||
+                el.querySelector?.('[data-kb-diary-slot][data-person-id]')
+              ) {
+                schedule();
+                return;
+              }
+            }
+          }
+        });
+
+        mo.observe(list, { childList: true, subtree: true });
+      }
+    } catch (_) {}
+
 
         // Userscript が直接呼べる逃げ道も用意（未使用でも害なし）
         window.kbDiaryRefresh = () => {
