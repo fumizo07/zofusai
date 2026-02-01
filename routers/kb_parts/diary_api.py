@@ -373,7 +373,15 @@ def kb_api_diary_latest(
         except Exception:
             db.rollback()
 
-    return JSONResponse({"ok": True, "items": items})
+    return JSONResponse(
+        {"ok": True, "items": items},
+        headers={
+            "Cache-Control": "private, no-store, max-age=0",
+            "Pragma": "no-cache",
+            "Expires": "0",
+            "Vary": "Cookie",
+        },
+    )
 
 
 @router.post("/kb/api/diary_push")
