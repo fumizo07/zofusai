@@ -364,34 +364,6 @@
       const root = slot.closest(".kb-person-result") || slot.parentElement || document;
       const st = byId.get(pid);
 
-
-
-
-
-      // ★DEBUG（仮）：slotの中に st の状態を表示
-      try {
-        const dbgId = `kb_dbg_${pid}`;
-        let dbg = slot.querySelector(`#${dbgId}`);
-        if (!dbg) {
-          dbg = document.createElement("div");
-          dbg.id = dbgId;
-          dbg.style.fontSize = "11px";
-          dbg.style.opacity = "0.7";
-          dbg.style.marginTop = "2px";
-          slot.appendChild(dbg);
-        }
-        dbg.textContent = st
-          ? `DBG is_new=${String(!!st.is_new)} latest_ts=${String(st.latest_ts ?? "")} open_url=${String(st.open_url ?? "")}`
-          : "DBG st=null (API itemsにidが無い)";
-      } catch (_) {}
-
-
-
-
-
-
-      
-
       // ---- 最終チェック/最新日記（追跡ONだけ表示）
       if (st) {
         // APIが tracked を返している想定（無ければHTML側のdata-diary-trackにフォールバック）
