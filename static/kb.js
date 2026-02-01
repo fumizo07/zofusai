@@ -508,6 +508,51 @@
     }, true);
   }
 
+  function initKbDiaryForceButton() {
+  const BTN_ID = "kbDiaryBtnForce";
+  const btn = document.getElementById(BTN_ID);
+  if (!btn) return;
+
+  // 二重バインド防止
+  if (btn.dataset.kbDiaryBound === "1") return;
+  btn.dataset.kbDiaryBound = "1";
+
+  // 多重起動防止＋クールダウン
+  let running = false;
+  let lastRunAt = 0;
+  const COOLDOWN_MS = 15 * 1000;
+
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+  async function forceFetchAndRefresh() {
+    const now = Date.now();
+    if (running) return;
+    if (lastRunAt && (now - lastRunAt) < COOLDOWN_MS) return;
+
+    running = true;
+    lastRunAt = now;
+
+    try {
+      // Userscript強制push（あれば）
+      try { window.kbDiaryForcePush?.(); } catch (_) {}
+
+      // push→サーバ反映→表示更新 の猶予を見て複数回refresh（最大3回で終了）
+      const delays = [1200, 2500, 5000];
+      for (const d of delays) {
+        await sleep(d);
+        try { window.kbDiaryRefresh?.(); } catch (_) {}
+      }
+    } finally {
+      running = false;
+    }
+  }
+
+  btn.addEventListener("click", () => {
+    forceFetchAndRefresh().catch(() => {});
+  });
+}
+
+
   // ============================================================
   // ★追加：KB パニックボタン（チェックONで有効化）
   // ============================================================
@@ -1670,6 +1715,7 @@
     initKbPersonSearchSort();
     initKbStarRating();
     initKbDiaryNewBadges();
+    initKbDiaryForceButton();
     initKbPriceItems();
     initKbPanicCheck();
     initKbBackupUi();
