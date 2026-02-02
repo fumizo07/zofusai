@@ -211,6 +211,182 @@
   const DIARY_SEEN_API = "/kb/api/diary_seen";
   const DIARY_REFRESH_INTERVAL_MS = 10 * 60 * 1000; // 10分
 
+
+
+
+
+
+// ----------------------------
+  // Diary Debug (スマホ用の画面ログ)
+  // ----------------------------
+  const DIARY_DEBUG_LS_KEY = "kb_diary_debug_v1";
+
+  function diaryDebugEnabled() {
+    try {
+      const qs = new URLSearchParams(location.search || "");
+      if (qs.get("kbdebug") === "1") return true;
+    } catch (_) {}
+    try {
+      return localStorage.getItem(DIARY_DEBUG_LS_KEY) === "1";
+    } catch (_) {
+      return false;
+    }
+  }
+
+  function setDiaryDebugEnabled(on) {
+    try {
+      localStorage.setItem(DIARY_DEBUG_LS_KEY, on ? "1" : "0");
+    } catch (_) {}
+  }
+
+  function diaryNowIso() {
+    try {
+      return new Date().toISOString();
+    } catch (_) {
+      return String(Date.now());
+    }
+  }
+
+  function ensureDiaryDebugPanel() {
+    if (!diaryDebugEnabled()) return null;
+
+    let box = document.getElementById("kbDiaryDebugBox");
+    if (box) return box;
+
+    box = document.createElement("div");
+    box.id = "kbDiaryDebugBox";
+    box.style.position = "fixed";
+    box.style.right = "10px";
+    box.style.bottom = "10px";
+    box.style.zIndex = "99999";
+    box.style.width = "min(560px, calc(100vw - 20px))";
+    box.style.maxHeight = "42vh";
+    box.style.overflow = "hidden";
+    box.style.background = "rgba(0,0,0,0.84)";
+    box.style.color = "#fff";
+    box.style.borderRadius = "10px";
+    box.style.boxShadow = "0 10px 30px rgba(0,0,0,0.35)";
+    box.style.fontSize = "12px";
+    box.style.lineHeight = "1.35";
+
+    box.innerHTML = `
+      <div style="display:flex; align-items:center; gap:10px; padding:8px 10px; border-bottom:1px solid rgba(255,255,255,0.15);">
+        <strong style="font-size:12px;">Diary Debug</strong>
+        <span style="opacity:0.85;">${escapeHtml(location.pathname)}</span>
+        <div style="margin-left:auto; display:flex; gap:6px;">
+          <button type="button" data-act="copy" style="padding:4px 8px; border:0; border-radius:8px; background:rgba(255,255,255,0.18); color:#fff;">コピー</button>
+          <button type="button" data-act="clear" style="padding:4px 8px; border:0; border-radius:8px; background:rgba(255,255,255,0.18); color:#fff;">消去</button>
+          <button type="button" data-act="hide" style="padding:4px 8px; border:0; border-radius:8px; background:rgba(255,255,255,0.18); color:#fff;">閉じる</button>
+        </div>
+      </div>
+      <pre data-role="log" style="margin:0; padding:8px 10px; overflow:auto; max-height: calc(42vh - 42px); white-space:pre-wrap; word-break:break-word;"></pre>
+    `;
+
+    document.body.appendChild(box);
+
+    const logEl = box.querySelector('[data-role="log"]');
+
+    box.addEventListener("click", async (e) => {
+      const btn = e.target?.closest?.("button[data-act]");
+      if (!btn) return;
+      const act = btn.getAttribute("data-act") || "";
+
+      if (act === "hide") {
+        setDiaryDebugEnabled(false);
+        try {
+          box.remove();
+        } catch (_) {
+          box.style.display = "none";
+        }
+        return;
+      }
+
+      if (act === "clear") {
+        if (logEl) logEl.textContent = "";
+        return;
+      }
+
+      if (act === "copy") {
+        const text = logEl ? logEl.textContent || "" : "";
+        if (!text) return;
+
+        try {
+          if (navigator.clipboard && window.isSecureContext) {
+            await navigator.clipboard.writeText(text);
+            return;
+          }
+        } catch (_) {}
+
+        try {
+          const ta = document.createElement("textarea");
+          ta.value = text;
+          ta.style.position = "fixed";
+          ta.style.left = "-9999px";
+          document.body.appendChild(ta);
+          ta.focus();
+          ta.select();
+          document.execCommand("copy");
+          ta.remove();
+        } catch (_) {}
+      }
+    });
+
+    return box;
+  }
+
+  function diaryDbg(msg, extra) {
+    if (!diaryDebugEnabled()) return;
+    const box = ensureDiaryDebugPanel();
+    if (!box) return;
+    const logEl = box.querySelector('[data-role="log"]');
+    if (!logEl) return;
+
+    const line =
+      `[${diaryNowIso()}] ${String(msg || "")}` +
+      (extra != null ? ` ${String(extra)}` : "");
+    logEl.textContent += (logEl.textContent ? "\n" : "") + line;
+
+    // 末尾追従
+    try {
+      logEl.scrollTop = logEl.scrollHeight;
+    } catch (_) {}
+  }
+
+  // デバッグを手動でON/OFFできる逃げ道（スマホ用）
+  // 使い方：URLに ?kbdebug=1 を付ける もしくは Consoleで window.kbDiaryDebugEnable(true)
+  window.kbDiaryDebugEnable = (on) => {
+    setDiaryDebugEnabled(!!on);
+    if (!!on) {
+      ensureDiaryDebugPanel();
+      diaryDbg("debug enabled");
+    }
+  };
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  
+
   function diarySeenKey(personId) {
     return `kb_diary_seen_${String(personId)}`;
   }
@@ -414,99 +590,127 @@
     applyDiarySeenFromLocalStorage();
   }
 
-  function initKbDiaryNewBadges() {
+    function initKbDiaryNewBadges() {
+    // 初回のローカル既読反映
     applyDiarySeenFromLocalStorage();
 
-    // ★初期プレースホルダ：追跡ONだけ「-」を出す（追跡OFFは非表示）
+    // ★初期プレースホルダ：tracked=1だけ表示 / tracked=0は非表示
     const slots0 = Array.from(document.querySelectorAll('[data-kb-diary-slot][data-person-id]'));
     slots0.forEach((slot) => {
       try {
         const root = slot.closest(".kb-person-result") || slot.parentElement || document;
-        setDiaryMetaUi(root, { tracked: parseTrackedFromSlot(slot), checked_ago_min: null, latest_ago_days: null });
+        setDiaryMetaUi(root, {
+          tracked: parseTrackedFromSlot(slot),
+          checked_ago_min: null,
+          latest_ago_days: null,
+        });
       } catch (_) {}
     });
 
+    // 初回取得
     fetchDiaryLatestAndRender();
 
-    // Userscript の push 完了通知で即時再取得（5分待たない）
+    // ============================================================
+    // Hooks（push通知 / DOM差し替え監視 / 手動refresh）
+    // ============================================================
     try {
-      if (window.__kbDiaryPushHooked !== "1") {
-        window.__kbDiaryPushHooked = "1";
+      if (window.__kbDiaryHooksApplied !== "1") {
+        window.__kbDiaryHooksApplied = "1";
 
-        window.addEventListener("kb-diary-pushed", () => {
-          fetchDiaryLatestAndRender();
-        }, { passive: true });
-
-    // ★追加：人物検索の結果DOMが差し替わったら即時に日記取得＆再描画（暴走しない版）
-    try {
-      const list = document.getElementById("kb_person_results");
-      if (list && window.__kbDiaryDomWatchApplied !== "1") {
-        window.__kbDiaryDomWatchApplied = "1";
-
-        let t = null;
-        const schedule = () => {
-          if (t) clearTimeout(t);
-          t = setTimeout(() => {
+        // Userscriptのpush完了通知で即時再取得
+        window.addEventListener(
+          "kb-diary-pushed",
+          () => {
             fetchDiaryLatestAndRender();
-          }, 450); // デバウンス（連続DOM更新を1回にまとめる）
-        };
+          },
+          { passive: true }
+        );
 
-        const mo = new MutationObserver((mutations) => {
-          // 追加/削除のみ見る（テキスト更新では動かない）
-          for (const m of mutations) {
-            if (m.type !== "childList") continue;
-
-            // ★「日記スロットが追加された」時だけ反応
-            const nodes = [];
-            if (m.addedNodes && m.addedNodes.length) nodes.push(...m.addedNodes);
-            if (m.removedNodes && m.removedNodes.length) nodes.push(...m.removedNodes);
-
-            for (const n of nodes) {
-              if (!n || n.nodeType !== 1) continue; // Elementのみ
-              const el = n;
-
-              // 検索結果の差し替えで入ってくる要素だけをトリガーにする
-              // （NEWバッジaタグ追加では発火しない）
-              if (
-                el.matches?.('[data-kb-diary-slot][data-person-id], .kb-person-result') ||
-                el.querySelector?.('[data-kb-diary-slot][data-person-id]')
-              ) {
-                schedule();
-                return;
-              }
-            }
-          }
-        });
-
-        mo.observe(list, { childList: true, subtree: true });
-      }
-    } catch (_) {}
-
-
-        // Userscript が直接呼べる逃げ道も用意（未使用でも害なし）
+        // 手動で呼べる逃げ道（Consoleやボタンから）
         window.kbDiaryRefresh = () => {
           fetchDiaryLatestAndRender();
         };
+
+        // 人物検索の結果DOM差し替えを監視して、slotが増減したら再取得
+        const list = document.getElementById("kb_person_results");
+        if (list) {
+          let t = null;
+          const schedule = () => {
+            if (t) clearTimeout(t);
+            t = setTimeout(() => {
+              fetchDiaryLatestAndRender();
+            }, 450); // デバウンス
+          };
+
+          const mo = new MutationObserver((mutations) => {
+            for (const m of mutations) {
+              if (m.type !== "childList") continue;
+
+              const nodes = [];
+              if (m.addedNodes && m.addedNodes.length) nodes.push(...m.addedNodes);
+              if (m.removedNodes && m.removedNodes.length) nodes.push(...m.removedNodes);
+
+              for (const n of nodes) {
+                if (!n || n.nodeType !== 1) continue; // Elementのみ
+                const el = n;
+
+                // slot or personカードが増減した時だけ反応（NEWバッジaの追加では反応しにくい）
+                if (
+                  el.matches?.('[data-kb-diary-slot][data-person-id], .kb-person-result') ||
+                  el.querySelector?.('[data-kb-diary-slot][data-person-id]')
+                ) {
+                  schedule();
+                  return;
+                }
+              }
+            }
+          });
+
+          mo.observe(list, { childList: true, subtree: true });
+        }
       }
     } catch (_) {}
 
-    setInterval(() => {
-      fetchDiaryLatestAndRender();
-    }, DIARY_REFRESH_INTERVAL_MS);
+    // ============================================================
+    // 定期更新（10分）
+    // initが万一複数回呼ばれても interval を増殖させない
+    // ============================================================
+    try {
+      if (window.__kbDiaryIntervalApplied !== "1") {
+        window.__kbDiaryIntervalApplied = "1";
+        setInterval(() => {
+          fetchDiaryLatestAndRender();
+        }, DIARY_REFRESH_INTERVAL_MS);
+      }
+    } catch (_) {}
 
-    document.addEventListener("click", (e) => {
-      const a = e.target?.closest?.("[data-kb-diary-new]");
-      if (!a) return;
+    // ============================================================
+    // NEWクリックで既読（ローカル＋サーバ）
+    // ============================================================
+    try {
+      if (window.__kbDiaryClickApplied !== "1") {
+        window.__kbDiaryClickApplied = "1";
 
-      const pid = a.getAttribute("data-person-id");
-      if (!pid) return;
+        document.addEventListener(
+          "click",
+          (e) => {
+            const a = e.target?.closest?.("[data-kb-diary-new]");
+            if (!a) return;
 
-      const diaryKey = a.getAttribute("data-diary-key") || "";
+            const pid = a.getAttribute("data-person-id");
+            if (!pid) return;
 
-      hideDiaryBadges(pid);
-      markDiarySeen(pid, diaryKey);
-    }, true);
+            const diaryKey = a.getAttribute("data-diary-key") || "";
+
+            hideDiaryBadges(pid);
+            markDiarySeen(pid, diaryKey);
+          },
+          true
+        );
+      }
+    } catch (_) {}
   }
+
 
   function initKbDiaryForceButton() {
   const BTN_ID = "kbDiaryBtnForce";
