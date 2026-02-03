@@ -16,6 +16,8 @@ static/base.css
 static/favicon.ico
 static/function.js
 static/kb.js
+static/kb_diary_filter.js
+static/kb_favorite.js
 templates/_footer.html
 templates/_header.html
 templates/_ranking.html
