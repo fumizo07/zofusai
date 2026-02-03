@@ -1,4 +1,4 @@
-{# 014 #}
+{# 015 #}
 {% set page_title_suffix = "KB" %}
 {% set body_class = "page-kb" %}
 {% set active_page = "kb" %}
@@ -205,7 +205,13 @@
           {% set avg_amt = (amount_avg_map or {}).get(p.id) %}
           {% set tracked = (diary_track_map or {}).get(p.id, False) %}
 
-          {# 日記URL（URL+/diary） #}
+          {# =========================
+             日記URL（ベースURL + "/diary"）
+             dto.jp の場合：
+               - 取得(data-diary-url)は www.dto.jp に寄せる
+               - 外部リンク(プロフ)は s.dto.jp に寄せる
+             ========================= #}
+
           {% set base_url = (p.url or '') %}
           {% if base_url and base_url.endswith('/') %}
             {% set diary_url = base_url[:-1] ~ '/diary' %}
@@ -213,6 +219,26 @@
             {% set diary_url = base_url ~ '/diary' %}
           {% else %}
             {% set diary_url = '' %}
+          {% endif %}
+
+          {# fetch用（dtoはwwwへ） #}
+          {% set diary_fetch_url = diary_url %}
+          {% if diary_fetch_url.startswith('https://s.dto.jp') %}
+            {% set diary_fetch_url = diary_fetch_url|replace('https://s.dto.jp', 'https://www.dto.jp') %}
+          {% elif diary_fetch_url.startswith('https://www.dto.jp') %}
+            {% set diary_fetch_url = diary_fetch_url %}
+          {% elif diary_fetch_url.startswith('https://dto.jp') %}
+            {% set diary_fetch_url = diary_fetch_url|replace('https://dto.jp', 'https://www.dto.jp') %}
+          {% endif %}
+
+          {# プロフ外部リンク用（dtoはsへ） #}
+          {% set profile_open_url = base_url %}
+          {% if profile_open_url.startswith('https://www.dto.jp') %}
+            {% set profile_open_url = profile_open_url|replace('https://www.dto.jp', 'https://s.dto.jp') %}
+          {% elif profile_open_url.startswith('https://dto.jp') %}
+            {% set profile_open_url = profile_open_url|replace('https://dto.jp', 'https://s.dto.jp') %}
+          {% else %}
+            {% set profile_open_url = profile_open_url %}
           {% endif %}
 
           <div class="result kb-person-result"
@@ -234,12 +260,12 @@
 
             <div class="kb-person-result-text">
               <div class="result-id">
-                {% if tracked and diary_url %}
+                {% if tracked and diary_fetch_url %}
                   <span
                     class="kb-diary-slot"
                     data-kb-diary-slot="1"
                     data-person-id="{{ p.id }}"
-                    data-diary-url="{{ diary_url }}"
+                    data-diary-url="{{ diary_fetch_url }}"
                     data-diary-track="1"
                   ></span>
                 {% endif %}
@@ -269,15 +295,18 @@
                 {% if avg is not none %}平均評価:{{ "%.2f"|format(avg) }}{% endif %}
                 {%- if avg_amt is not none -%}/平均金額:{{ "{:,}".format(avg_amt) }}円{%- endif -%}
               </div>
-              
-              {% if tracked and diary_url %}
+
+              {% if tracked and diary_fetch_url %}
                 <div class="muted" data-kb-diary-meta="1">
                   <span data-kb-diary-checked></span><span data-kb-diary-latest></span>
                 </div>
               {% endif %}
 
               <div class="muted">
-                <a href="/kb/person/{{ p.id }}/external_search" target="_blank">外部検索で調べる</a>{%- if p.url -%}/<a href="{{ p.url|e }}" target="_blank" rel="noopener noreferrer">プロフ(外部)</a>{%- endif -%}
+                <a href="/kb/person/{{ p.id }}/external_search" target="_blank">外部検索で調べる</a>
+                {%- if base_url -%}
+                  /<a href="{{ profile_open_url|e }}" target="_blank" rel="noopener noreferrer">プロフ(外部)</a>
+                {%- endif -%}
               </div>
             </div>
           </div>
