@@ -1,4 +1,4 @@
-# 005
+# 006
 # routers/kb_parts/diary_api.py
 from __future__ import annotations
 
@@ -6,6 +6,7 @@ import os
 import secrets
 from datetime import datetime
 from typing import List, Optional
+from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import JSONResponse
@@ -25,10 +26,10 @@ from .diary_core import (
     get_person_diary_latest_ts,
     get_person_diary_seen_ts,
     get_person_diary_track,
-    set_person_diary_checked_at,
-    set_person_diary_latest_ts,
     set_person_diary_seen_ts,
     build_diary_open_url_from_maps,
+    normalize_dto_url,             # ★追加（dto/s/www → www固定）
+    apply_diary_push_monotonic,     # ★追加（latest_ts単調増加 + checked_at常時更新）
 )
 from .utils import parse_int
 
@@ -102,6 +103,22 @@ def _require_csrf(request: Request) -> Optional[str]:
         return "csrf_invalid"
 
     return None
+
+
+def _normalize_if_dto(url: str) -> str:
+    """
+    dto.jp 系だけ www.dto.jp に寄せる（他ドメインは触らない）。
+    """
+    s = (url or "").strip()
+    if not s:
+        return ""
+    try:
+        host = (urlparse(s).hostname or "").lower().strip()
+    except Exception:
+        host = ""
+    if host in ("dto.jp", "www.dto.jp", "s.dto.jp"):
+        return normalize_dto_url(s)
+    return s
 
 
 @router.get("/kb/api/csrf_init")
@@ -289,6 +306,9 @@ def kb_api_diary_latest(
             )
             continue
 
+        # ★dto.jp 系は取得時だけ www.dto.jp に寄せる（DB保存値はこの段階では触らない）
+        pu_fetch = _normalize_if_dto(pu)
+
         if diary_state_enabled():
             st = get_or_create_diary_state(db, state_map, int(pid)) or st
 
@@ -308,24 +328,32 @@ def kb_api_diary_latest(
 
         err = ""
         if need_fetch:
-            latest_ts_fetched, err = get_latest_diary_ts_ms(pu)
+            latest_ts_fetched, err = get_latest_diary_ts_ms(pu_fetch)
 
-            if set_person_diary_checked_at(p, now_utc, st):
+            # checked_at はサーバ側で常に更新
+            latest_updated, checked_updated, _before, _after = apply_diary_push_monotonic(
+                p,
+                incoming_latest_ts_ms=latest_ts_fetched,
+                checked_at=now_utc,
+                st=st,
+                raw_time=None,
+                client_id=None,
+                force=None,
+                parser_version="server-fetch",
+            )
+            if latest_updated or checked_updated:
                 dirty = True
-
-            if latest_ts_fetched is not None:
-                if set_person_diary_latest_ts(p, latest_ts_fetched, st):
-                    dirty = True
-                latest_ts = latest_ts_fetched
+            latest_ts = get_person_diary_latest_ts(p, st)
 
         seen_ts = get_person_diary_seen_ts(p, st)
         is_new = False
 
         if latest_ts is not None:
             if seen_ts is None:
-                if set_person_diary_seen_ts(p, latest_ts, st):
+                # 初回は「初回からNEW」にならないよう最新で初期化
+                if set_person_diary_seen_ts(p, int(latest_ts), st):
                     dirty = True
-                seen_ts = latest_ts
+                seen_ts = int(latest_ts)
                 is_new = False
             else:
                 try:
@@ -451,9 +479,55 @@ async def kb_api_diary_push(
         if not get_person_diary_track(p, st):
             continue
 
+        # --- payload（拡張：あってもなくても動く）---
         latest_ts = parse_int(it.get("latest_ts", ""))
-        err = (it.get("error", "") or "").strip()
         checked_at_ms = parse_int(it.get("checked_at_ms", ""))
+
+        raw_time = None
+        try:
+            rt = it.get("raw_time", None)
+            if rt is not None:
+                raw_time = str(rt)
+        except Exception:
+            raw_time = None
+
+        client_id = None
+        try:
+            cid = it.get("client_id", None)
+            if cid is not None:
+                client_id = str(cid)
+        except Exception:
+            client_id = None
+
+        force = None
+        try:
+            fv = it.get("force", None)
+            if isinstance(fv, bool):
+                force = bool(fv)
+            elif fv is not None:
+                s = str(fv).strip().lower()
+                if s in ("1", "true", "on", "yes", "y", "t"):
+                    force = True
+                elif s in ("0", "false", "off", "no", "n", "f"):
+                    force = False
+        except Exception:
+            force = None
+
+        parser_version = None
+        try:
+            pv = it.get("parser_version", None)
+            if pv is not None:
+                parser_version = str(pv)
+        except Exception:
+            parser_version = None
+
+        # URLが来るならログ用にdtoだけ正規化（他ドメインは触らない）
+        diary_url = ""
+        try:
+            du = it.get("diary_url", "") or it.get("url", "") or ""
+            diary_url = _normalize_if_dto(str(du))
+        except Exception:
+            diary_url = ""
 
         # checked_at はクライアントが送ってくればそれ、なければ今
         checked_dt = None
@@ -465,23 +539,30 @@ async def kb_api_diary_push(
         except Exception:
             checked_dt = datetime.utcnow()
 
-        if set_person_diary_checked_at(p, checked_dt, st):
+        # ★強い正：latest_ts は単調増加（後退禁止）、checked_at は常に更新
+        latest_updated, checked_updated, _before, _after = apply_diary_push_monotonic(
+            p,
+            incoming_latest_ts_ms=latest_ts,
+            checked_at=checked_dt,
+            st=st,
+            raw_time=raw_time,
+            client_id=client_id,
+            force=force,
+            parser_version=parser_version,
+        )
+        if latest_updated or checked_updated:
             dirty = True
 
-        # latest_ts が取れた時だけ更新
-        if latest_ts is not None and latest_ts > 0:
-            if set_person_diary_latest_ts(p, int(latest_ts), st):
-                dirty = True
-
-        # seen_ts 初期化（未設定なら latest_ts で初期化して「初回からNEW」にならないようにする）
-        if latest_ts is not None and latest_ts > 0:
+        # seen_ts 初期化（未設定なら、現在の latest_ts で初期化して「初回からNEW」にならないようにする）
+        latest_now = get_person_diary_latest_ts(p, st)
+        if latest_now is not None:
             seen_ts = get_person_diary_seen_ts(p, st)
             if seen_ts is None:
-                if set_person_diary_seen_ts(p, int(latest_ts), st):
+                if set_person_diary_seen_ts(p, int(latest_now), st):
                     dirty = True
 
-        # err は今の仕様では保存していない（仕様のまま）
-        _ = err
+        # dto正規化済みURLは現状DBに保存していない（必要なら後でKBDiaryState等に追加）
+        _ = diary_url
 
         saved += 1
 

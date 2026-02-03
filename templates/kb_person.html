@@ -1,4 +1,4 @@
-{# 018 #}
+{# 019 #}
 {# templates/kb_person.html #}
 {% set page_title_suffix = "KB - 人物" %}
 {% set body_class = "page-kb" %}
@@ -6,6 +6,19 @@
 {% set store_kw = (store.name[:4] if store and store.name else "") %}
 {% set post_kw  = (person.name or "") %}
 {% include "_header.html" %}
+
+{# dto.jp の場合：
+   - 外部表示/クリックは s.dto.jp に寄せる（プロフ閲覧側）
+   - DBの保存値は触らない（ここでは link のみ補正）
+#}
+{% set profile_open_url = (person.url or '') %}
+{% if profile_open_url.startswith('https://www.dto.jp') %}
+  {% set profile_open_url = profile_open_url|replace('https://www.dto.jp', 'https://s.dto.jp') %}
+{% elif profile_open_url.startswith('https://dto.jp') %}
+  {% set profile_open_url = profile_open_url|replace('https://dto.jp', 'https://s.dto.jp') %}
+{% else %}
+  {% set profile_open_url = profile_open_url %}
+{% endif %}
 
 <main>
   <div data-kb-store-id="{{ store.id if store else '' }}" style="display:none;"></div>
@@ -42,7 +55,7 @@
       </div>
 
       {% if person.url %}
-        <div>プロフ：<a href="{{ person.url|e }}" target="_blank" rel="noopener noreferrer">{{ person.url }}</a></div>
+        <div>プロフ：<a href="{{ profile_open_url|e }}" target="_blank" rel="noopener noreferrer">{{ profile_open_url }}</a></div>
       {% endif %}
 
       {% if person.image_urls %}

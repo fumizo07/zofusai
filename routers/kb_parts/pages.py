@@ -1,4 +1,4 @@
-# 006
+# 007
 # routers/kb_parts/pages.py
 from __future__ import annotations
 
@@ -6,8 +6,8 @@ import os
 import json
 import unicodedata
 from datetime import datetime
-from typing import List
-from urllib.parse import urlencode
+from typing import List, Tuple
+from urllib.parse import urlencode, urlparse, urlunparse
 
 from fastapi import APIRouter, Depends, Form, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -81,6 +81,114 @@ def _coerce_bool(v) -> bool:
             return False
         return False
     return False
+
+
+# =========================
+# DTO URL: fetchは www / clickは s を使い分け
+# =========================
+def _is_dto_host(host: str) -> bool:
+    h = (host or "").strip().lower()
+    return h in ("dto.jp", "www.dto.jp", "s.dto.jp")
+
+
+def _normalize_url_https(raw: str) -> str:
+    """
+    スキーム無しURLを https として解釈。
+    解析不能なら空文字。
+    """
+    s = (raw or "").strip()
+    if not s:
+        return ""
+    try:
+        if s.startswith(("http://", "https://")):
+            u = urlparse(s)
+        else:
+            # //example.com/... も拾う
+            if s.startswith("//"):
+                u = urlparse("https:" + s)
+            else:
+                u = urlparse("https://" + s)
+    except Exception:
+        return ""
+    if not u.netloc:
+        return ""
+    scheme = "https"
+    return urlunparse((scheme, u.netloc, u.path or "", u.params or "", u.query or "", u.fragment or ""))
+
+
+def _coerce_dto_hosts(fetch_url: str) -> Tuple[str, str]:
+    """
+    返り値: (fetch_www_url, open_sp_url)
+    - 埋め込み(data-diary-url)は www.dto.jp に統一（Userscript/解析用）
+    - クリック遷移(open)は s.dto.jp に統一（スマホ体験用）
+    dto系以外は (fetch_url, fetch_url) を返す。
+    """
+    u0 = _normalize_url_https(fetch_url)
+    if not u0:
+        return "", ""
+    u = urlparse(u0)
+
+    host = (u.netloc or "").lower()
+    if not _is_dto_host(host):
+        return u0, u0
+
+    # hostだけ差し替え（path/queryは保持）
+    fetch_host = "www.dto.jp"
+    open_host = "s.dto.jp"
+
+    fetch_www = urlunparse(("https", fetch_host, u.path or "", u.params or "", u.query or "", u.fragment or ""))
+    open_sp = urlunparse(("https", open_host, u.path or "", u.params or "", u.query or "", u.fragment or ""))
+    return fetch_www, open_sp
+
+
+def _attach_diary_urls_for_templates(persons: List[KBPerson]) -> Tuple[dict[int, str], dict[int, str]]:
+    """
+    persons の各要素に、テンプレで使えるよう下記を付与します。
+      - person.kb_diary_fetch_url : data-diary-url に入れる想定（dtoはwwwへ矯正）
+      - person.kb_diary_open_url  : クリック遷移URL（dtoはsへ矯正）
+
+    併せて map も返す（テンプレが map 参照でも使える）
+      - fetch_map[person_id] = fetch_url
+      - open_map[person_id]  = open_url
+    """
+    fetch_map: dict[int, str] = {}
+    open_map: dict[int, str] = {}
+
+    for p in persons or []:
+        try:
+            pid = int(getattr(p, "id", 0) or 0)
+        except Exception:
+            pid = 0
+        if pid <= 0:
+            continue
+
+        raw = ""
+        if hasattr(p, "url"):
+            try:
+                raw = (getattr(p, "url", "") or "").strip()
+            except Exception:
+                raw = ""
+        if not raw:
+            # URL未設定なら空のまま
+            try:
+                setattr(p, "kb_diary_fetch_url", "")
+                setattr(p, "kb_diary_open_url", "")
+            except Exception:
+                pass
+            continue
+
+        fetch_url, open_url = _coerce_dto_hosts(raw)
+
+        fetch_map[pid] = fetch_url
+        open_map[pid] = open_url
+
+        try:
+            setattr(p, "kb_diary_fetch_url", fetch_url)
+            setattr(p, "kb_diary_open_url", open_url)
+        except Exception:
+            pass
+
+    return fetch_map, open_map
 
 
 def _pick_attr(obj, candidates: List[str]) -> str:
@@ -250,6 +358,8 @@ def kb_index(request: Request, db: Session = Depends(get_db)):
             "amount_avg_map": {},
             "last_visit_map": {},
             "diary_track_map": {},  # ★検索結果なしなので空
+            "diary_fetch_url_map": {},  # ★DTO www統一（slot埋め込み用）
+            "diary_open_url_map": {},   # ★DTO s統一（クリック用）
             "svc_options": svc_options,
             "tag_options": tag_options,
             "active_page": "kb",
@@ -349,6 +459,9 @@ def kb_store_page(
     # ★ここが本命：一覧ページ用の追跡map（person_id -> bool）
     diary_track_map = _build_diary_track_map(db, persons)
 
+    # ★DTOのURLを用途別に付与（fetchはwww統一 / openはs統一）
+    diary_fetch_url_map, diary_open_url_map = _attach_diary_urls_for_templates(persons)
+
     return templates.TemplateResponse(
         "kb_store.html",
         {
@@ -361,6 +474,8 @@ def kb_store_page(
             "amount_avg_map": amount_avg_map,
             "last_visit_map": last_visit_map,
             "diary_track_map": diary_track_map,
+            "diary_fetch_url_map": diary_fetch_url_map,
+            "diary_open_url_map": diary_open_url_map,
             "active_page": "kb",
             "page_title_suffix": "KB",
             "body_class": "page-kb",
@@ -474,6 +589,10 @@ def kb_person_page(
 
     track_diary = _read_track(person, st)
 
+    # ★DTO URL: fetch=www / open=s を人物詳細でも渡す
+    one_list = [person]
+    diary_fetch_url_map, diary_open_url_map = _attach_diary_urls_for_templates(one_list)
+
     base_parts = []
     if region and region.name:
         base_parts.append(region.name)
@@ -504,6 +623,8 @@ def kb_person_page(
             "rating_avg": rating_avg,
             "amount_avg_yen": amount_avg_yen,
             "track_diary": track_diary,  # ✅ テンプレはこれを見る（"0" 事故を完全に回避）
+            "diary_fetch_url_map": diary_fetch_url_map,
+            "diary_open_url_map": diary_open_url_map,
             "google_all_url": google_all_url,
             "google_cityheaven_url": google_cityheaven_url,
             "google_dto_url": google_dto_url,
@@ -1009,6 +1130,9 @@ def kb_search(
     # ★検索結果一覧用の追跡map（person_id -> bool）
     diary_track_map = _build_diary_track_map(db, persons)
 
+    # ★DTOのURLを用途別に付与（fetchはwww統一 / openはs統一）
+    diary_fetch_url_map, diary_open_url_map = _attach_diary_urls_for_templates(persons)
+
     return templates.TemplateResponse(
         "kb_index.html",
         {
@@ -1040,6 +1164,8 @@ def kb_search(
             "amount_avg_map": amount_avg_map,
             "last_visit_map": last_visit_map,
             "diary_track_map": diary_track_map,
+            "diary_fetch_url_map": diary_fetch_url_map,
+            "diary_open_url_map": diary_open_url_map,
             "svc_options": svc_options,
             "tag_options": tag_options,
             "active_page": "kb",
