@@ -1,4 +1,4 @@
-# 004
+# 005
 # routers/kb_parts/diary_core.py
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ import time
 from datetime import datetime, timezone, timedelta
 from io import BytesIO
 from typing import Dict, List, Optional, Tuple
-from urllib.parse import urlencode, urlparse
+from urllib.parse import urlencode, urlparse, urlunparse, parse_qsl
 import urllib.request
 import urllib.error
 
@@ -40,6 +40,91 @@ _DIARY_ALLOWED_HOST_SUFFIXES = (
 
 # diary_url -> (saved_monotonic, latest_ts_ms_or_None, err_str)
 _DIARY_CACHE: Dict[str, Tuple[float, Optional[int], str]] = {}
+
+
+# =========================
+# DTO URL normalize
+# =========================
+_DTO_CANON_HOST = "www.dto.jp"
+_DTO_HOSTS_EQUIV = {"dto.jp", "www.dto.jp", "s.dto.jp"}
+
+# 追跡に不要なクエリは落としてURL揺れを減らす（必要が出たら足す）
+_DTO_DROP_QUERY_KEYS = {
+    "utm_source",
+    "utm_medium",
+    "utm_campaign",
+    "utm_term",
+    "utm_content",
+    "gclid",
+    "fbclid",
+}
+
+
+def normalize_dto_url(url: str) -> str:
+    """
+    dto.jp / s.dto.jp / www.dto.jp のURLを、同一性のため www.dto.jp（PC版）に寄せて正規化する。
+    - scheme は https に統一
+    - host は dto系なら www.dto.jp に統一
+    - fragment は除去
+    - 末尾スラッシュの揺れを軽く統一（/ 以外の末尾 / は落とす）
+    - 追跡用の不要クエリは除去（必要なら拡張）
+    失敗時は入力をtrimして返す（例外は投げない）
+    """
+    s = (url or "").strip()
+    if not s:
+        return ""
+
+    # scheme無しが混ざった場合は https 扱いに寄せる
+    if s.startswith("//"):
+        s = "https:" + s
+    elif not re.match(r"^[a-zA-Z][a-zA-Z0-9+\-.]*://", s):
+        # "www.dto.jp/..." のようなケースは https を付ける
+        if re.match(r"^(?:dto\.jp|www\.dto\.jp|s\.dto\.jp)/", s):
+            s = "https://" + s
+
+    try:
+        u = urlparse(s)
+    except Exception:
+        return s
+
+    scheme = "https"
+    host = (u.hostname or "").lower().strip()
+    if host in _DTO_HOSTS_EQUIV:
+        host = _DTO_CANON_HOST
+
+    # port は原則落とす（必要なら残すが、dto系は不要想定）
+    netloc = host
+
+    path = u.path or ""
+    if path and path != "/" and path.endswith("/"):
+        path = path[:-1]
+
+    # query 正規化（順序保持しつつ不要キー除去）
+    query = u.query or ""
+    if query:
+        try:
+            pairs = parse_qsl(query, keep_blank_values=True)
+            kept = []
+            for k, v in pairs:
+                kk = (k or "").strip()
+                if not kk:
+                    continue
+                if kk in _DTO_DROP_QUERY_KEYS:
+                    continue
+                kept.append((kk, v))
+            query = urlencode(kept, doseq=True)
+        except Exception:
+            # 失敗時はそのまま
+            query = u.query or ""
+
+    # fragment は除去
+    frag = ""
+
+    try:
+        out = urlunparse((scheme, netloc, path, u.params or "", query, frag))
+        return out
+    except Exception:
+        return s
 
 
 def parse_ids_csv(raw: str, limit: int = 30) -> List[int]:
@@ -797,6 +882,54 @@ def set_person_diary_checked_at(p: KBPerson, dt: Optional[datetime], st: Optiona
         except Exception:
             return False
     return False
+
+
+def apply_diary_push_monotonic(
+    p: KBPerson,
+    incoming_latest_ts_ms: Optional[int],
+    checked_at: Optional[datetime],
+    st: Optional[object] = None,
+    raw_time: Optional[str] = None,
+    client_id: Optional[str] = None,
+    force: Optional[bool] = None,
+    parser_version: Optional[str] = None,
+) -> Tuple[bool, bool, Optional[int], Optional[int]]:
+    """
+    サーバ側の“強い正”:
+      - latest_ts は単調増加（後退更新は禁止）
+      - checked_at は常に更新（渡された場合）
+
+    Returns: (latest_updated, checked_updated, stored_before, applied_after)
+    """
+    stored_before = get_person_diary_latest_ts(p, st=st)
+    incoming_i = safe_int(incoming_latest_ts_ms)
+
+    applied_after = stored_before
+    latest_updated = False
+    checked_updated = False
+
+    if incoming_i is not None:
+        if stored_before is None or incoming_i > stored_before:
+            if set_person_diary_latest_ts(p, incoming_i, st=st):
+                latest_updated = True
+                applied_after = incoming_i
+
+    if checked_at is not None:
+        if set_person_diary_checked_at(p, checked_at, st=st):
+            checked_updated = True
+
+    # 最小限ログ（原因切り分け用）
+    try:
+        print(
+            "[diary] push_apply "
+            f"person_id={getattr(p, 'id', None)} "
+            f"incoming={incoming_i} stored_before={stored_before} applied_after={applied_after} "
+            f"raw_time={raw_time!r} client_id={client_id!r} force={force!r} parser={parser_version!r}"
+        )
+    except Exception:
+        pass
+
+    return latest_updated, checked_updated, stored_before, applied_after
 
 
 def diary_db_recheck_interval_sec() -> int:
