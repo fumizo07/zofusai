@@ -1,4 +1,4 @@
-{# 019 #}
+{# 020 #}
 {# templates/kb_person.html #}
 {% set page_title_suffix = "KB - 人物" %}
 {% set body_class = "page-kb" %}
@@ -8,14 +8,16 @@
 {% include "_header.html" %}
 
 {# dto.jp の場合：
-   - 外部表示/クリックは s.dto.jp に寄せる（プロフ閲覧側）
-   - DBの保存値は触らない（ここでは link のみ補正）
+   - 画面表示（DB保存値）は person.url をそのまま使う（＝ www.dto.jp のまま表示される）
+   - クリックで開くURL（href）だけ dto.jp に寄せる（www / s を除去）
 #}
 {% set profile_open_url = (person.url or '') %}
 {% if profile_open_url.startswith('https://www.dto.jp') %}
-  {% set profile_open_url = profile_open_url|replace('https://www.dto.jp', 'https://s.dto.jp') %}
+  {% set profile_open_url = profile_open_url|replace('https://www.dto.jp', 'https://dto.jp') %}
+{% elif profile_open_url.startswith('https://s.dto.jp') %}
+  {% set profile_open_url = profile_open_url|replace('https://s.dto.jp', 'https://dto.jp') %}
 {% elif profile_open_url.startswith('https://dto.jp') %}
-  {% set profile_open_url = profile_open_url|replace('https://dto.jp', 'https://s.dto.jp') %}
+  {% set profile_open_url = profile_open_url %}
 {% else %}
   {% set profile_open_url = profile_open_url %}
 {% endif %}
@@ -55,7 +57,9 @@
       </div>
 
       {% if person.url %}
-        <div>プロフ：<a href="{{ profile_open_url|e }}" target="_blank" rel="noopener noreferrer">{{ profile_open_url }}</a></div>
+        {# 表示は person.url（DBの値＝www.dto.jpのまま） #}
+        {# クリック先だけ profile_open_url（dto.jpへ統一） #}
+        <div>プロフ：<a href="{{ profile_open_url|e }}" target="_blank" rel="noopener noreferrer">{{ person.url }}</a></div>
       {% endif %}
 
       {% if person.image_urls %}

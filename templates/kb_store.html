@@ -1,4 +1,4 @@
-{# 010 #}
+{# 011 #}
 {% set page_title_suffix = "KB - 店舗" %}
 {% set body_class = "page-kb" %}
 {% set active_page = "kb" %}
@@ -65,8 +65,8 @@
           {# =========================
              日記URL（ベースURL + "/diary"）
              dto.jp の場合：
-               - 取得(data-diary-url)は www.dto.jp に寄せる
-               - 外部リンク(プロフ)は s.dto.jp に寄せる
+               - 取得(data-diary-url)は www.dto.jp に寄せる（fetch側）
+               - 外部リンク(プロフ)は dto.jp に寄せる（クリック側）
              ========================= #}
 
           {% set base_url = (p.url or '') %}
@@ -88,12 +88,14 @@
             {% set diary_fetch_url = diary_fetch_url|replace('https://dto.jp', 'https://www.dto.jp') %}
           {% endif %}
 
-          {# プロフ外部リンク用（dtoはsへ） #}
+          {# プロフ外部リンク用（dtoはdtoへ：www/sを除去） #}
           {% set profile_open_url = base_url %}
           {% if profile_open_url.startswith('https://www.dto.jp') %}
-            {% set profile_open_url = profile_open_url|replace('https://www.dto.jp', 'https://s.dto.jp') %}
+            {% set profile_open_url = profile_open_url|replace('https://www.dto.jp', 'https://dto.jp') %}
+          {% elif profile_open_url.startswith('https://s.dto.jp') %}
+            {% set profile_open_url = profile_open_url|replace('https://s.dto.jp', 'https://dto.jp') %}
           {% elif profile_open_url.startswith('https://dto.jp') %}
-            {% set profile_open_url = profile_open_url|replace('https://dto.jp', 'https://s.dto.jp') %}
+            {% set profile_open_url = profile_open_url %}
           {% else %}
             {% set profile_open_url = profile_open_url %}
           {% endif %}
