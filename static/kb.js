@@ -1,71 +1,10 @@
-// 006
+// 007
 // static/kb.js
 (() => {
   "use strict";
 
-    // ============================================================
-  // ★最短切り分け用：最強ボタン直結ハンドラ（HTML onclick から呼ぶ）
-  // - 1クリックで「Userscript force」→「kb.js refresh」を確実に呼ぶ
-  // - どこで詰まったかをログ/アラートで確実に見える化
   // ============================================================
-  window.kbForceDiaryNow = async function (ev) {
-    try { ev?.preventDefault?.(); } catch (_) {}
-
-    const now = Date.now();
-    console.log("[kbForceDiaryNow] CLICK", now);
-
-    // 0) 関数の存在確認（ここで真偽が確定する）
-    const hasForce = (typeof window.kbDiaryForcePush === "function");
-    const hasRefresh = (typeof window.kbDiaryRefresh === "function");
-    console.log("[kbForceDiaryNow] hasForcePush?", hasForce, "hasRefresh?", hasRefresh);
-
-    // 「押したのに何も起きない」を潰すため、最初に必ずアラートも出す（デバッグ専用）
-    alert(`kbForceDiaryNow: force=${hasForce ? "yes" : "no"} refresh=${hasRefresh ? "yes" : "no"}`);
-
-    // 1) Userscript force（外部取得→push を期待）
-    if (hasForce) {
-      try {
-        console.log("[kbForceDiaryNow] calling kbDiaryForcePush()");
-        window.kbDiaryForcePush();
-      } catch (e) {
-        console.log("[kbForceDiaryNow] kbDiaryForcePush threw", e);
-        alert("kbDiaryForcePush が例外で落ちました（console参照）");
-      }
-    } else {
-      // ここが no なら「Userscriptがこのページで動いてない」か「注入が死んでる」
-      alert("kbDiaryForcePush が存在しません（Userscriptが動いていない/注入失敗の可能性）");
-    }
-
-    // 2) 表示更新（diary_latest を叩いて描画）
-    // push→DB反映→latestが変わるまで若干ラグるので、間隔を空けて複数回叩く
-    const delays = [0, 800, 1800, 3500, 6000];
-
-    for (const d of delays) {
-      await new Promise((r) => setTimeout(r, d));
-      console.log("[kbForceDiaryNow] refresh try delay=", d, "at", Date.now());
-
-      // refresh関数があるならそれを使う
-      if (hasRefresh) {
-        try { window.kbDiaryRefresh(); } catch (e) { console.log("[kbForceDiaryNow] kbDiaryRefresh threw", e); }
-        continue;
-      }
-
-      // refreshが無いなら、最低限これだけは直接呼ぶ（あなたの kb.js 内に関数がある前提）
-      // ここで ReferenceError になるなら「kb.js が想定通りロードされてない」確定
-      try {
-        await fetchDiaryLatestAndRender();
-      } catch (e) {
-        console.log("[kbForceDiaryNow] fetchDiaryLatestAndRender failed", e);
-      }
-    }
-
-    alert("kbForceDiaryNow: done（Networkで diary_push / diary_latest を確認）");
-    return false;
-  };
-
-
-  // ============================================================
-  // 共通ヘルパ（※ init より前で必ず定義する）
+  // Helpers
   // ============================================================
   function parseNumOrNull(v) {
     if (v == null) return null;
@@ -127,7 +66,7 @@
     return (code - 64);
   }
 
-    function normalizeDiaryUrl(u) {
+  function normalizeDiaryUrl(u) {
     const s = String(u || "").trim();
     if (!s) return "";
     const noSlash = s.replace(/\/+$/, "");
@@ -135,9 +74,8 @@
     return noSlash + "/diary";
   }
 
-
   // ============================================================
-  // KB：人物検索結果の並び替え（再読み込みなし）
+  // KB：人物検索結果の並び替え
   // ============================================================
   function initKbPersonSearchSort() {
     const sel = document.getElementById("kb_person_sort");
@@ -211,15 +149,12 @@
       list.appendChild(frag);
     }
 
-    sel.addEventListener("change", () => {
-      applySort(sel.value || "name");
-    });
-
+    sel.addEventListener("change", () => applySort(sel.value || "name"));
     applySort(sel.value || "name");
   }
 
   // ============================================================
-  // KB：星評価（☆☆☆☆☆ → クリックで ★★★☆☆）
+  // KB：星評価
   // ============================================================
   function initKbStarRating() {
     const boxes = document.querySelectorAll("[data-star-rating]");
@@ -238,9 +173,7 @@
           const n = parseInt(btn.getAttribute("data-value") || "0", 10);
           btn.textContent = (val && n <= val) ? "★" : "☆";
         });
-        if (label) {
-          label.textContent = val ? `（${val}/5）` : "";
-        }
+        if (label) label.textContent = val ? `（${val}/5）` : "";
       }
 
       stars.forEach((btn) => {
@@ -258,20 +191,11 @@
   }
 
   // ============================================================
-  // KB：写メ日記 NEW バッジ（点灯：API / クリックで既読→消える）
+  // KB：写メ日記 NEW バッジ
   // ============================================================
-  // ★Python側に合わせる版：
-  // - 取得：GET /kb/api/diary_latest?ids=1,2,3 （DB更新＋is_new判定込み）
-  // - 既読：POST /kb/api/diary_seen  {id: 123}
-  // - diary_key は使わず、latest_ts を “既読キー” として localStorage に保存
-  //
-  // ★要件：
-  // - 「写メ日記を追跡する」にチェックが入っている人（tracked=1）だけ
-  //   「最終チェック：/最新日記：」を表示する（tracked=0 は非表示）
   const DIARY_LATEST_API = "/kb/api/diary_latest";
   const DIARY_SEEN_API = "/kb/api/diary_seen";
-  const DIARY_REFRESH_INTERVAL_MS = 10 * 60 * 1000; // 10分
-
+  const DIARY_REFRESH_INTERVAL_MS = 10 * 60 * 1000;
 
   function diarySeenKey(personId) {
     return `kb_diary_seen_${String(personId)}`;
@@ -299,19 +223,15 @@
       })();
 
       const diaryKey = a.getAttribute("data-diary-key") || "";
-      if (diaryKey && stored && stored === diaryKey) {
-        hideDiaryBadges(pid);
-      }
+      if (diaryKey && stored && stored === diaryKey) hideDiaryBadges(pid);
     });
   }
 
   async function markDiarySeen(personId, diaryKey) {
-    // localStorage（端末ローカル）側の既読
     if (diaryKey) {
       try { localStorage.setItem(diarySeenKey(personId), String(diaryKey)); } catch (_) {}
     }
 
-    // サーバー側の既読（Python: {"id": pid}）
     try {
       await fetch(DIARY_SEEN_API, {
         method: "POST",
@@ -329,7 +249,7 @@
     a.className = "kb-diary-new";
     a.setAttribute("data-kb-diary-new", "1");
     a.setAttribute("data-person-id", String(personId));
-    a.setAttribute("data-diary-key", String(diaryKey || "")); // ★latest_ts をキーにする
+    a.setAttribute("data-diary-key", String(diaryKey || ""));
     a.target = "_blank";
     a.rel = "noopener noreferrer";
     a.textContent = "NEW";
@@ -337,37 +257,29 @@
   }
 
   function parseTrackedFromSlot(slot) {
-    // 既存のHTMLが data-diary-track="1|0" を持っている想定（無い場合は1扱い）
     const v = String(slot?.getAttribute?.("data-diary-track") || "1").trim();
     return v === "1";
   }
 
-  // 「metaを含む要素」を上方向に探す（見つけたらそこで確定）
   function findDiaryRootForMeta(slot) {
-  // 「metaを含む要素」を上方向に探す（見つけたらそこで確定）
-  let el = slot;
-  for (let i = 0; i < 20; i++) {
-    if (!el) break;
-    try {
-      if (el.querySelector && el.querySelector('[data-kb-diary-meta="1"]')) return el;
-    } catch (_) {}
-    el = el.parentElement;
+    let el = slot;
+    for (let i = 0; i < 20; i++) {
+      if (!el) break;
+      try {
+        if (el.querySelector && el.querySelector('[data-kb-diary-meta="1"]')) return el;
+      } catch (_) {}
+      el = el.parentElement;
+    }
+    return document;
   }
-  console.log("root tag", root?.tagName, root?.className);
-  // 最後の保険：document全体（既存の仕様に近い）
-  return document;
-}
-
 
   function setDiaryMetaUi(root, st) {
-    // st: { tracked: bool, checked_ago_min: number|null, latest_ago_days: number|null }
     if (!root) return;
 
     const meta = root.querySelector('[data-kb-diary-meta="1"]');
     if (!meta) return;
 
     const tracked = !!st?.tracked;
-
     if (!tracked) {
       meta.style.display = "none";
       return;
@@ -398,7 +310,6 @@
     const slots = Array.from(document.querySelectorAll('[data-kb-diary-slot][data-person-id]'));
     if (!slots.length) return;
 
-    // person_id をユニーク化（APIは ids=... 形式）
     const uniqIds = [];
     const seen = new Set();
 
@@ -413,13 +324,13 @@
     if (!uniqIds.length) return;
 
     const qs = new URLSearchParams({ ids: uniqIds.join(",") });
-    qs.set("_", String(Date.now())); // ★キャッシュバスター（スマホ対策）
+    qs.set("_", String(Date.now()));
 
     const res = await fetch(`${DIARY_LATEST_API}?${qs.toString()}`, {
       method: "GET",
       credentials: "same-origin",
       headers: { "Accept": "application/json" },
-      cache: "no-store", // ★キャッシュ無効
+      cache: "no-store",
     }).catch(() => null);
 
     if (!res || !res.ok) return;
@@ -428,7 +339,6 @@
     const items = (json && json.ok && Array.isArray(json.items)) ? json.items : [];
     if (!items.length) return;
 
-    // id -> item
     const byId = new Map();
     items.forEach((it) => {
       const pid = Number(it?.id || 0);
@@ -443,9 +353,7 @@
       const root = findDiaryRootForMeta(slot);
       const st = byId.get(pid);
 
-      // ---- 最終チェック/最新日記（追跡ONだけ表示）
       if (st) {
-        // APIが tracked を返している想定（無ければHTML側のdata-diary-trackにフォールバック）
         const tracked = (typeof st.tracked === "boolean") ? st.tracked : parseTrackedFromSlot(slot);
         const checkedAgo = (st.checked_ago_min != null) ? Number(st.checked_ago_min) : null;
         const latestAgo = (st.latest_ago_days != null) ? Number(st.latest_ago_days) : null;
@@ -455,15 +363,9 @@
           latest_ago_days: (latestAgo != null && Number.isFinite(latestAgo)) ? latestAgo : null,
         });
       } else {
-        // 取得できない場合でも、追跡ONなら「-」を維持（追跡OFFは非表示）
-        setDiaryMetaUi(root, {
-          tracked: parseTrackedFromSlot(slot),
-          checked_ago_min: null,
-          latest_ago_days: null,
-        });
+        setDiaryMetaUi(root, { tracked: parseTrackedFromSlot(slot), checked_ago_min: null, latest_ago_days: null });
       }
 
-      // ---- NEWバッジ制御
       const existing = slot.querySelector("[data-kb-diary-new]");
       const isNew = !!st?.is_new;
       const latestTs = (st?.latest_ts != null) ? String(st.latest_ts) : "";
@@ -471,7 +373,6 @@
       const attrUrl = String(slot.getAttribute("data-diary-url") || "").trim();
       const url = normalizeDiaryUrl(openUrl || attrUrl);
 
-      // NEWじゃない/情報不足なら既存バッジを消す
       if (!isNew || !latestTs || !url) {
         if (existing) {
           try { existing.remove(); } catch (_) { existing.style.display = "none"; }
@@ -479,25 +380,20 @@
         return;
       }
 
-      // 既にバッジがあるなら二重生成しない
       if (!existing) {
         const badge = createNewBadge(pid, url, latestTs);
         slot.appendChild(badge);
       } else {
-        // 既存のキーを更新（万一の差分）
         try { existing.setAttribute("data-diary-key", latestTs); } catch (_) {}
       }
     });
 
-    // ローカル既読があれば消す（動的生成分も含む）
     applyDiarySeenFromLocalStorage();
   }
 
-    function initKbDiaryNewBadges() {
-    // 初回のローカル既読反映
+  function initKbDiaryNewBadges() {
     applyDiarySeenFromLocalStorage();
 
-    // ★初期プレースホルダ：tracked=1だけ表示 / tracked=0は非表示
     const slots0 = Array.from(document.querySelectorAll('[data-kb-diary-slot][data-person-id]'));
     slots0.forEach((slot) => {
       try {
@@ -510,39 +406,26 @@
       } catch (_) {}
     });
 
-    // 初回取得
     fetchDiaryLatestAndRender();
 
-    // ============================================================
-    // Hooks（push通知 / DOM差し替え監視 / 手動refresh）
-    // ============================================================
     try {
       if (window.__kbDiaryHooksApplied !== "1") {
         window.__kbDiaryHooksApplied = "1";
 
-        // Userscriptのpush完了通知で即時再取得
-        window.addEventListener(
-          "kb-diary-pushed",
-          () => {
-            fetchDiaryLatestAndRender();
-          },
-          { passive: true }
-        );
+        window.addEventListener("kb-diary-pushed", () => {
+          fetchDiaryLatestAndRender();
+        }, { passive: true });
 
-        // 手動で呼べる逃げ道（Consoleやボタンから）
         window.kbDiaryRefresh = () => {
           fetchDiaryLatestAndRender();
         };
 
-        // 人物検索の結果DOM差し替えを監視して、slotが増減したら再取得
         const list = document.getElementById("kb_person_results");
         if (list) {
           let t = null;
           const schedule = () => {
             if (t) clearTimeout(t);
-            t = setTimeout(() => {
-              fetchDiaryLatestAndRender();
-            }, 450); // デバウンス
+            t = setTimeout(() => fetchDiaryLatestAndRender(), 450);
           };
 
           const mo = new MutationObserver((mutations) => {
@@ -554,10 +437,8 @@
               if (m.removedNodes && m.removedNodes.length) nodes.push(...m.removedNodes);
 
               for (const n of nodes) {
-                if (!n || n.nodeType !== 1) continue; // Elementのみ
+                if (!n || n.nodeType !== 1) continue;
                 const el = n;
-
-                // slot or personカードが増減した時だけ反応（NEWバッジaの追加では反応しにくい）
                 if (
                   el.matches?.('[data-kb-diary-slot][data-person-id], .kb-person-result') ||
                   el.querySelector?.('[data-kb-diary-slot][data-person-id]')
@@ -574,90 +455,108 @@
       }
     } catch (_) {}
 
-    // ============================================================
-    // 定期更新（10分）
-    // initが万一複数回呼ばれても interval を増殖させない
-    // ============================================================
     try {
       if (window.__kbDiaryIntervalApplied !== "1") {
         window.__kbDiaryIntervalApplied = "1";
-        setInterval(() => {
-          fetchDiaryLatestAndRender();
-        }, DIARY_REFRESH_INTERVAL_MS);
+        setInterval(() => fetchDiaryLatestAndRender(), DIARY_REFRESH_INTERVAL_MS);
       }
     } catch (_) {}
 
-    // ============================================================
-    // NEWクリックで既読（ローカル＋サーバ）
-    // ============================================================
     try {
       if (window.__kbDiaryClickApplied !== "1") {
         window.__kbDiaryClickApplied = "1";
 
-        document.addEventListener(
-          "click",
-          (e) => {
-            const a = e.target?.closest?.("[data-kb-diary-new]");
-            if (!a) return;
+        document.addEventListener("click", (e) => {
+          const a = e.target?.closest?.("[data-kb-diary-new]");
+          if (!a) return;
 
-            const pid = a.getAttribute("data-person-id");
-            if (!pid) return;
+          const pid = a.getAttribute("data-person-id");
+          if (!pid) return;
 
-            const diaryKey = a.getAttribute("data-diary-key") || "";
-
-            hideDiaryBadges(pid);
-            markDiarySeen(pid, diaryKey);
-          },
-          true
-        );
+          const diaryKey = a.getAttribute("data-diary-key") || "";
+          hideDiaryBadges(pid);
+          markDiarySeen(pid, diaryKey);
+        }, true);
       }
     } catch (_) {}
   }
 
-
+  // ============================================================
+  // Force button (single source of truth)
+  // ============================================================
   function initKbDiaryForceButton() {
-  const BTN_ID = "kbDiaryBtnForce";
-  const btn = document.getElementById(BTN_ID);
-  if (!btn) return;
+    const btn = document.getElementById("kbDiaryBtnForce");
+    if (!btn) return;
 
-  // 二重バインド防止
-  if (btn.dataset.kbDiaryBound === "1") return;
-  btn.dataset.kbDiaryBound = "1";
+    if (btn.dataset.kbDiaryBound === "1") return;
+    btn.dataset.kbDiaryBound = "1";
 
-  // 多重起動防止＋クールダウン
-  let running = false;
-  let lastRunAt = 0;
-  const COOLDOWN_MS = 15 * 1000;
+    const statusEl = document.getElementById("kbDiaryForceStatus");
+    const setStatus = (t) => { if (statusEl) statusEl.textContent = t || ""; };
 
-  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-
-  async function forceFetchAndRefresh() {
-    const now = Date.now();
-    if (running) return;
-    if (lastRunAt && (now - lastRunAt) < COOLDOWN_MS) return;
-
-    running = true;
-    lastRunAt = now;
-
+    // Userscript signal: “push未到達” vs “観測漏れ” を潰す鍵
     try {
-      // Userscript強制push（あれば）
-      try { window.kbDiaryForcePush?.(); } catch (_) {}
+      if (window.__kbDiarySignalBound !== "1") {
+        window.__kbDiarySignalBound = "1";
+        window.addEventListener("kb-diary-signal", (ev) => {
+          const d = ev?.detail || {};
+          const stage = String(d.stage || "");
+          if (!stage) return;
 
-      // push→サーバ反映→表示更新 の猶予を見て複数回refresh（最大3回で終了）
-      const delays = [1200, 2500, 5000];
-      for (const d of delays) {
-        await sleep(d);
-        try { window.kbDiaryRefresh?.(); } catch (_) {}
+          if (stage === "force_called") setStatus("取得開始…");
+          else if (stage === "push_start") setStatus("push開始…");
+          else if (stage === "push_fetch_start") setStatus("push送信中…");
+          else if (stage === "push_fetch_done") {
+            const ok = !!d.ok;
+            const st = Number(d.status || 0);
+            setStatus(ok ? `push完了(${st})` : `push失敗(${st})`);
+          } else if (stage === "push_fetch_error") {
+            setStatus("push例外");
+          } else if (stage === "run_abort_no_slots") {
+            setStatus("slot=0");
+          }
+        }, { passive: true });
       }
-    } finally {
-      running = false;
-    }
-  }
+    } catch (_) {}
 
-  btn.addEventListener("click", () => {    
-    forceFetchAndRefresh().catch(() => {});
-  });
-}
+    let running = false;
+    let lastRunAt = 0;
+    const COOLDOWN_MS = 15 * 1000;
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+    async function forceFetchAndRefresh() {
+      const now = Date.now();
+      if (running) return;
+      if (lastRunAt && (now - lastRunAt) < COOLDOWN_MS) return;
+
+      running = true;
+      lastRunAt = now;
+
+      try {
+        setStatus("取得開始…");
+
+        if (typeof window.kbDiaryForcePush === "function") {
+          window.kbDiaryForcePush();
+        } else {
+          setStatus("Userscript未注入");
+          return;
+        }
+
+        // push→反映→latest までの遅延を吸収して複数回更新
+        const delays = [800, 1800, 3500, 6000];
+        for (const d of delays) {
+          await sleep(d);
+          try { window.kbDiaryRefresh?.(); } catch (_) {}
+        }
+      } finally {
+        running = false;
+      }
+    }
+
+    btn.addEventListener("click", () => {
+      forceFetchAndRefresh().catch(() => {});
+    });
+  }
 
 
   // ============================================================

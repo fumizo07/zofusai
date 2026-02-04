@@ -1,4 +1,4 @@
-{# 011 #}
+{# 012 #}
 {% set page_title_suffix = "KB - 店舗" %}
 {% set body_class = "page-kb" %}
 {% set active_page = "kb" %}
@@ -45,67 +45,22 @@
           <option value="price">価格が安い順</option>
           <option value="rating">評価が高い順</option>
         </select>
+
         <label class="sort-checkbox-label">
           <input type="checkbox" id="kb_diary_tracked_only" name="diary_tracked" value="1">
           日記追跡中
         </label>
+
         <label class="sort-checkbox-label">
           <input type="checkbox" id="kb_fav_only" value="1">
           オキニ
         </label>
-        <button
-  type="button"
-  id="kbDiaryBtnForce"
-  onclick="(async () => {
-    const ts = Date.now();
-    console.log('[INLINE] force clicked', ts);
 
-    const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+        <button type="button" id="kbDiaryBtnForce" class="btn-secondary">
+          今すぐ日記取得
+        </button>
 
-    // 0) Userscript注入確認
-    if (typeof window.kbDiaryForcePush !== 'function') {
-      alert('INLINE: kbDiaryForcePush がありません（Userscript未注入/ガード/対象外ページ）');
-      return;
-    }
-
-    // 1) slot待ち（最大3秒）
-    const deadline = Date.now() + 3000;
-    while (Date.now() < deadline) {
-      const slots = document.querySelectorAll('[data-kb-diary-slot][data-person-id]');
-      if (slots && slots.length > 0) break;
-      await sleep(200);
-    }
-
-    const slotsNow = document.querySelectorAll('[data-kb-diary-slot][data-person-id]');
-    console.log('[INLINE] slots', slotsNow ? slotsNow.length : -1);
-
-    if (!slotsNow || slotsNow.length === 0) {
-      // ここで押下時slot=0が確定。pushが出ないのは仕様通りなので、原因をユーザーに見せる。
-      alert('INLINE: slotが0件のままです（検索結果がまだDOMに出ていない/このページはslotを生成しない）');
-      return;
-    }
-
-    // 2) 外部取得→push（Userscript）
-    window.kbDiaryForcePush();
-
-    // 3) 表示更新（push→反映→描画の遅延吸収）
-    const refresh = () => {
-      try { if (typeof window.kbDiaryRefresh === 'function') window.kbDiaryRefresh(); } catch (e) {}
-    };
-
-    await sleep(300);
-    refresh();
-    await sleep(1200);
-    refresh();
-    await sleep(2500);
-    refresh();
-
-    alert('INLINE: done（Networkに diary_push が出たか / DBGの push:fetch:start が出たか確認）');
-  })();"
->
-  今すぐ日記取得
-</button>
-
+        <span class="muted" id="kbDiaryForceStatus" style="margin-left:8px;"></span>
       </div>
 
       <div class="thread-results" id="kb_person_results">
@@ -113,13 +68,6 @@
           {% set avg = (rating_avg_map or {}).get(p.id) %}
           {% set avg_amt = (amount_avg_map or {}).get(p.id) %}
           {% set tracked = (diary_track_map or {}).get(p.id, False) %}
-
-          {# =========================
-             日記URL（ベースURL + "/diary"）
-             dto.jp の場合：
-               - 取得(data-diary-url)は www.dto.jp に寄せる（fetch側）
-               - 外部リンク(プロフ)は dto.jp に寄せる（クリック側）
-             ========================= #}
 
           {% set base_url = (p.url or '') %}
           {% if base_url and base_url.endswith('/') %}
@@ -130,7 +78,6 @@
             {% set diary_url = '' %}
           {% endif %}
 
-          {# fetch用（dtoはwwwへ） #}
           {% set diary_fetch_url = diary_url %}
           {% if diary_fetch_url.startswith('https://s.dto.jp') %}
             {% set diary_fetch_url = diary_fetch_url|replace('https://s.dto.jp', 'https://www.dto.jp') %}
@@ -140,7 +87,6 @@
             {% set diary_fetch_url = diary_fetch_url|replace('https://dto.jp', 'https://www.dto.jp') %}
           {% endif %}
 
-          {# プロフ外部リンク用（dtoはdtoへ：www/sを除去） #}
           {% set profile_open_url = base_url %}
           {% if profile_open_url.startswith('https://www.dto.jp') %}
             {% set profile_open_url = profile_open_url|replace('https://www.dto.jp', 'https://dto.jp') %}
@@ -161,12 +107,14 @@
                data-sort-height="{{ p.height_cm if p.height_cm else '' }}"
                data-sort-price="{{ avg_amt if avg_amt is not none else '' }}"
                data-sort-age="{{ p.age if p.age else '' }}">
+
             {%- set thumb = (p.image_urls[0] if p.image_urls and (p.image_urls|length) > 0 else "") -%}
             {%- if thumb -%}
             <a href="/kb/person/{{ p.id }}">
               <img class="kb-person-thumb" src="{{ thumb|e }}" alt="thumb" loading="lazy" referrerpolicy="no-referrer">
             </a>
             {%- endif -%}
+
             <div class="kb-person-result-text">
               <div class="result-id">
                 {% if tracked and diary_fetch_url %}
@@ -178,6 +126,7 @@
                     data-diary-track="{{ 1 if tracked else 0 }}"
                   ></span>
                 {% endif %}
+
                 <button type="button"
                   class="kb-fav-btn"
                   data-kb-fav-toggle="1"
@@ -185,6 +134,7 @@
                   aria-pressed="{{ 'true' if p.favorite else 'false' }}">
                   {{ '★' if p.favorite else '☆' }}
                 </button>
+
                 <a href="/kb/person/{{ p.id }}">{{ p.name }}</a><!-- 空白対策
                 --><span class="muted">
                   {%- if p.services -%}/{{ p.services }}{%- endif -%}
@@ -195,19 +145,23 @@
                   {% if p.hip_cm %}-{{ p.hip_cm }}{% endif %}
                 </span>
               </div>
+
               <div class="muted">
                 {{ region.name if region else "（不明）" }}/{{ store.name }}
                 {%- if p.tags -%}/タグ:{{ p.tags }}{%- endif -%}
               </div>
+
               <div class="muted">
                 {% if avg is not none %}平均評価:{{ "%.2f"|format(avg) }}{% endif %}
                 {%- if avg_amt is not none -%}/平均金額:{{ "{:,}".format(avg_amt) }}円{%- endif -%}
               </div>
+
               {% if tracked and diary_fetch_url %}
                 <div class="muted" data-kb-diary-meta="1">
                   <span data-kb-diary-checked></span><span data-kb-diary-latest></span>
                 </div>
               {% endif %}
+
               <div class="muted">
                 <a href="/kb/person/{{ p.id }}/external_search" target="_blank">外部検索で調べる</a>
                 {%- if base_url -%}
