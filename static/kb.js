@@ -562,6 +562,11 @@
     lastRunAt = now;
 
     try {
+      // Userscriptの外部取得API非対応アラート
+      if (typeof window.kbDiaryForcePush !== "function") {
+        alert("Userscript(kbDiaryForcePush)が起動していません。このブラウザはUserscriptの外部取得API非対応の可能性があります。");
+        return;
+      }
       // Userscript強制push（あれば）
       try { window.kbDiaryForcePush?.(); } catch (_) {}
 
