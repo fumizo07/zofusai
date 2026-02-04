@@ -3,6 +3,67 @@
 (() => {
   "use strict";
 
+    // ============================================================
+  // ★最短切り分け用：最強ボタン直結ハンドラ（HTML onclick から呼ぶ）
+  // - 1クリックで「Userscript force」→「kb.js refresh」を確実に呼ぶ
+  // - どこで詰まったかをログ/アラートで確実に見える化
+  // ============================================================
+  window.kbForceDiaryNow = async function (ev) {
+    try { ev?.preventDefault?.(); } catch (_) {}
+
+    const now = Date.now();
+    console.log("[kbForceDiaryNow] CLICK", now);
+
+    // 0) 関数の存在確認（ここで真偽が確定する）
+    const hasForce = (typeof window.kbDiaryForcePush === "function");
+    const hasRefresh = (typeof window.kbDiaryRefresh === "function");
+    console.log("[kbForceDiaryNow] hasForcePush?", hasForce, "hasRefresh?", hasRefresh);
+
+    // 「押したのに何も起きない」を潰すため、最初に必ずアラートも出す（デバッグ専用）
+    alert(`kbForceDiaryNow: force=${hasForce ? "yes" : "no"} refresh=${hasRefresh ? "yes" : "no"}`);
+
+    // 1) Userscript force（外部取得→push を期待）
+    if (hasForce) {
+      try {
+        console.log("[kbForceDiaryNow] calling kbDiaryForcePush()");
+        window.kbDiaryForcePush();
+      } catch (e) {
+        console.log("[kbForceDiaryNow] kbDiaryForcePush threw", e);
+        alert("kbDiaryForcePush が例外で落ちました（console参照）");
+      }
+    } else {
+      // ここが no なら「Userscriptがこのページで動いてない」か「注入が死んでる」
+      alert("kbDiaryForcePush が存在しません（Userscriptが動いていない/注入失敗の可能性）");
+    }
+
+    // 2) 表示更新（diary_latest を叩いて描画）
+    // push→DB反映→latestが変わるまで若干ラグるので、間隔を空けて複数回叩く
+    const delays = [0, 800, 1800, 3500, 6000];
+
+    for (const d of delays) {
+      await new Promise((r) => setTimeout(r, d));
+      console.log("[kbForceDiaryNow] refresh try delay=", d, "at", Date.now());
+
+      // refresh関数があるならそれを使う
+      if (hasRefresh) {
+        try { window.kbDiaryRefresh(); } catch (e) { console.log("[kbForceDiaryNow] kbDiaryRefresh threw", e); }
+        continue;
+      }
+
+      // refreshが無いなら、最低限これだけは直接呼ぶ（あなたの kb.js 内に関数がある前提）
+      // ここで ReferenceError になるなら「kb.js が想定通りロードされてない」確定
+      try {
+        await fetchDiaryLatestAndRender();
+      } catch (e) {
+        console.log("[kbForceDiaryNow] fetchDiaryLatestAndRender failed", e);
+      }
+    }
+
+    alert("kbForceDiaryNow: done（Networkで diary_push / diary_latest を確認）");
+    return false;
+  };
+
+
   // ============================================================
   // 共通ヘルパ（※ init より前で必ず定義する）
   // ============================================================
@@ -581,12 +642,6 @@
     try {
       // Userscript強制push（あれば）
       try { window.kbDiaryForcePush?.(); } catch (_) {}
-
-      // Userscriptの外部取得API非対応アラート
-      if (typeof window.kbDiaryForcePush !== "function") {
-        alert("Userscript(kbDiaryForcePush)が起動していません。このブラウザはUserscriptの外部取得API非対応の可能性があります。");
-        return;
-      }
 
       // push→サーバ反映→表示更新 の猶予を見て複数回refresh（最大3回で終了）
       const delays = [1200, 2500, 5000];
