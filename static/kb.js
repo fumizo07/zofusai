@@ -1,4 +1,5 @@
 // 006
+console.log("[kb.js] loaded 2026-02-04 force-debug");
 // static/kb.js
 (() => {
   "use strict";
