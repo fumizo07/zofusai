@@ -353,7 +353,7 @@
     } catch (_) {}
     el = el.parentElement;
   }
-  console.log("root tag", root?.tagName, root?.className);
+
   // 最後の保険：document全体（既存の仕様に近い）
   return document;
 }
