@@ -562,13 +562,14 @@
     lastRunAt = now;
 
     try {
+      // Userscript強制push（あれば）
+      try { window.kbDiaryForcePush?.(); } catch (_) {}
+
       // Userscriptの外部取得API非対応アラート
       if (typeof window.kbDiaryForcePush !== "function") {
         alert("Userscript(kbDiaryForcePush)が起動していません。このブラウザはUserscriptの外部取得API非対応の可能性があります。");
         return;
       }
-      // Userscript強制push（あれば）
-      try { window.kbDiaryForcePush?.(); } catch (_) {}
 
       // push→サーバ反映→表示更新 の猶予を見て複数回refresh（最大3回で終了）
       const delays = [1200, 2500, 5000];
