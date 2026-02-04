@@ -53,7 +53,59 @@
           <input type="checkbox" id="kb_fav_only" value="1">
           オキニ
         </label>
-        <button type="button" id="kbDiaryBtnForce" onclick="return window.kbForceDiaryNow?.(event) ?? false;">今すぐ日記取得</button>
+        <button
+  type="button"
+  id="kbDiaryBtnForce"
+  onclick="(async () => {
+    const ts = Date.now();
+    console.log('[INLINE] force clicked', ts);
+
+    const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+
+    // 0) Userscript注入確認
+    if (typeof window.kbDiaryForcePush !== 'function') {
+      alert('INLINE: kbDiaryForcePush がありません（Userscript未注入/ガード/対象外ページ）');
+      return;
+    }
+
+    // 1) slot待ち（最大3秒）
+    const deadline = Date.now() + 3000;
+    while (Date.now() < deadline) {
+      const slots = document.querySelectorAll('[data-kb-diary-slot][data-person-id]');
+      if (slots && slots.length > 0) break;
+      await sleep(200);
+    }
+
+    const slotsNow = document.querySelectorAll('[data-kb-diary-slot][data-person-id]');
+    console.log('[INLINE] slots', slotsNow ? slotsNow.length : -1);
+
+    if (!slotsNow || slotsNow.length === 0) {
+      // ここで押下時slot=0が確定。pushが出ないのは仕様通りなので、原因をユーザーに見せる。
+      alert('INLINE: slotが0件のままです（検索結果がまだDOMに出ていない/このページはslotを生成しない）');
+      return;
+    }
+
+    // 2) 外部取得→push（Userscript）
+    window.kbDiaryForcePush();
+
+    // 3) 表示更新（push→反映→描画の遅延吸収）
+    const refresh = () => {
+      try { if (typeof window.kbDiaryRefresh === 'function') window.kbDiaryRefresh(); } catch (e) {}
+    };
+
+    await sleep(300);
+    refresh();
+    await sleep(1200);
+    refresh();
+    await sleep(2500);
+    refresh();
+
+    alert('INLINE: done（Networkに diary_push が出たか / DBGの push:fetch:start が出たか確認）');
+  })();"
+>
+  今すぐ日記取得
+</button>
+
       </div>
 
       <div class="thread-results" id="kb_person_results">
