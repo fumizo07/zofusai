@@ -1,6 +1,4 @@
 // 006
-console.log("[kb.js] loaded 2026-02-04 force-debug");
-console.log("[kb.js] fetchDiaryLatestAndRender called", Date.now());
 // static/kb.js
 (() => {
   "use strict";
@@ -283,6 +281,23 @@ console.log("[kb.js] fetchDiaryLatestAndRender called", Date.now());
     return v === "1";
   }
 
+  // 「metaを含む要素」を上方向に探す（見つけたらそこで確定）
+  function findDiaryRootForMeta(slot) {
+  // 「metaを含む要素」を上方向に探す（見つけたらそこで確定）
+  let el = slot;
+  for (let i = 0; i < 20; i++) {
+    if (!el) break;
+    try {
+      if (el.querySelector && el.querySelector('[data-kb-diary-meta="1"]')) return el;
+    } catch (_) {}
+    el = el.parentElement;
+  }
+  console.log("root tag", root?.tagName, root?.className);
+  // 最後の保険：document全体（既存の仕様に近い）
+  return document;
+}
+
+
   function setDiaryMetaUi(root, st) {
     // st: { tracked: bool, checked_ago_min: number|null, latest_ago_days: number|null }
     if (!root) return;
@@ -364,7 +379,7 @@ console.log("[kb.js] fetchDiaryLatestAndRender called", Date.now());
       const pid = parseInt(String(slot.getAttribute("data-person-id") || "0"), 10);
       if (!Number.isFinite(pid) || pid <= 0) return;
 
-      const root = slot.closest(".kb-person-result") || slot.parentElement || document;
+      const root = findDiaryRootForMeta(slot);
       const st = byId.get(pid);
 
       // ---- 最終チェック/最新日記（追跡ONだけ表示）
@@ -425,7 +440,7 @@ console.log("[kb.js] fetchDiaryLatestAndRender called", Date.now());
     const slots0 = Array.from(document.querySelectorAll('[data-kb-diary-slot][data-person-id]'));
     slots0.forEach((slot) => {
       try {
-        const root = slot.closest(".kb-person-result") || slot.parentElement || document;
+        const root = findDiaryRootForMeta(slot);
         setDiaryMetaUi(root, {
           tracked: parseTrackedFromSlot(slot),
           checked_ago_min: null,
@@ -584,11 +599,7 @@ console.log("[kb.js] fetchDiaryLatestAndRender called", Date.now());
     }
   }
 
-  btn.addEventListener("click", () => {
-    // Userscriptの外部取得API非対応アラート
-    console.log("[kb.js] force button clicked");
-    alert("force clicked");
-    
+  btn.addEventListener("click", () => {    
     forceFetchAndRefresh().catch(() => {});
   });
 }
