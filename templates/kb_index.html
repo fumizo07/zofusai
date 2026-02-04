@@ -198,45 +198,72 @@
   type="button"
   id="kbDiaryBtnForce"
   onclick="(async () => {
-    try {
-      console.log('[INLINE] force clicked', Date.now());
+    const ts = Date.now();
+    console.log('[INLINE] force clicked', ts);
 
-      // クリックが確実に発火している確認（まずここが出る）
-      alert('INLINE: clicked');
+    // 最初のクリック確認（必要なら残す）
+    // alert('INLINE: clicked');
 
-      // 1) Userscriptが生やした関数を直で叩く（外部取得→push）
-      if (typeof window.kbDiaryForcePush !== 'function') {
-        alert('INLINE: window.kbDiaryForcePush がありません（Userscriptが動いていない/未注入）');
-        return;
-      }
+    // 1) Userscriptが生やした関数を直で叩く（外部取得→push）
+    if (typeof window.kbDiaryForcePush !== 'function') {
+      alert('INLINE: window.kbDiaryForcePush がありません（Userscriptが動いていない/未注入）');
+      return;
+    }
 
-      window.kbDiaryForcePush();  // ←ここで「外部取得→サーバpush」までやる想定
+    // 2) push完了イベントを待つ（最大15秒）
+    const waitPushed = (timeoutMs) => new Promise((resolve) => {
+      let done = false;
 
-      // 2) 表示更新（サーバ反映のタイミング待ちで複数回叩く）
-      const sleep = (ms) => new Promise(r => setTimeout(r, ms));
-      const refresh = () => {
-        try {
-          if (typeof window.kbDiaryRefresh === 'function') window.kbDiaryRefresh();
-        } catch (e) {}
+      const onPushed = (ev) => {
+        done = true;
+        window.removeEventListener('kb-diary-pushed', onPushed);
+        resolve({ ok: true, detail: (ev && ev.detail) ? ev.detail : null });
       };
 
-      // push→反映→描画の遅延を吸収（ここは遠慮なく雑に叩く）
-      await sleep(300);
-      refresh();
-      await sleep(1200);
-      refresh();
-      await sleep(2500);
-      refresh();
+      window.addEventListener('kb-diary-pushed', onPushed, { once: true });
 
-      alert('INLINE: done (Networkで diary_push が出たか確認)');
-    } catch (e) {
-      console.log('[INLINE] error', e);
-      alert('INLINE: error (console参照)');
+      setTimeout(() => {
+        if (done) return;
+        window.removeEventListener('kb-diary-pushed', onPushed);
+        resolve({ ok: false, detail: null });
+      }, timeoutMs);
+    });
+
+    // 実行開始
+    window.kbDiaryForcePush();
+
+    // 3) push完了待ち（これでNetworkの diary_push が出るはず）
+    const pushed = await waitPushed(15000);
+    console.log('[INLINE] pushed wait result', pushed);
+
+    // 4) 表示更新（kb.js側）
+    const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+    const refresh = () => {
+      try {
+        if (typeof window.kbDiaryRefresh === 'function') window.kbDiaryRefresh();
+      } catch (e) {
+        console.log('[INLINE] refresh error', e);
+      }
+    };
+
+    // pushが終わっていればすぐ描画更新
+    refresh();
+    await sleep(800);
+    refresh();
+    await sleep(1600);
+    refresh();
+
+    if (!pushed.ok) {
+      alert('INLINE: kb-diary-pushed が来ませんでした（Userscriptが走ってない/途中で止まってる可能性）。consoleとNetworkを確認してください。');
+      return;
     }
+
+    alert('INLINE: done（Networkに diary_push が出たか確認）');
   })();"
 >
   今すぐ日記取得
 </button>
+
 
       </div>
 
