@@ -194,7 +194,50 @@
           <input type="checkbox" id="kb_fav_only" value="1">
           オキニ
         </label>
-        <button type="button" id="kbDiaryBtnForce" onclick="return window.kbForceDiaryNow?.(event) ?? false;">今すぐ日記取得</button>
+        <button
+  type="button"
+  id="kbDiaryBtnForce"
+  onclick="(async () => {
+    try {
+      console.log('[INLINE] force clicked', Date.now());
+
+      // クリックが確実に発火している確認（まずここが出る）
+      alert('INLINE: clicked');
+
+      // 1) Userscriptが生やした関数を直で叩く（外部取得→push）
+      if (typeof window.kbDiaryForcePush !== 'function') {
+        alert('INLINE: window.kbDiaryForcePush がありません（Userscriptが動いていない/未注入）');
+        return;
+      }
+
+      window.kbDiaryForcePush();  // ←ここで「外部取得→サーバpush」までやる想定
+
+      // 2) 表示更新（サーバ反映のタイミング待ちで複数回叩く）
+      const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+      const refresh = () => {
+        try {
+          if (typeof window.kbDiaryRefresh === 'function') window.kbDiaryRefresh();
+        } catch (e) {}
+      };
+
+      // push→反映→描画の遅延を吸収（ここは遠慮なく雑に叩く）
+      await sleep(300);
+      refresh();
+      await sleep(1200);
+      refresh();
+      await sleep(2500);
+      refresh();
+
+      alert('INLINE: done (Networkで diary_push が出たか確認)');
+    } catch (e) {
+      console.log('[INLINE] error', e);
+      alert('INLINE: error (console参照)');
+    }
+  })();"
+>
+  今すぐ日記取得
+</button>
+
       </div>
 
       <div class="thread-results" id="kb_person_results">
