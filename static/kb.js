@@ -1,4 +1,5 @@
 // 006
+console.log("[kb.js] loaded 2026-02-04 force-debug");
 // static/kb.js
 (() => {
   "use strict";
@@ -583,6 +584,10 @@
   }
 
   btn.addEventListener("click", () => {
+    // Userscriptの外部取得API非対応アラート
+    console.log("[kb.js] force button clicked");
+    alert("force clicked");
+    
     forceFetchAndRefresh().catch(() => {});
   });
 }
