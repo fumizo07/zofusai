@@ -1,5 +1,6 @@
 // 006
 console.log("[kb.js] loaded 2026-02-04 force-debug");
+console.log("[kb.js] fetchDiaryLatestAndRender called", Date.now());
 // static/kb.js
 (() => {
   "use strict";
