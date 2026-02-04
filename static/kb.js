@@ -498,7 +498,8 @@
     try {
       if (window.__kbDiarySignalBound !== "1") {
         window.__kbDiarySignalBound = "1";
-        window.addEventListener("kb-diary-signal", (ev) => {
+
+        const onSignal = (ev) => {
           const d = ev?.detail || {};
           const stage = String(d.stage || "");
           if (!stage) return;
@@ -515,7 +516,11 @@
           } else if (stage === "run_abort_no_slots") {
             setStatus("slot=0");
           }
-        }, { passive: true });
+        };
+
+        // ★ここが重要：window / document どっちで飛んできても拾う
+        window.addEventListener("kb-diary-signal", onSignal, { passive: true });
+        document.addEventListener("kb-diary-signal", onSignal, { passive: true });
       }
     } catch (_) {}
 
@@ -535,11 +540,19 @@
       try {
         setStatus("取得開始…");
 
+        // 1) 旧方式：Userscriptがwindow関数を公開している場合
         if (typeof window.kbDiaryForcePush === "function") {
-          window.kbDiaryForcePush();
+          try { window.kbDiaryForcePush(); } catch (_) {}
         } else {
-          setStatus("Userscript未注入");
-          return;
+          // 2) 新方式：DOMイベントで依頼（sandbox跨ぎの本命）
+          try {
+            const ev = new CustomEvent("kb-diary-force", { detail: { ts: Date.now() } });
+            document.dispatchEvent(ev);
+            window.dispatchEvent(ev);
+          } catch (_) {
+            setStatus("Userscript未注入");
+            return;
+          }
         }
 
         // push→反映→latest までの遅延を吸収して複数回更新
@@ -557,6 +570,7 @@
       forceFetchAndRefresh().catch(() => {});
     });
   }
+
 
 
   // ============================================================
