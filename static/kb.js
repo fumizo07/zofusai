@@ -1,4 +1,4 @@
-// 007
+// 008
 // static/kb.js
 (() => {
   "use strict";
@@ -196,6 +196,10 @@
   const DIARY_LATEST_API = "/kb/api/diary_latest";
   const DIARY_SEEN_API = "/kb/api/diary_seen";
   const DIARY_REFRESH_INTERVAL_MS = 10 * 60 * 1000;
+
+  // DOM Event bridge
+  const EV_FORCE = "kb:diary:force";
+  const EV_SIGNAL = "kb:diary:signal";
 
   function diarySeenKey(personId) {
     return `kb_diary_seen_${String(personId)}`;
@@ -412,9 +416,14 @@
       if (window.__kbDiaryHooksApplied !== "1") {
         window.__kbDiaryHooksApplied = "1";
 
-        window.addEventListener("kb-diary-pushed", () => {
-          fetchDiaryLatestAndRender();
-        }, { passive: true });
+        // Userscript push完了通知（互換）
+        const onPushed = () => { fetchDiaryLatestAndRender(); };
+        window.addEventListener("kb-diary-pushed", onPushed, { passive: true });
+        document.addEventListener("kb-diary-pushed", onPushed, { passive: true });
+
+        // 新名（任意）
+        window.addEventListener("kb:diary:pushed", onPushed, { passive: true });
+        document.addEventListener("kb:diary:pushed", onPushed, { passive: true });
 
         window.kbDiaryRefresh = () => {
           fetchDiaryLatestAndRender();
@@ -482,7 +491,7 @@
   }
 
   // ============================================================
-  // Force button (single source of truth)
+  // Force button (DOM CustomEvent only)
   // ============================================================
   function initKbDiaryForceButton() {
     const btn = document.getElementById("kbDiaryBtnForce");
@@ -494,7 +503,13 @@
     const statusEl = document.getElementById("kbDiaryForceStatus");
     const setStatus = (t) => { if (statusEl) statusEl.textContent = t || ""; };
 
-    // Userscript signal: “push未到達” vs “観測漏れ” を潰す鍵
+    // ridで相関させる（同時押し/遅延でも混ざらない）
+    let activeRid = "";
+    function newRid() {
+      return `r${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    }
+
+    // Userscript signal
     try {
       if (window.__kbDiarySignalBound !== "1") {
         window.__kbDiarySignalBound = "1";
@@ -502,9 +517,19 @@
         const onSignal = (ev) => {
           const d = ev?.detail || {};
           const stage = String(d.stage || "");
-          if (!stage) return;
+          const rid = String(d.rid || "");
 
-          if (stage === "force_called") setStatus("取得開始…");
+          if (!stage) return;
+          if (activeRid && rid && rid !== activeRid) return; // 別リクエストの信号は無視
+
+          if (stage === "force_received") setStatus("受信…");
+          else if (stage === "force_debounced") setStatus("連打防止");
+          else if (stage === "force_accept") setStatus("取得開始…");
+          else if (stage === "gm_unavailable") setStatus("GM非対応ブラウザ");
+          else if (stage === "run_blocked_running") setStatus("実行中");
+          else if (stage === "run_blocked_epoch") setStatus("世代切替");
+          else if (stage === "run_abort_no_slots") setStatus("slot=0");
+          else if (stage === "run_start") setStatus("取得中…");
           else if (stage === "push_start") setStatus("push開始…");
           else if (stage === "push_fetch_start") setStatus("push送信中…");
           else if (stage === "push_fetch_done") {
@@ -513,14 +538,15 @@
             setStatus(ok ? `push完了(${st})` : `push失敗(${st})`);
           } else if (stage === "push_fetch_error") {
             setStatus("push例外");
-          } else if (stage === "run_abort_no_slots") {
-            setStatus("slot=0");
+          } else if (stage === "done") {
+            const ok = !!d.ok;
+            const st = Number(d.status || 0);
+            setStatus(ok ? `完了(${st})` : "失敗");
           }
         };
 
-        // ★ここが重要：window / document どっちで飛んできても拾う
-        window.addEventListener("kb-diary-signal", onSignal, { passive: true });
-        document.addEventListener("kb-diary-signal", onSignal, { passive: true });
+        window.addEventListener(EV_SIGNAL, onSignal, { passive: true });
+        document.addEventListener(EV_SIGNAL, onSignal, { passive: true });
       }
     } catch (_) {}
 
@@ -538,21 +564,24 @@
       lastRunAt = now;
 
       try {
-        setStatus("取得開始…");
+        activeRid = newRid();
+        setStatus("送信…");
 
-        // 1) 旧方式：Userscriptがwindow関数を公開している場合
-        if (typeof window.kbDiaryForcePush === "function") {
-          try { window.kbDiaryForcePush(); } catch (_) {}
-        } else {
-          // 2) 新方式：DOMイベントで依頼（sandbox跨ぎの本命）
-          try {
-            const ev = new CustomEvent("kb-diary-force", { detail: { ts: Date.now() } });
-            document.dispatchEvent(ev);
-            window.dispatchEvent(ev);
-          } catch (_) {
-            setStatus("Userscript未注入");
-            return;
-          }
+        // DOMイベントで依頼（sandbox跨ぎ）
+        try {
+          const detail = {
+            rid: activeRid,
+            origin: "button",
+            force: true,
+            scope: "all",
+            reason: "user_click",
+          };
+          const ev = new CustomEvent(EV_FORCE, { detail });
+          document.dispatchEvent(ev);
+          window.dispatchEvent(ev);
+        } catch (_) {
+          setStatus("Userscript未注入");
+          return;
         }
 
         // push→反映→latest までの遅延を吸収して複数回更新
