@@ -5,21 +5,21 @@
 
   // ============================================================
   // KB：写メ日記 NEW バッジ + メタ表示 + Forceボタン
-  // （kb.jsから分離 / pushedイベント統一 / interval廃止）
   // ============================================================
 
   const DIARY_LATEST_API = "/kb/api/diary_latest";
   const DIARY_SEEN_API = "/kb/api/diary_seen";
 
-  // DOM Event bridge (Userscript <-> Page)
+  // DOM Event bridge
   const EV_FORCE = "kb:diary:force";
   const EV_SIGNAL = "kb:diary:signal";
+  const EV_PUSHED2 = "kb:diary:pushed"; // ★統一
 
-  // pushedイベント（統一）
-  const EV_PUSHED = "kb:diary:pushed";
-
-  // diary_push成功後：数秒後に「1回だけ」最新取得を走らせる
+  // push成功後：数秒後に「1回だけ」最新取得を走らせる
   const PUSH_REFRESH_DELAY_MS = 2800;
+
+  // Force押下→Userscript受信のACK待ち
+  const FORCE_ACK_TIMEOUT_MS = 1500;
 
   function normalizeDiaryUrl(u) {
     const s = String(u || "").trim();
@@ -107,7 +107,6 @@
 
   function setDiaryMetaUi(root, st) {
     if (!root) return;
-
     const meta = root.querySelector('[data-kb-diary-meta="1"]');
     if (!meta) return;
 
@@ -224,7 +223,7 @@
   }
 
   // ============================================================
-  // pushed後：数秒後に「一度だけ」refresh（同時に複数来ても1回）
+  // push後：数秒後に「一度だけ」refresh
   // ============================================================
   let pushTimer = null;
   function scheduleRefreshOnceAfterPush() {
@@ -235,13 +234,9 @@
     }, PUSH_REFRESH_DELAY_MS);
   }
 
-  // ============================================================
-  // Init
-  // ============================================================
   function initKbDiaryNewBadges() {
     applyDiarySeenFromLocalStorage();
 
-    // 初期メタ表示を先に埋める（tracked=falseなら非表示になる）
     const slots0 = Array.from(document.querySelectorAll('[data-kb-diary-slot][data-person-id]'));
     slots0.forEach((slot) => {
       try {
@@ -254,23 +249,24 @@
       } catch (_) {}
     });
 
-    // 初回は即時取得
     fetchDiaryLatestAndRender().catch(() => {});
 
     try {
       if (window.__kbDiaryHooksApplied !== "1") {
         window.__kbDiaryHooksApplied = "1";
 
-        // pushed通知（統一名のみ listen）
         const onPushed = () => { scheduleRefreshOnceAfterPush(); };
-        document.addEventListener(EV_PUSHED, onPushed, { passive: true });
+
+        // ★統一：kb:diary:pushed のみ listen
+        document.addEventListener(EV_PUSHED2, onPushed, { passive: true });
+        window.addEventListener(EV_PUSHED2, onPushed, { passive: true });
 
         // 外から呼べる手動更新（forceボタンやデバッグ用）
         window.kbDiaryRefresh = () => {
           fetchDiaryLatestAndRender().catch(() => {});
         };
 
-        // 一覧DOMが動く（検索/絞り込み/差し替え）時の追随
+        // 一覧DOMが動く時の追随
         const list = document.getElementById("kb_person_results");
         if (list) {
           let t = null;
@@ -306,9 +302,6 @@
       }
     } catch (_) {}
 
-    // ★ interval は廃止（push成功後にだけ追従する方針）
-    // DIARY_REFRESH_INTERVAL_MS / setInterval は削除
-
     try {
       if (window.__kbDiaryClickApplied !== "1") {
         window.__kbDiaryClickApplied = "1";
@@ -341,13 +334,21 @@
     const statusEl = document.getElementById("kbDiaryForceStatus");
     const setStatus = (t) => { if (statusEl) statusEl.textContent = t || ""; };
 
-    // ridで相関させる（同時押し/遅延でも混ざらない）
     let activeRid = "";
+    let ackTimer = null;
+
     function newRid() {
       return `r${Date.now()}-${Math.random().toString(16).slice(2)}`;
     }
 
-    // Userscript signal
+    function clearAckTimer() {
+      if (ackTimer) {
+        clearTimeout(ackTimer);
+        ackTimer = null;
+      }
+    }
+
+    // Userscript signal listener
     try {
       if (window.__kbDiarySignalBound !== "1") {
         window.__kbDiarySignalBound = "1";
@@ -358,16 +359,17 @@
           const rid = String(d.rid || "");
 
           if (!stage) return;
-          if (activeRid && rid && rid !== activeRid) return; // 別リクエストの信号は無視
+          if (activeRid && rid && rid !== activeRid) return;
 
-          if (stage === "force_received") setStatus("受信…");
-          else if (stage === "force_debounced") setStatus("連打防止");
-          else if (stage === "force_accept") setStatus("取得開始…");
-          else if (stage === "gm_unavailable") setStatus("GM非対応ブラウザ");
-          else if (stage === "run_blocked_running") setStatus("実行中");
-          else if (stage === "run_blocked_epoch") setStatus("世代切替");
-          else if (stage === "run_abort_no_slots") setStatus("slot=0");
-          else if (stage === "run_start") setStatus("取得中…");
+          // 受信できた時点で「注入されてる」確度が上がる
+          if (stage === "force_received") { clearAckTimer(); setStatus("受信…"); }
+          else if (stage === "force_debounced") { clearAckTimer(); setStatus("連打防止"); }
+          else if (stage === "force_accept") { clearAckTimer(); setStatus("取得開始…"); }
+          else if (stage === "gm_unavailable") { clearAckTimer(); setStatus("GM非対応ブラウザ"); }
+          else if (stage === "run_blocked_running") { clearAckTimer(); setStatus("実行中"); }
+          else if (stage === "run_blocked_epoch") { clearAckTimer(); setStatus("世代切替"); }
+          else if (stage === "run_abort_no_slots") { clearAckTimer(); setStatus("slot=0"); }
+          else if (stage === "run_start") { clearAckTimer(); setStatus("取得中…"); }
           else if (stage === "push_start") setStatus("push開始…");
           else if (stage === "push_fetch_start") setStatus("push送信中…");
           else if (stage === "push_fetch_done") {
@@ -384,6 +386,7 @@
         };
 
         document.addEventListener(EV_SIGNAL, onSignal, { passive: true });
+        window.addEventListener(EV_SIGNAL, onSignal, { passive: true });
       }
     } catch (_) {}
 
@@ -403,38 +406,35 @@
         activeRid = newRid();
         setStatus("送信…");
 
-        // DOMイベントで依頼（sandbox跨ぎ）
-        try {
-          const detail = {
-            rid: activeRid,
-            origin: "button",
-            force: true,
-            scope: "all",
-            reason: "user_click",
-          };
-          const ev = new CustomEvent(EV_FORCE, { detail });
-          document.dispatchEvent(ev);
-          window.dispatchEvent(ev);
-        } catch (_) {
-          setStatus("Userscript未注入");
-          return;
-        }
+        // ACK待ちタイムアウト：注入されてない/ガードでreturn等を可視化
+        clearAckTimer();
+        ackTimer = setTimeout(() => {
+          ackTimer = null;
+          setStatus("Userscript未注入/合言葉未許可の可能性");
+        }, FORCE_ACK_TIMEOUT_MS);
 
-        // ★ refresh はここで直接しない
-        //  - pushed を受けて scheduleRefreshOnceAfterPush() が1回だけ実行される
+        // ★documentへ送るのが本命
+        const detail = {
+          rid: activeRid,
+          origin: "button",
+          force: true,
+          scope: "all",
+          reason: "user_click",
+        };
+        document.dispatchEvent(new CustomEvent(EV_FORCE, { detail }));
+      } catch (_) {
+        clearAckTimer();
+        setStatus("送信失敗");
       } finally {
         running = false;
       }
     }
 
     btn.addEventListener("click", () => {
-      forceFetch().catch(() => {});
+      forceFetch();
     });
   }
 
-  // ============================================================
-  // Boot
-  // ============================================================
   document.addEventListener("DOMContentLoaded", () => {
     initKbDiaryNewBadges();
     initKbDiaryForceButton();
