@@ -302,11 +302,9 @@
                 {%- if avg_amt is not none -%}/平均金額:{{ "{:,}".format(avg_amt) }}円{%- endif -%}
               </div>
 
-              {% if tracked and diary_fetch_url %}
-                <div class="muted" data-kb-diary-meta="1">
-                  <span data-kb-diary-checked></span><span data-kb-diary-latest></span>
-                </div>
-              {% endif %}
+              <div class="muted kb-diary-meta {% if not (tracked and diary_fetch_url) %}is-hidden{% endif %}" data-kb-diary-meta="1">
+                <span data-kb-diary-checked></span><span data-kb-diary-latest></span>
+              </div>
 
               <div class="muted">
                 <a href="/kb/person/{{ p.id }}/external_search" target="_blank">外部検索で調べる</a>
