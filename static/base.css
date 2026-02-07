@@ -1484,3 +1484,5 @@ input[type="time"] {
     background: none;
     border: none;
 }
+
+.kb-diary-meta.is-hidden { display: none; }
