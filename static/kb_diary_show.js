@@ -1,20 +1,22 @@
-// 001
+// 002
 // static/kb_diary_show.js
 (() => {
   "use strict";
 
   // ============================================================
   // KB：写メ日記 NEW バッジ + メタ表示 + Forceボタン
-  // （kb.jsから分離）
+  // （kb.jsから分離 / pushedイベント統一 / interval廃止）
   // ============================================================
 
   const DIARY_LATEST_API = "/kb/api/diary_latest";
   const DIARY_SEEN_API = "/kb/api/diary_seen";
-  const DIARY_REFRESH_INTERVAL_MS = 10 * 60 * 1000;
 
   // DOM Event bridge (Userscript <-> Page)
   const EV_FORCE = "kb:diary:force";
   const EV_SIGNAL = "kb:diary:signal";
+
+  // pushedイベント（統一）
+  const EV_PUSHED = "kb:diary:pushed";
 
   // diary_push成功後：数秒後に「1回だけ」最新取得を走らせる
   const PUSH_REFRESH_DELAY_MS = 2800;
@@ -222,20 +224,24 @@
   }
 
   // ============================================================
-  // push後：数秒後に「一度だけ」refresh
+  // pushed後：数秒後に「一度だけ」refresh（同時に複数来ても1回）
   // ============================================================
   let pushTimer = null;
   function scheduleRefreshOnceAfterPush() {
-    if (pushTimer != null) return; // 予約済みなら増やさない（=一度だけ）
+    if (pushTimer != null) return;
     pushTimer = setTimeout(() => {
       pushTimer = null;
       fetchDiaryLatestAndRender().catch(() => {});
     }, PUSH_REFRESH_DELAY_MS);
   }
 
+  // ============================================================
+  // Init
+  // ============================================================
   function initKbDiaryNewBadges() {
     applyDiarySeenFromLocalStorage();
 
+    // 初期メタ表示を先に埋める（tracked=falseなら非表示になる）
     const slots0 = Array.from(document.querySelectorAll('[data-kb-diary-slot][data-person-id]'));
     slots0.forEach((slot) => {
       try {
@@ -248,22 +254,16 @@
       } catch (_) {}
     });
 
+    // 初回は即時取得
     fetchDiaryLatestAndRender().catch(() => {});
 
     try {
       if (window.__kbDiaryHooksApplied !== "1") {
         window.__kbDiaryHooksApplied = "1";
 
-        // Userscript push完了通知（互換）
+        // pushed通知（統一名のみ listen）
         const onPushed = () => { scheduleRefreshOnceAfterPush(); };
-
-        // 旧名
-        window.addEventListener("kb-diary-pushed", onPushed, { passive: true });
-        document.addEventListener("kb-diary-pushed", onPushed, { passive: true });
-
-        // 新名（任意）
-        window.addEventListener("kb:diary:pushed", onPushed, { passive: true });
-        document.addEventListener("kb:diary:pushed", onPushed, { passive: true });
+        document.addEventListener(EV_PUSHED, onPushed, { passive: true });
 
         // 外から呼べる手動更新（forceボタンやデバッグ用）
         window.kbDiaryRefresh = () => {
@@ -306,12 +306,8 @@
       }
     } catch (_) {}
 
-    try {
-      if (window.__kbDiaryIntervalApplied !== "1") {
-        window.__kbDiaryIntervalApplied = "1";
-        setInterval(() => fetchDiaryLatestAndRender().catch(() => {}), DIARY_REFRESH_INTERVAL_MS);
-      }
-    } catch (_) {}
+    // ★ interval は廃止（push成功後にだけ追従する方針）
+    // DIARY_REFRESH_INTERVAL_MS / setInterval は削除
 
     try {
       if (window.__kbDiaryClickApplied !== "1") {
@@ -387,7 +383,6 @@
           }
         };
 
-        window.addEventListener(EV_SIGNAL, onSignal, { passive: true });
         document.addEventListener(EV_SIGNAL, onSignal, { passive: true });
       }
     } catch (_) {}
@@ -395,9 +390,8 @@
     let running = false;
     let lastRunAt = 0;
     const COOLDOWN_MS = 15 * 1000;
-    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-    async function forceFetchAndRefresh() {
+    async function forceFetch() {
       const now = Date.now();
       if (running) return;
       if (lastRunAt && (now - lastRunAt) < COOLDOWN_MS) return;
@@ -426,21 +420,20 @@
           return;
         }
 
-        // push→反映→latest を「数秒後に一度だけ」更新
-        await sleep(PUSH_REFRESH_DELAY_MS);
-        try { window.kbDiaryRefresh?.(); } catch (_) {}
+        // ★ refresh はここで直接しない
+        //  - pushed を受けて scheduleRefreshOnceAfterPush() が1回だけ実行される
       } finally {
         running = false;
       }
     }
 
     btn.addEventListener("click", () => {
-      forceFetchAndRefresh().catch(() => {});
+      forceFetch().catch(() => {});
     });
   }
 
   // ============================================================
-  // 起動
+  // Boot
   // ============================================================
   document.addEventListener("DOMContentLoaded", () => {
     initKbDiaryNewBadges();
