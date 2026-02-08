@@ -1,4 +1,4 @@
-{# 020 #}
+{# 021 #}
 {# templates/kb_person.html #}
 {% set page_title_suffix = "KB - 人物" %}
 {% set body_class = "page-kb" %}
@@ -143,6 +143,35 @@
         <div class="inner-flex-box">
           <div class="kb-grid-label">URL：</div>
           <div class="kb-grid-input"><input type="text" name="url" value="{{ person.url or '' }}" placeholder="https://..."></div>
+        </div>
+
+        {# ============================================================
+           ★追加：意思決定（確定仕様）
+           - candidate_rank: 訪問前の候補ランク（1..5 / 空は未設定）
+           - repeat_intent: 訪問後のリピ意思（yes/hold/no / 空は未判定）
+           ============================================================ #}
+        <div class="inner-flex-box">
+          <div class="kb-grid-label">候補ランク：</div>
+          <div class="kb-grid-input">
+            <select class="kb-input-sm kb-select" name="candidate_rank">
+              <option value="" {% if not person.candidate_rank %}selected{% endif %}>未設定（候補外）</option>
+              {% for n in range(1, 6) %}
+                <option value="{{ n }}" {% if person.candidate_rank == n %}selected{% endif %}>候補#{{ n }}</option>
+              {% endfor %}
+            </select>
+          </div>
+        </div>
+
+        <div class="inner-flex-box">
+          <div class="kb-grid-label">リピ意思：</div>
+          <div class="kb-grid-input">
+            <select class="kb-input-sm kb-select" name="repeat_intent">
+              <option value="" {% if not person.repeat_intent %}selected{% endif %}>未判定</option>
+              <option value="yes"  {% if person.repeat_intent == 'yes' %}selected{% endif %}>リピ確定</option>
+              <option value="hold" {% if person.repeat_intent == 'hold' %}selected{% endif %}>リピ保留</option>
+              <option value="no"   {% if person.repeat_intent == 'no' %}selected{% endif %}>NG</option>
+            </select>
+          </div>
         </div>
 
         {# ★追加：写メ日記の追跡フラグ（URLがある人物のみ対象） #}
