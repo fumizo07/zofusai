@@ -68,6 +68,17 @@
           {% set avg_amt = (amount_avg_map or {}).get(p.id) %}
           {% set tracked = (diary_track_map or {}).get(p.id, False) %}
 
+          {# ★追加：意思決定表示（候補ランク / リピ意思） #}
+          {% set cand_rank = p.candidate_rank if p.candidate_rank else None %}
+          {% set repeat = (p.repeat_intent or '') %}
+          {% set repeat_label = (
+                'リピ確定' if repeat == 'yes' else
+                'リピ保留' if repeat == 'hold' else
+                'NG' if repeat == 'no' else
+                ''
+             )
+          %}
+
           {% set base_url = (p.url or '') %}
           {% if base_url and base_url.endswith('/') %}
             {% set diary_url = base_url[:-1] ~ '/diary' %}
@@ -134,8 +145,14 @@
                   {{ '★' if p.favorite else '☆' }}
                 </button>
 
-                <a href="/kb/person/{{ p.id }}">{{ p.name }}</a><!-- 空白対策
-                --><span class="muted">
+                <a href="/kb/person/{{ p.id }}">{{ p.name }}</a>{# ★追加：候補ランク / リピ意思（表示だけ） #}
+                {% if cand_rank %}
+                  <span class="muted">／候補#{{ cand_rank }}</span>
+                {% endif %}
+                {% if repeat_label %}
+                  <span class="muted">／{{ repeat_label }}</span>
+                {% endif %}
+                <!-- 空白対策 --><span class="muted">
                   {%- if p.services -%}/{{ p.services }}{%- endif -%}
                   {% if p.age %}/{{ p.age }}歳{% endif %}
                   {%- if p.height_cm -%}/T{{ p.height_cm }}{%- endif -%}
