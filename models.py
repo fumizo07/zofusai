@@ -1,4 +1,4 @@
-# 010
+# 011
 # models.py
 from datetime import datetime
 
@@ -34,6 +34,7 @@ class ThreadPost(Base):
     body_norm = Column(Text, nullable=True, index=True)
     thread_title_norm = Column(Text, nullable=True, index=True)
     tags_norm = Column(Text, nullable=True, index=True)
+    memo_norm = Column(Text, nullable=True, index=True)
 
 
 class ThreadMeta(Base):
@@ -142,6 +143,14 @@ class KBPerson(Base):
     image_urls = Column(JSON, nullable=True)
 
     memo = Column(Text, nullable=True)
+
+    # ------------------------------------------------------------
+    # ★追加：意思決定（確定仕様）
+    # - candidate_rank: 訪問前の候補ランク（1..5 / NULL=候補外・未設定）
+    # - repeat_intent: 訪問後のリピ意思（yes/hold/no / NULL=未判定）
+    # ------------------------------------------------------------
+    candidate_rank = Column(Integer, nullable=True, index=True)
+    repeat_intent = Column(Text, nullable=True, index=True)
 
     # 将来用の正規化列
     name_norm = Column(Text, nullable=True, index=True)
