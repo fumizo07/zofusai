@@ -689,6 +689,8 @@ def kb_update_person(
     url: str = Form(""),
     image_urls_text: str = Form(""),
     memo: str = Form(""),
+    candidate_rank: str = Form(""),   # 未設定/1..5
+    repeat_intent: str = Form(""),    # 未判定/yes/hold/no
     track_diary: str = Form(""),  # フロント name="track_diary"
     diary_track: str = Form(""),  # 互換
     db: Session = Depends(get_db),
@@ -737,6 +739,24 @@ def kb_update_person(
 
         p.memo = (memo or "").strip() or None
 
+        # ============================================================
+        # ★意思決定（確定仕様）
+        # - candidate_rank: 1..5 / それ以外・空は None
+        # - repeat_intent: yes/hold/no / それ以外・空は None
+        # ============================================================
+        cr_raw = (candidate_rank or "").strip()
+        cr = parse_int(cr_raw)
+        if cr is not None and 1 <= int(cr) <= 5:
+            p.candidate_rank = int(cr)
+        else:
+            p.candidate_rank = None
+
+        ri = (repeat_intent or "").strip().lower()
+        if ri in ("yes", "hold", "no"):
+            p.repeat_intent = ri
+        else:
+            p.repeat_intent = None
+     
         # ✅ チェックボックス：ON時は "1" が来る / OFF時は来ない（空文字）
         raw_track = (track_diary or "").strip() or (diary_track or "").strip()
         new_track = _coerce_bool(raw_track)
