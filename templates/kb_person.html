@@ -384,7 +384,7 @@
           <details class="kb-visit-edit">
             <summary class="muted">このログを編集</summary>
 
-            <form method="post" action="/kb/visit/{{ v.id }}/update">
+            <form data-kb-duration-form method="post" action="/kb/visit/{{ v.id }}/update">
               <div class="form-row">
                 <label>利用日：</label>
                 <input type="date" name="visited_at"
