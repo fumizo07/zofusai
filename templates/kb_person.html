@@ -46,6 +46,17 @@
       </button></div>
       <div>地域：<strong>{{ region.name if region else "（不明）" }}</strong></div>
       <div>店舗：<strong>{{ store.name if store else "（不明）" }}</strong></div>
+
+      {# repeat_intent の表示ラベル #}
+      {% set repeat_label = "" %}
+      {% if person.repeat_intent == "yes" %}
+        {% set repeat_label = "リピ確定" %}
+      {% elif person.repeat_intent == "hold" %}
+        {% set repeat_label = "リピ保留" %}
+      {% elif person.repeat_intent == "no" %}
+        {% set repeat_label = "NG" %}
+      {% endif %}
+      
       <div>
         人物：<strong>{{ person.name }}</strong>
          {%- if person.candidate_rank -%}／<span class="candidates">候補#{{ person.candidate_rank }}</span>{%- endif -%}
