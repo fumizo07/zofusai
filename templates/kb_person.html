@@ -171,6 +171,20 @@
               <option value="hold" {% if person.repeat_intent == 'hold' %}selected{% endif %}>リピ保留</option>
               <option value="no"   {% if person.repeat_intent == 'no' %}selected{% endif %}>NG</option>
             </select>
+            {# repeat_intent の表示ラベル #}
+            {% set repeat_label = "" %}
+            {% if person.repeat_intent == "yes" %}
+              {% set repeat_label = "リピ確定" %}
+            {% elif person.repeat_intent == "hold" %}
+              {% set repeat_label = "リピ保留" %}
+            {% elif person.repeat_intent == "no" %}
+              {% set repeat_label = "NG" %}
+            {% endif %}
+            
+            {# 注意表示（repeat が入っている時だけ） #}
+            {% if person.repeat_intent %}
+              <div class="muted">※{{ repeat_label }}が設定されている間は、候補ランクは自動的に未設定になります。</div>
+            {% endif %}
           </div>
         </div>
 
