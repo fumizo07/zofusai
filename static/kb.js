@@ -103,29 +103,27 @@ function initKbPersonSearchSort() {
   }
 
   function applyFilter(items) {
-    const repeatVal = String(repeatSel?.value || "").trim().toLowerCase(); // "" or yes/hold/no
+    const repeatVal = String(repeatSel?.value || "").trim().toLowerCase();
     const hideNg = !!hideNgChk?.checked;
+    const effectiveHideNg = hideNg && repeatVal !== "no";
 
-    items.forEach((el) => {
-      const ri = getRepeat(el);
+  items.forEach((el) => {
+    const ri = getRepeat(el);
 
-      // NG非表示（repeat_intent=no を隠す）
-      if (hideNg && ri === "no") {
-        el.style.display = "none";
-        return;
-      }
+    let hide = false;
 
-      // repeat絞り込み
-      if (repeatVal) {
-        if (ri !== repeatVal) {
-          el.style.display = "none";
-          return;
-        }
-      }
+    // NG非表示
+    if (hideNg && ri === "no") hide = true;
 
-      el.style.display = "";
-    });
-  }
+    // repeat絞り込み
+    if (!hide && repeatVal) {
+      if (ri !== repeatVal) hide = true;
+    }
+
+    el.classList.toggle("kb-hidden", hide);
+  });
+}
+
 
   function applySort(mode) {
     const items = Array.from(list.querySelectorAll(".kb-person-result"));
@@ -137,7 +135,7 @@ function initKbPersonSearchSort() {
     const enriched = items.map((el, idx) => ({
       el,
       idx,
-      visible: el.style.display !== "none",
+      visible: !el.classList.contains("kb-hidden"),
       name: getNameKey(el),
       rating: getNumKey(el, "sortRating"),
       cupRank: cupToRank(el?.dataset?.sortCup || ""),

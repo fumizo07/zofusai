@@ -204,7 +204,13 @@
         <div class="kb-grid-label">メモ：</div>
         <div><textarea name="memo" rows="15">{{ person.memo or '' }}</textarea></div>
       </div>
-
+      {# 矛盾防止メモ（運用の意図を見える化） #}
+      {%- if person.repeat_intent -%}
+      <div class="muted">※リピ意思({{ person.repeat_intent }})が設定されているため、候補ランクは自動的に未設定になります。</div>
+      {%- endif -%}
+      {%- if person.candidate_rank and person.repeat_intent -%}
+      <div class="error-message">候補ランクとリピ意思が同時に入っています(矛盾)。保存すると候補ランクは自動で未設定になります。</div>
+      {%- endif -%}
       <div class="form-row">
         <button type="submit" class="btn-primary">保存</button>
       </div>
