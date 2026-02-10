@@ -67,12 +67,15 @@
   }
 
 // ============================================================
-// KB：人物検索結果の並び替え
+// KB：人物検索結果の並び替え + フィルタ（repeat/NG）
 // ============================================================
 function initKbPersonSearchSort() {
   const sel = document.getElementById("kb_person_sort");
   const list = document.getElementById("kb_person_results");
   if (!sel || !list) return;
+
+  const repeatSel = document.getElementById("kb_repeat_filter");
+  const hideNgChk = document.getElementById("kb_hide_ng");
 
   const getNameKey = (el) => {
     const ds = el?.dataset?.sortName;
@@ -95,26 +98,61 @@ function initKbPersonSearchSort() {
     return asc ? (a - b) : (b - a);
   }
 
+  function getRepeat(el) {
+    return String(el?.dataset?.repeat || "").trim().toLowerCase(); // yes/hold/no/""
+  }
+
+  function applyFilter(items) {
+    const repeatVal = String(repeatSel?.value || "").trim().toLowerCase(); // "" or yes/hold/no
+    const hideNg = !!hideNgChk?.checked;
+
+    items.forEach((el) => {
+      const ri = getRepeat(el);
+
+      // NG非表示（repeat_intent=no を隠す）
+      if (hideNg && ri === "no") {
+        el.style.display = "none";
+        return;
+      }
+
+      // repeat絞り込み
+      if (repeatVal) {
+        if (ri !== repeatVal) {
+          el.style.display = "none";
+          return;
+        }
+      }
+
+      el.style.display = "";
+    });
+  }
+
   function applySort(mode) {
     const items = Array.from(list.querySelectorAll(".kb-person-result"));
     if (!items.length) return;
 
+    // まずフィルタを適用（表示/非表示）
+    applyFilter(items);
+
     const enriched = items.map((el, idx) => ({
       el,
       idx,
+      visible: el.style.display !== "none",
       name: getNameKey(el),
       rating: getNumKey(el, "sortRating"),
       cupRank: cupToRank(el?.dataset?.sortCup || ""),
       height: getNumKey(el, "sortHeight"),
       price: getNumKey(el, "sortPrice"),
       age: getNumKey(el, "sortAge"),
-      cand: getNumKey(el, "sortCand"), // ★追加：候補ランク（1..5 / null）
+      cand: getNumKey(el, "sortCand"), // 1..5 / null
     }));
 
     enriched.sort((A, B) => {
+      // 非表示のものは最後へ（順序の安定のため）
+      if (A.visible !== B.visible) return A.visible ? -1 : 1;
+
       if (mode === "candidate") {
-        // 1→5が上、未設定(null)は下
-        const c = compareNullableNumber(A.cand, B.cand, true);
+        const c = compareNullableNumber(A.cand, B.cand, true); // 1→5
         if (c !== 0) return c;
       } else if (mode === "name") {
         const c = A.name.localeCompare(B.name, "ja", { numeric: true, sensitivity: "base" });
@@ -146,9 +184,15 @@ function initKbPersonSearchSort() {
     list.appendChild(frag);
   }
 
-  sel.addEventListener("change", () => applySort(sel.value || "name"));
-  applySort(sel.value || "name");
+  const rerun = () => applySort(sel.value || "name");
+
+  sel.addEventListener("change", rerun);
+  if (repeatSel) repeatSel.addEventListener("change", rerun);
+  if (hideNgChk) hideNgChk.addEventListener("change", rerun);
+
+  rerun();
 }
+
 
 
   // ============================================================
