@@ -57,6 +57,15 @@ from .utils import (
 
 router = APIRouter()
 
+def _dt_to_epoch_ms(dt) -> int | None:
+    """datetime -> epoch(ms)。dtがNoneならNone。"""
+    if not dt:
+        return None
+    try:
+        return int(dt.timestamp() * 1000)
+    except Exception:
+        return None
+
 
 def _get_kb_allow_secret() -> str:
     return (os.getenv("KB_ALLOW_SECRET", "") or "").strip()
@@ -447,6 +456,27 @@ def kb_store_page(
     amount_avg_map = avg_amount_map_for_person_ids(db, person_ids)
     last_visit_map = last_visit_map_for_person_ids(db, person_ids)
 
+    # ============================================================
+    #  日記最新（epoch ms）をテンプレに渡す
+    #   - KBDiaryState の latest_entry_at を使う
+    #   - diary_state_enabled() が false なら空
+    # ============================================================
+    diary_latest_ts_map: dict[int, int] = {}
+
+    if diary_state_enabled() and person_ids:
+        try:
+            state_map = get_diary_state_map(db, person_ids) or {}
+            for pid in person_ids:
+                st = state_map.get(int(pid))
+                if st is None:
+                    continue
+                dt = getattr(st, "latest_entry_at", None)
+                ms = _dt_to_epoch_ms(dt)
+                if ms is not None:
+                    diary_latest_ts_map[int(pid)] = ms
+        except Exception:
+            diary_latest_ts_map = {}
+
     sort_eff, order_eff = normalize_sort_params(sort, order)
 
     rmin = parse_rating_min(rating_min or "")
@@ -484,6 +514,7 @@ def kb_store_page(
             "order": order_eff,
             "rating_min": str(rmin) if rmin is not None else "",
             "star_only": "1" if (star_only or "") == "1" else "",
+            "diary_latest_ts_map": diary_latest_ts_map,
         },
     )
 
@@ -1144,6 +1175,26 @@ def kb_search(
     amount_avg_map = avg_amount_map_for_person_ids(db, [p.id for p in persons])
     last_visit_map = last_visit_map_for_person_ids(db, [p.id for p in persons])
 
+    # ============================================================
+    # 日記最新（epoch ms）をテンプレに渡す
+    # ============================================================
+    diary_latest_ts_map: dict[int, int] = {}
+    person_ids = [int(p.id) for p in persons]
+
+    if diary_state_enabled() and person_ids:
+        try:
+            state_map = get_diary_state_map(db, person_ids) or {}
+            for pid in person_ids:
+                st = state_map.get(int(pid))
+                if st is None:
+                    continue
+                dt = getattr(st, "latest_entry_at", None)
+                ms = _dt_to_epoch_ms(dt)
+                if ms is not None:
+                    diary_latest_ts_map[int(pid)] = ms
+        except Exception:
+            diary_latest_ts_map = {}
+
     sort_eff, order_eff = normalize_sort_params(sort, order)
 
     rmin = parse_rating_min(rating_min or "")
@@ -1202,5 +1253,6 @@ def kb_search(
             "order": order_eff,
             "rating_min": str(rmin) if rmin is not None else "",
             "star_only": "1" if (star_only or "") == "1" else "",
+            "diary_latest_ts_map": diary_latest_ts_map,
         },
     )
