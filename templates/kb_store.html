@@ -145,15 +145,15 @@
                   {{ '★' if p.favorite else '☆' }}
                 </button>
 
-                <a href="/kb/person/{{ p.id }}">{{ p.name }}</a>{# ★追加：候補ランク / リピ意思（表示だけ） #}
-                {% if cand_rank %}
-                  <span class="muted">／候補#{{ cand_rank }}</span>
-                {% endif %}
-                {% if repeat_label %}
-                  <span class="muted">／{{ repeat_label }}</span>
-                {% endif %}
-                <!-- 空白対策 --><span class="muted">
-                  {%- if p.services -%}/{{ p.services }}{%- endif -%}
+                <a href="/kb/person/{{ p.id }}">{{ p.name }}</a>
+                {# 候補ランク / リピ意思（表示だけ） #}
+                {%- if cand_rank -%}
+                  <span">/</span><span class="candidates">候補#{{ cand_rank }}</span>
+                {%- endif -%}
+                {%- if repeat_label -%}
+                  <span">/</span><span">{{ repeat_label }}</span>
+                {%- endif -%}
+                <span>
                   {% if p.age %}/{{ p.age }}歳{% endif %}
                   {%- if p.height_cm -%}/T{{ p.height_cm }}{%- endif -%}
                   {% if p.bust_cm %}-{{ p.bust_cm }}{% if p.cup %}({{ p.cup }}){% endif %}{% endif %}
@@ -163,8 +163,12 @@
               </div>
 
               <div class="muted">
+                {%- if p.services -%}プレイ:{{ p.services }}{%- endif -%}
+                {% if p.tags %}/タグ:{{ p.tags }}{% endif %}
+              </div>
+
+              <div class="muted">
                 {{ region.name if region else "（不明）" }}/{{ store.name }}
-                {%- if p.tags -%}/タグ:{{ p.tags }}{%- endif -%}
               </div>
 
               <div class="muted">
