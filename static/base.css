@@ -1490,3 +1490,7 @@ input[type="time"] {
 .candidates {
     color:#dc0032;
 }
+
+.kb-hidden {
+  display: none !important;
+}
