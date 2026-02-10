@@ -103,8 +103,9 @@ function initKbPersonSearchSort() {
   }
 
   function applyFilter(items) {
-  const repeatVal = String(repeatSel?.value || "").trim().toLowerCase();
-  const hideNg = !!hideNgChk?.checked;
+    const repeatVal = String(repeatSel?.value || "").trim().toLowerCase();
+    const hideNg = !!hideNgChk?.checked;
+    const effectiveHideNg = hideNg && repeatVal !== "no";
 
   items.forEach((el) => {
     const ri = getRepeat(el);
