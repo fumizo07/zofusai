@@ -756,6 +756,10 @@ def kb_update_person(
             p.repeat_intent = ri
         else:
             p.repeat_intent = None
+            
+        # ★矛盾防止：repeat が入ったら candidate は無効化（訪問後フェーズ優先）
+        if p.repeat_intent is not None:
+            p.candidate_rank = None
      
         # ✅ チェックボックス：ON時は "1" が来る / OFF時は来ない（空文字）
         raw_track = (track_diary or "").strip() or (diary_track or "").strip()
