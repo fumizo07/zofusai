@@ -180,6 +180,7 @@
         <label>並び替え：</label>
         <select id="kb_person_sort">
           <option value="name" selected>名前順</option>
+          <option value="smart">候補×日記×訪問</option>
           <option value="candidate">候補ランク順</option>
           <option value="height">身長が低い順</option>
           <option value="cup">胸が大きい順</option>
@@ -284,7 +285,9 @@
               data-sort-price="{{ avg_amt if avg_amt is not none else '' }}"
               data-sort-age="{{ p.age if p.age else '' }}"
               data-sort-cand="{{ p.candidate_rank if p.candidate_rank is not none else '' }}"
-              data-repeat="{{ (p.repeat_intent or '')|e }}">
+              data-repeat="{{ (p.repeat_intent or '')|e }}"
+              data-last-visit-ts="{{ (last_visit_map or {}).get(p.id, '') }}"
+              data-diary-latest-ts="{{ (diary_latest_ts_map or {}).get(p.id, '') }}">
 
             {%- set thumb = (p.image_urls[0] if p.image_urls and (p.image_urls|length) > 0 else "") -%}
             {%- if thumb -%}

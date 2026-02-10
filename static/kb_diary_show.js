@@ -201,6 +201,9 @@
       const isNew = !!st?.is_new;
       const latestTs = (st?.latest_ts != null) ? String(st.latest_ts) : "";
       const openUrl = String(st?.open_url || "").trim();
+      // ★smartソート用：カード側に最新日記TSを反映（ms epoch）
+      const card = slot.closest(".kb-person-result");
+      if (card) card.dataset.diaryLatestTs = latestTs || "";
       const attrUrl = String(slot.getAttribute("data-diary-url") || "").trim();
       const url = normalizeDiaryUrl(openUrl || attrUrl);
 
@@ -220,6 +223,8 @@
     });
 
     applyDiarySeenFromLocalStorage();
+    // ★smartの見た目を即反映（kb.js側に再ソートを依頼）
+    document.dispatchEvent(new CustomEvent("kb:personResults:rerunSort"));
   }
 
   // ============================================================

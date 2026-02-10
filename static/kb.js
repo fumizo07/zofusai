@@ -103,26 +103,28 @@ function initKbPersonSearchSort() {
   }
 
   function applyFilter(items) {
-    const repeatVal = String(repeatSel?.value || "").trim().toLowerCase();
+    const repeatVal = String(repeatSel?.value || "").trim().toLowerCase(); // yes/hold/no/""
     const hideNg = !!hideNgChk?.checked;
+
+    // repeat=no を明示してる時は NG を隠すと矛盾するので無効化
     const effectiveHideNg = hideNg && repeatVal !== "no";
 
-  items.forEach((el) => {
-    const ri = getRepeat(el);
+    items.forEach((el) => {
+      const ri = getRepeat(el);
+      let hide = false;
 
-    let hide = false;
+      // NG非表示（ただし repeat=no の時は無効）
+      if (effectiveHideNg && ri === "no") hide = true;
 
-    // NG非表示
-    if (hideNg && ri === "no") hide = true;
+      // repeat絞り込み
+      if (!hide && repeatVal) {
+        if (ri !== repeatVal) hide = true;
+      }
 
-    // repeat絞り込み
-    if (!hide && repeatVal) {
-      if (ri !== repeatVal) hide = true;
-    }
+      el.classList.toggle("kb-hidden", hide);
+    });
+  }
 
-    el.classList.toggle("kb-hidden", hide);
-  });
-}
 
 
   function applySort(mode) {
@@ -143,13 +145,38 @@ function initKbPersonSearchSort() {
       price: getNumKey(el, "sortPrice"),
       age: getNumKey(el, "sortAge"),
       cand: getNumKey(el, "sortCand"), // 1..5 / null
+      lastVisitTs: getNumKey(el, "lastVisitTs"),
+      diaryLatestTs: getNumKey(el, "diaryLatestTs"),
     }));
 
     enriched.sort((A, B) => {
       // 非表示のものは最後へ（順序の安定のため）
       if (A.visible !== B.visible) return A.visible ? -1 : 1;
+        if (mode === "smart") {
+        // 1) 候補が上（candがある人）
+        const aIsCand = (A.cand != null);
+        const bIsCand = (B.cand != null);
+        if (aIsCand !== bIsCand) return aIsCand ? -1 : 1;
 
-      if (mode === "candidate") {
+        // 2) 候補内は cand(1→5) → 日記最新(新しい→古い) → 最終訪問(古い→新しい)
+        if (aIsCand && bIsCand) {
+          const c1 = compareNullableNumber(A.cand, B.cand, true);
+          if (c1 !== 0) return c1;
+
+          const c2 = compareNullableNumber(A.diaryLatestTs, B.diaryLatestTs, false);
+          if (c2 !== 0) return c2;
+
+          const c3 = compareNullableNumber(A.lastVisitTs, B.lastVisitTs, true);
+          if (c3 !== 0) return c3;
+        } else {
+          // 3) 候補外は 日記最新(新しい→古い) → 最終訪問(古い→新しい)
+          const c2 = compareNullableNumber(A.diaryLatestTs, B.diaryLatestTs, false);
+          if (c2 !== 0) return c2;
+
+          const c3 = compareNullableNumber(A.lastVisitTs, B.lastVisitTs, true);
+          if (c3 !== 0) return c3;
+        }
+      } else if (mode === "candidate") {
         const c = compareNullableNumber(A.cand, B.cand, true); // 1→5
         if (c !== 0) return c;
       } else if (mode === "name") {
@@ -183,6 +210,7 @@ function initKbPersonSearchSort() {
   }
 
   const rerun = () => applySort(sel.value || "name");
+  document.addEventListener("kb:personResults:rerunSort", rerun);
 
   sel.addEventListener("change", rerun);
   if (repeatSel) repeatSel.addEventListener("change", rerun);
