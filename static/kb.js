@@ -143,13 +143,38 @@ function initKbPersonSearchSort() {
       price: getNumKey(el, "sortPrice"),
       age: getNumKey(el, "sortAge"),
       cand: getNumKey(el, "sortCand"), // 1..5 / null
+      lastVisitTs: getNumKey(el, "lastVisitTs"),
+      diaryLatestTs: getNumKey(el, "diaryLatestTs"),
     }));
 
     enriched.sort((A, B) => {
       // 非表示のものは最後へ（順序の安定のため）
       if (A.visible !== B.visible) return A.visible ? -1 : 1;
+        if (mode === "smart") {
+        // 1) 候補が上（candがある人）
+        const aIsCand = (A.cand != null);
+        const bIsCand = (B.cand != null);
+        if (aIsCand !== bIsCand) return aIsCand ? -1 : 1;
 
-      if (mode === "candidate") {
+        // 2) 候補内は cand(1→5) → 日記最新(新しい→古い) → 最終訪問(古い→新しい)
+        if (aIsCand && bIsCand) {
+          const c1 = compareNullableNumber(A.cand, B.cand, true);
+          if (c1 !== 0) return c1;
+
+          const c2 = compareNullableNumber(A.diaryLatestTs, B.diaryLatestTs, false);
+          if (c2 !== 0) return c2;
+
+          const c3 = compareNullableNumber(A.lastVisitTs, B.lastVisitTs, true);
+          if (c3 !== 0) return c3;
+        } else {
+          // 3) 候補外は 日記最新(新しい→古い) → 最終訪問(古い→新しい)
+          const c2 = compareNullableNumber(A.diaryLatestTs, B.diaryLatestTs, false);
+          if (c2 !== 0) return c2;
+
+          const c3 = compareNullableNumber(A.lastVisitTs, B.lastVisitTs, true);
+          if (c3 !== 0) return c3;
+        }
+      } else if (mode === "candidate") {
         const c = compareNullableNumber(A.cand, B.cand, true); // 1→5
         if (c !== 0) return c;
       } else if (mode === "name") {
