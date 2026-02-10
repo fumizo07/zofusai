@@ -115,11 +115,11 @@
       </div>
 
       <div class="form-row">
-        <label>サービス：</label>
+        <label>プレイ：</label>
         <div>
           {% if svc_options %}
             <details {% if search_svc %}open{% endif %}>
-              <summary class="muted">サービスを選択({{ svc_options|length }}件)</summary>
+              <summary class="muted">プレイを選択({{ svc_options|length }}件)</summary>
               <div class="kb-tags-box">
                 {% for s in svc_options %}
                   <label class="kb-tag-chip">
@@ -130,7 +130,7 @@
               </div>
             </details>
           {% else %}
-            <span class="muted">サービス候補はまだありません。</span>
+            <span class="muted">プレイ候補はまだありません。</span>
           {% endif %}
         </div>
       </div>
@@ -310,8 +310,8 @@
               </div>
 
               <div class="muted">
-                {%- if p.services -%}プレイ:{{ p.services }}{%- endif -%}
-                {% if p.tags %}/タグ:{{ p.tags }}{% endif %}
+                {%- if p.services -%}プレイ:{{ p.services }}/{%- endif -%}
+                {% if p.tags %}タグ:{{ p.tags }}{% endif %}
               </div>
 
               <div class="muted">
