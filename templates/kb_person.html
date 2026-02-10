@@ -46,15 +46,29 @@
       </button></div>
       <div>地域：<strong>{{ region.name if region else "（不明）" }}</strong></div>
       <div>店舗：<strong>{{ store.name if store else "（不明）" }}</strong></div>
+
+      {# repeat_intent の表示ラベル #}
+      {% set repeat_label = "" %}
+      {% if person.repeat_intent == "yes" %}
+        {% set repeat_label = "リピ確定" %}
+      {% elif person.repeat_intent == "hold" %}
+        {% set repeat_label = "リピ保留" %}
+      {% elif person.repeat_intent == "no" %}
+        {% set repeat_label = "NG" %}
+      {% endif %}
+      
       <div>
         人物：<strong>{{ person.name }}</strong>
-        {%- if person.services -%}／{{ person.services }}{%- endif -%}
-        {% if person.age %}／{{ person.age }}歳{% endif %}
-        {% if person.height_cm %}／T{{ person.height_cm }}{% endif %}
-        {% if person.bust_cm %}・B{{ person.bust_cm }}{% if person.cup %}({{ person.cup }}){% endif %}{% endif %}
-        {% if person.waist_cm %}・W{{ person.waist_cm }}{% endif %}
-        {% if person.hip_cm %}・H{{ person.hip_cm }}{% endif %}
+         {%- if person.candidate_rank -%}／<span class="candidates">候補#{{ person.candidate_rank }}</span>{%- endif -%}
+         {%- if repeat_label -%}／<span class="candidates">{{ repeat_label }}</span>{%- endif -%}
+         {% if person.age %}／{{ person.age }}歳{% endif %}
+         {% if person.height_cm %}／T{{ person.height_cm }}{% endif %}
+         {% if person.bust_cm %}・B{{ person.bust_cm }}{% if person.cup %}(<strong>{{ person.cup }}</strong>){% endif %}{% endif %}
+         {% if person.waist_cm %}・W{{ person.waist_cm }}{% endif %}
+         {% if person.hip_cm %}・H{{ person.hip_cm }}{% endif %}
       </div>
+      <div>{%- if person.services -%}プレイ：<strong>{{ person.services }}</strong>{%- endif -%}</div>
+      <div>{%- if person.tags -%}タグ：<strong>{{ person.tags }}</strong>{%- endif -%}</div>
 
       {% if person.url %}
         {# 表示は person.url（DBの値＝www.dto.jpのまま） #}
@@ -131,7 +145,7 @@
         </div>
 
         <div class="inner-flex-box">
-          <div class="kb-grid-label">サービス：</div>
+          <div class="kb-grid-label">プレイ：</div>
           <div class="kb-grid-input"><input type="text" name="services" value="{{ person.services or '' }}" placeholder="例：○○, △△, ××（カンマ区切りで複数可）"></div>
         </div>
 
