@@ -115,11 +115,11 @@
       </div>
 
       <div class="form-row">
-        <label>サービス：</label>
+        <label>プレイ：</label>
         <div>
           {% if svc_options %}
             <details {% if search_svc %}open{% endif %}>
-              <summary class="muted">サービスを選択({{ svc_options|length }}件)</summary>
+              <summary class="muted">プレイを選択({{ svc_options|length }}件)</summary>
               <div class="kb-tags-box">
                 {% for s in svc_options %}
                   <label class="kb-tag-chip">
@@ -130,7 +130,7 @@
               </div>
             </details>
           {% else %}
-            <span class="muted">サービス候補はまだありません。</span>
+            <span class="muted">プレイ候補はまだありません。</span>
           {% endif %}
         </div>
       </div>
@@ -180,12 +180,29 @@
         <label>並び替え：</label>
         <select id="kb_person_sort">
           <option value="name" selected>名前順</option>
+          <option value="candidate">候補ランク順</option>
           <option value="height">身長が低い順</option>
           <option value="cup">胸が大きい順</option>
           <option value="age">年齢が低い順</option>
           <option value="price">価格が安い順</option>
           <option value="rating">評価が高い順</option>
         </select>
+
+        <label class="sort-checkbox-label">
+          リピ：
+          <select id="kb_repeat_filter" class="kb-input-sm kb-select">
+            <option value="" selected>（すべて）</option>
+            <option value="yes">リピ確定</option>
+            <option value="hold">リピ保留</option>
+            <option value="no">NG</option>
+          </select>
+        </label>
+        
+        <label class="sort-checkbox-label">
+          <input type="checkbox" id="kb_hide_ng" value="1" checked>
+          NG非表示
+        </label>
+
         <label class="sort-checkbox-label">
           <input type="checkbox" id="kb_diary_tracked_only" name="diary_tracked" value="1">
           日記追跡中
@@ -258,14 +275,16 @@
           {% endif %}
 
           <div class="result kb-person-result"
-               data-person-id="{{ p.id }}"
-               data-fav="{{ 1 if p.favorite else 0 }}"
-               data-sort-name="{{ (p.name or '')|e }}"
-               data-sort-rating="{{ avg if avg is not none else '' }}"
-               data-sort-cup="{{ (p.cup or '')|e }}"
-               data-sort-height="{{ p.height_cm if p.height_cm else '' }}"
-               data-sort-price="{{ avg_amt if avg_amt is not none else '' }}"
-               data-sort-age="{{ p.age if p.age else '' }}">
+              data-person-id="{{ p.id }}"
+              data-fav="{{ 1 if p.favorite else 0 }}"
+              data-sort-name="{{ (p.name or '')|e }}"
+              data-sort-rating="{{ avg if avg is not none else '' }}"
+              data-sort-cup="{{ (p.cup or '')|e }}"
+              data-sort-height="{{ p.height_cm if p.height_cm else '' }}"
+              data-sort-price="{{ avg_amt if avg_amt is not none else '' }}"
+              data-sort-age="{{ p.age if p.age else '' }}"
+              data-sort-cand="{{ p.candidate_rank if p.candidate_rank is not none else '' }}"
+              data-repeat="{{ (p.repeat_intent or '')|e }}">
 
             {%- set thumb = (p.image_urls[0] if p.image_urls and (p.image_urls|length) > 0 else "") -%}
             {%- if thumb -%}
@@ -308,8 +327,8 @@
               </div>
 
               <div class="muted">
-                {%- if p.services -%}プレイ:{{ p.services }}{%- endif -%}
-                {% if p.tags %}/タグ:{{ p.tags }}{% endif %}
+                {%- if p.services -%}プレイ:{{ p.services }}/{%- endif -%}
+                {% if p.tags %}タグ:{{ p.tags }}{% endif %}
               </div>
 
               <div class="muted">
