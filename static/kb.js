@@ -103,26 +103,28 @@ function initKbPersonSearchSort() {
   }
 
   function applyFilter(items) {
-    const repeatVal = String(repeatSel?.value || "").trim().toLowerCase();
+    const repeatVal = String(repeatSel?.value || "").trim().toLowerCase(); // yes/hold/no/""
     const hideNg = !!hideNgChk?.checked;
+
+    // repeat=no を明示してる時は NG を隠すと矛盾するので無効化
     const effectiveHideNg = hideNg && repeatVal !== "no";
 
-  items.forEach((el) => {
-    const ri = getRepeat(el);
+    items.forEach((el) => {
+      const ri = getRepeat(el);
+      let hide = false;
 
-    let hide = false;
+      // NG非表示（ただし repeat=no の時は無効）
+      if (effectiveHideNg && ri === "no") hide = true;
 
-    // NG非表示
-    if (hideNg && ri === "no") hide = true;
+      // repeat絞り込み
+      if (!hide && repeatVal) {
+        if (ri !== repeatVal) hide = true;
+      }
 
-    // repeat絞り込み
-    if (!hide && repeatVal) {
-      if (ri !== repeatVal) hide = true;
-    }
+      el.classList.toggle("kb-hidden", hide);
+    });
+  }
 
-    el.classList.toggle("kb-hidden", hide);
-  });
-}
 
 
   function applySort(mode) {
@@ -208,6 +210,7 @@ function initKbPersonSearchSort() {
   }
 
   const rerun = () => applySort(sel.value || "name");
+  document.addEventListener("kb:personResults:rerunSort", rerun);
 
   sel.addEventListener("change", rerun);
   if (repeatSel) repeatSel.addEventListener("change", rerun);
