@@ -1,5 +1,5 @@
 // 001
-// static/kb_price.js
+// static/kb_price_temp.js
 (() => {
   "use strict";
 
