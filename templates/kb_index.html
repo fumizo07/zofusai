@@ -327,8 +327,9 @@
               </div>
 
               <div class="muted">
-                {%- if p.services -%}プレイ:{{ p.services }}/{%- endif -%}
-                {% if p.tags %}タグ:{{ p.tags }}{% endif %}
+                {%- if p.services -%}プレイ:{{ p.services }}{%- endif -%}
+                {%- if p.services and p.tags -%}/{%- endif -%}
+                {%- if p.tags -%}タグ:{{ p.tags }}{%- endif -%}
               </div>
 
               <div class="muted">
