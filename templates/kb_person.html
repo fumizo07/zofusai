@@ -5,6 +5,7 @@
 {% set active_page = "kb" %}
 {% set store_kw = (store.name[:4] if store and store.name else "") %}
 {% set post_kw  = (person.name or "") %}
+{% set price_temp_usage_time_js = true %}
 {% include "_header.html" %}
 
 {# dto.jp の場合：
