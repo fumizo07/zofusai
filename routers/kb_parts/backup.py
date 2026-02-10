@@ -119,13 +119,14 @@ def kb_export(db: Session = Depends(get_db)):
             "services": getattr(p, "services", None),
             "tags": getattr(p, "tags", None),
             "memo": getattr(p, "memo", None),
-            # ★意思決定（候補ランク / リピ意思）
-            # - カラムが無い構成でも落ちないよう hasattr でガード
-            if hasattr(p, "candidate_rank"):
-                d["candidate_rank"] = getattr(p, "candidate_rank", None)
-            if hasattr(p, "repeat_intent"):
-                d["repeat_intent"] = getattr(p, "repeat_intent", None)
         }
+
+        # ★意思決定（候補ランク / リピ意思）
+        # - カラムが無い構成でも落ちないよう hasattr でガード
+        if hasattr(p, "candidate_rank"):
+            d["candidate_rank"] = getattr(p, "candidate_rank", None)
+        if hasattr(p, "repeat_intent"):
+            d["repeat_intent"] = getattr(p, "repeat_intent", None)
 
         # ★ favorite（お気に入り）
         if hasattr(p, "favorite"):
@@ -340,6 +341,7 @@ def kb_import(
             obj.services = (p.get("services", "") or "").strip() or None
             obj.tags = (p.get("tags", "") or "").strip() or None
             obj.memo = (p.get("memo", "") or "").strip() or None
+            
             # ★意思決定（候補ランク / リピ意思）
             # 仕様：
             # - repeat_intent: yes/hold/no 以外は None
@@ -354,7 +356,6 @@ def kb_import(
                 else:
                     cr = parse_int(p.get("candidate_rank", ""))
                     obj.candidate_rank = int(cr) if (cr is not None and 1 <= int(cr) <= 5) else None
-
 
             # ★ favorite（お気に入り）
             if hasattr(obj, "favorite"):
