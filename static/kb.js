@@ -66,84 +66,90 @@
     return (code - 64);
   }
 
-  // ============================================================
-  // KB：人物検索結果の並び替え
-  // ============================================================
-  function initKbPersonSearchSort() {
-    const sel = document.getElementById("kb_person_sort");
-    const list = document.getElementById("kb_person_results");
-    if (!sel || !list) return;
+// ============================================================
+// KB：人物検索結果の並び替え
+// ============================================================
+function initKbPersonSearchSort() {
+  const sel = document.getElementById("kb_person_sort");
+  const list = document.getElementById("kb_person_results");
+  if (!sel || !list) return;
 
-    const getNameKey = (el) => {
-      const ds = el?.dataset?.sortName;
-      if (ds && String(ds).trim()) return String(ds).trim();
-      const a = el.querySelector(".result-id a");
-      return (a?.textContent || "").trim();
-    };
+  const getNameKey = (el) => {
+    const ds = el?.dataset?.sortName;
+    if (ds && String(ds).trim()) return String(ds).trim();
+    const a = el.querySelector(".result-id a");
+    return (a?.textContent || "").trim();
+  };
 
-    const getNumKey = (el, key) => {
-      const v = el?.dataset ? el.dataset[key] : "";
-      return parseNumOrNull(v);
-    };
+  const getNumKey = (el, key) => {
+    const v = el?.dataset ? el.dataset[key] : "";
+    return parseNumOrNull(v);
+  };
 
-    function compareNullableNumber(a, b, asc) {
-      const aNull = (a == null);
-      const bNull = (b == null);
-      if (aNull && bNull) return 0;
-      if (aNull) return 1;
-      if (bNull) return -1;
-      return asc ? (a - b) : (b - a);
-    }
-
-    function applySort(mode) {
-      const items = Array.from(list.querySelectorAll(".kb-person-result"));
-      if (!items.length) return;
-
-      const enriched = items.map((el, idx) => ({
-        el,
-        idx,
-        name: getNameKey(el),
-        rating: getNumKey(el, "sortRating"),
-        cupRank: cupToRank(el?.dataset?.sortCup || ""),
-        height: getNumKey(el, "sortHeight"),
-        price: getNumKey(el, "sortPrice"),
-        age: getNumKey(el, "sortAge"),
-      }));
-
-      enriched.sort((A, B) => {
-        if (mode === "name") {
-          const c = A.name.localeCompare(B.name, "ja", { numeric: true, sensitivity: "base" });
-          if (c !== 0) return c;
-        } else if (mode === "height") {
-          const c = compareNullableNumber(A.height, B.height, true);
-          if (c !== 0) return c;
-        } else if (mode === "cup") {
-          const c = compareNullableNumber(A.cupRank, B.cupRank, false);
-          if (c !== 0) return c;
-        } else if (mode === "age") {
-          const c = compareNullableNumber(A.age, B.age, true);
-          if (c !== 0) return c;
-        } else if (mode === "price") {
-          const c = compareNullableNumber(A.price, B.price, true);
-          if (c !== 0) return c;
-        } else if (mode === "rating") {
-          const c = compareNullableNumber(A.rating, B.rating, false);
-          if (c !== 0) return c;
-        }
-
-        const cn = A.name.localeCompare(B.name, "ja", { numeric: true, sensitivity: "base" });
-        if (cn !== 0) return cn;
-        return A.idx - B.idx;
-      });
-
-      const frag = document.createDocumentFragment();
-      enriched.forEach((x) => frag.appendChild(x.el));
-      list.appendChild(frag);
-    }
-
-    sel.addEventListener("change", () => applySort(sel.value || "name"));
-    applySort(sel.value || "name");
+  function compareNullableNumber(a, b, asc) {
+    const aNull = (a == null);
+    const bNull = (b == null);
+    if (aNull && bNull) return 0;
+    if (aNull) return 1;   // nullは最後
+    if (bNull) return -1;
+    return asc ? (a - b) : (b - a);
   }
+
+  function applySort(mode) {
+    const items = Array.from(list.querySelectorAll(".kb-person-result"));
+    if (!items.length) return;
+
+    const enriched = items.map((el, idx) => ({
+      el,
+      idx,
+      name: getNameKey(el),
+      rating: getNumKey(el, "sortRating"),
+      cupRank: cupToRank(el?.dataset?.sortCup || ""),
+      height: getNumKey(el, "sortHeight"),
+      price: getNumKey(el, "sortPrice"),
+      age: getNumKey(el, "sortAge"),
+      cand: getNumKey(el, "sortCand"), // ★追加：候補ランク（1..5 / null）
+    }));
+
+    enriched.sort((A, B) => {
+      if (mode === "candidate") {
+        // 1→5が上、未設定(null)は下
+        const c = compareNullableNumber(A.cand, B.cand, true);
+        if (c !== 0) return c;
+      } else if (mode === "name") {
+        const c = A.name.localeCompare(B.name, "ja", { numeric: true, sensitivity: "base" });
+        if (c !== 0) return c;
+      } else if (mode === "height") {
+        const c = compareNullableNumber(A.height, B.height, true);
+        if (c !== 0) return c;
+      } else if (mode === "cup") {
+        const c = compareNullableNumber(A.cupRank, B.cupRank, false);
+        if (c !== 0) return c;
+      } else if (mode === "age") {
+        const c = compareNullableNumber(A.age, B.age, true);
+        if (c !== 0) return c;
+      } else if (mode === "price") {
+        const c = compareNullableNumber(A.price, B.price, true);
+        if (c !== 0) return c;
+      } else if (mode === "rating") {
+        const c = compareNullableNumber(A.rating, B.rating, false);
+        if (c !== 0) return c;
+      }
+
+      const cn = A.name.localeCompare(B.name, "ja", { numeric: true, sensitivity: "base" });
+      if (cn !== 0) return cn;
+      return A.idx - B.idx;
+    });
+
+    const frag = document.createDocumentFragment();
+    enriched.forEach((x) => frag.appendChild(x.el));
+    list.appendChild(frag);
+  }
+
+  sel.addEventListener("change", () => applySort(sel.value || "name"));
+  applySort(sel.value || "name");
+}
+
 
   // ============================================================
   // KB：星評価
