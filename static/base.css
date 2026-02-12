@@ -43,6 +43,7 @@ header h1 {
 }
 
 .nav-links {
+    display: flex;
     margin-top: 4px;
     font-size: 13px;
 }
@@ -1378,6 +1379,18 @@ input[type="time"] {
     object-fit: cover;
     border-radius: 8px;
     display: block;
+}
+
+@media (max-width: 768px) {
+    .kb-person-result {
+        flex-direction: column;
+    }
+    .kb-person-thumb {
+        height: auto;
+    }
+    .kb-quick-edit {
+        width: 100%;
+    }
 }
 
 .kb-person-result-text {
