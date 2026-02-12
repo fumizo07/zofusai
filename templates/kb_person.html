@@ -73,13 +73,13 @@
       
       <div>
         人物：<strong>{{ person.name }}</strong>
-         {%- if person.candidate_rank -%}／<span class="candidates">候補#{{ person.candidate_rank }}</span>{%- endif -%}
-         {%- if repeat_label -%}／<span class="candidates">{{ repeat_label }}</span>{%- endif -%}
-         {% if person.age %}／{{ person.age }}歳{% endif %}
-         {% if person.height_cm %}／T{{ person.height_cm }}{% endif %}
-         {% if person.bust_cm %}・B{{ person.bust_cm }}{% if person.cup %}(<strong>{{ person.cup }}</strong>){% endif %}{% endif %}
-         {% if person.waist_cm %}・W{{ person.waist_cm }}{% endif %}
-         {% if person.hip_cm %}・H{{ person.hip_cm }}{% endif %}
+         {%- if person.candidate_rank -%}/<span class="candidates">候補#{{ person.candidate_rank }}</span>{%- endif -%}
+         {%- if repeat_label -%}/<span class="candidates">{{ repeat_label }}</span>{%- endif -%}
+         {% if person.age %}/{{ person.age }}歳{% endif %}
+         {% if person.height_cm %}/T{{ person.height_cm }}{% endif %}
+         {% if person.bust_cm %}-B{{ person.bust_cm }}{% if person.cup %}(<strong>{{ person.cup }}</strong>){% endif %}{% endif %}
+         {% if person.waist_cm %}-W{{ person.waist_cm }}{% endif %}
+         {% if person.hip_cm %}-H{{ person.hip_cm }}{% endif %}
       </div>
       <div>{%- if person.services -%}プレイ：<strong>{{ person.services }}</strong>{%- endif -%}</div>
       <div>{%- if person.tags -%}タグ：<strong>{{ person.tags }}</strong>{%- endif -%}</div>
@@ -182,7 +182,7 @@
           <div class="kb-grid-label">候補ランク：</div>
           <div class="kb-grid-input">
             <select class="kb-input-sm kb-select" name="candidate_rank">
-              <option value="" {% if not person.candidate_rank %}selected{% endif %}>未設定（候補外）</option>
+              <option value="" {% if not person.candidate_rank %}selected{% endif %}>未設定</option>
               {% for n in range(1, 6) %}
                 <option value="{{ n }}" {% if person.candidate_rank == n %}selected{% endif %}>候補#{{ n }}</option>
               {% endfor %}
@@ -372,7 +372,7 @@
   </section>
 
   <section class="card">
-    <h2>利用ログ一覧（{{ visits|length }}件）</h2>
+    <h2>利用ログ一覧({{ visits|length }}件)</h2>
 
     {% if visits %}
       {% for v in visits %}
@@ -392,7 +392,7 @@
             {% endif %}
 
             {% if v.duration_min is not none %}
-              <span class="muted">／ {{ v.duration_min }}分</span>
+              <span class="muted">／ プレイ時間{{ v.duration_min }}分</span>
             {% endif %}
           </div>
 
