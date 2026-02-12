@@ -1,4 +1,4 @@
-// 002
+// 003
 // static/kb_diary_show.js
 (() => {
   "use strict";
@@ -20,6 +20,16 @@
 
   // Force押下→Userscript受信のACK待ち
   const FORCE_ACK_TIMEOUT_MS = 1500;
+
+  // ★重要：ソートによるDOM移動を MutationObserver が拾って再フェッチする自己ループを防ぐ
+  // rerunSort を投げた直後は、一定時間 MutationObserver のスケジュールを無視する
+  let suppressMoUntil = 0;
+  function suppressMutationFetch(ms) {
+    suppressMoUntil = Date.now() + (ms || 0);
+  }
+  function isSuppressedNow() {
+    return Date.now() < suppressMoUntil;
+  }
 
   function normalizeDiaryUrl(u) {
     const s = String(u || "").trim();
@@ -137,94 +147,109 @@
     }
   }
 
+  // ★同時実行ガード（増殖しても並列爆発しないように）
+  let latestInFlight = false;
+
   async function fetchDiaryLatestAndRender() {
-    const slots = Array.from(document.querySelectorAll('[data-kb-diary-slot][data-person-id]'));
-    if (!slots.length) return;
+    if (latestInFlight) return;
+    latestInFlight = true;
 
-    const uniqIds = [];
-    const seen = new Set();
+    try {
+      const slots = Array.from(document.querySelectorAll('[data-kb-diary-slot][data-person-id]'));
+      if (!slots.length) return;
 
-    slots.forEach((s) => {
-      const pid = parseInt(String(s.getAttribute("data-person-id") || "0"), 10);
-      if (!Number.isFinite(pid) || pid <= 0) return;
-      if (seen.has(pid)) return;
-      seen.add(pid);
-      uniqIds.push(pid);
-    });
+      const uniqIds = [];
+      const seen = new Set();
 
-    if (!uniqIds.length) return;
+      slots.forEach((s) => {
+        const pid = parseInt(String(s.getAttribute("data-person-id") || "0"), 10);
+        if (!Number.isFinite(pid) || pid <= 0) return;
+        if (seen.has(pid)) return;
+        seen.add(pid);
+        uniqIds.push(pid);
+      });
 
-    const qs = new URLSearchParams({ ids: uniqIds.join(",") });
-    qs.set("_", String(Date.now()));
+      if (!uniqIds.length) return;
 
-    const res = await fetch(`${DIARY_LATEST_API}?${qs.toString()}`, {
-      method: "GET",
-      credentials: "same-origin",
-      headers: { "Accept": "application/json" },
-      cache: "no-store",
-    }).catch(() => null);
+      const qs = new URLSearchParams({ ids: uniqIds.join(",") });
+      qs.set("_", String(Date.now()));
 
-    if (!res || !res.ok) return;
+      const res = await fetch(`${DIARY_LATEST_API}?${qs.toString()}`, {
+        method: "GET",
+        credentials: "same-origin",
+        headers: { "Accept": "application/json" },
+        cache: "no-store",
+      }).catch(() => null);
 
-    const json = await res.json().catch(() => null);
-    const items = (json && json.ok && Array.isArray(json.items)) ? json.items : [];
-    if (!items.length) return;
+      if (!res || !res.ok) return;
 
-    const byId = new Map();
-    items.forEach((it) => {
-      const pid = Number(it?.id || 0);
-      if (!Number.isFinite(pid) || pid <= 0) return;
-      byId.set(pid, it);
-    });
+      const json = await res.json().catch(() => null);
+      const items = (json && json.ok && Array.isArray(json.items)) ? json.items : [];
+      if (!items.length) return;
 
-    slots.forEach((slot) => {
-      const pid = parseInt(String(slot.getAttribute("data-person-id") || "0"), 10);
-      if (!Number.isFinite(pid) || pid <= 0) return;
+      const byId = new Map();
+      items.forEach((it) => {
+        const pid = Number(it?.id || 0);
+        if (!Number.isFinite(pid) || pid <= 0) return;
+        byId.set(pid, it);
+      });
 
-      const root = findDiaryRootForMeta(slot);
-      const st = byId.get(pid);
+      slots.forEach((slot) => {
+        const pid = parseInt(String(slot.getAttribute("data-person-id") || "0"), 10);
+        if (!Number.isFinite(pid) || pid <= 0) return;
 
-      if (st) {
-        const tracked = (typeof st.tracked === "boolean") ? st.tracked : parseTrackedFromSlot(slot);
-        const checkedAgo = (st.checked_ago_min != null) ? Number(st.checked_ago_min) : null;
-        const latestAgo = (st.latest_ago_days != null) ? Number(st.latest_ago_days) : null;
-        setDiaryMetaUi(root, {
-          tracked,
-          checked_ago_min: (checkedAgo != null && Number.isFinite(checkedAgo)) ? checkedAgo : null,
-          latest_ago_days: (latestAgo != null && Number.isFinite(latestAgo)) ? latestAgo : null,
-        });
-      } else {
-        setDiaryMetaUi(root, { tracked: parseTrackedFromSlot(slot), checked_ago_min: null, latest_ago_days: null });
-      }
+        const root = findDiaryRootForMeta(slot);
+        const st = byId.get(pid);
 
-      const existing = slot.querySelector("[data-kb-diary-new]");
-      const isNew = !!st?.is_new;
-      const latestTs = (st?.latest_ts != null) ? String(st.latest_ts) : "";
-      const openUrl = String(st?.open_url || "").trim();
-      // ★smartソート用：カード側に最新日記TSを反映（ms epoch）
-      const card = slot.closest(".kb-person-result");
-      if (card) card.dataset.diaryLatestTs = latestTs || "";
-      const attrUrl = String(slot.getAttribute("data-diary-url") || "").trim();
-      const url = normalizeDiaryUrl(openUrl || attrUrl);
-
-      if (!isNew || !latestTs || !url) {
-        if (existing) {
-          try { existing.remove(); } catch (_) { existing.style.display = "none"; }
+        if (st) {
+          const tracked = (typeof st.tracked === "boolean") ? st.tracked : parseTrackedFromSlot(slot);
+          const checkedAgo = (st.checked_ago_min != null) ? Number(st.checked_ago_min) : null;
+          const latestAgo = (st.latest_ago_days != null) ? Number(st.latest_ago_days) : null;
+          setDiaryMetaUi(root, {
+            tracked,
+            checked_ago_min: (checkedAgo != null && Number.isFinite(checkedAgo)) ? checkedAgo : null,
+            latest_ago_days: (latestAgo != null && Number.isFinite(latestAgo)) ? latestAgo : null,
+          });
+        } else {
+          setDiaryMetaUi(root, { tracked: parseTrackedFromSlot(slot), checked_ago_min: null, latest_ago_days: null });
         }
-        return;
-      }
 
-      if (!existing) {
-        const badge = createNewBadge(pid, url, latestTs);
-        slot.appendChild(badge);
-      } else {
-        try { existing.setAttribute("data-diary-key", latestTs); } catch (_) {}
-      }
-    });
+        const existing = slot.querySelector("[data-kb-diary-new]");
+        const isNew = !!st?.is_new;
+        const latestTs = (st?.latest_ts != null) ? String(st.latest_ts) : "";
+        const openUrl = String(st?.open_url || "").trim();
 
-    applyDiarySeenFromLocalStorage();
-    // ★smartの見た目を即反映（kb.js側に再ソートを依頼）
-    document.dispatchEvent(new CustomEvent("kb:personResults:rerunSort"));
+        // ★smartソート用：カード側に最新日記TSを反映（ms epoch）
+        const card = slot.closest(".kb-person-result");
+        if (card) card.dataset.diaryLatestTs = latestTs || "";
+
+        const attrUrl = String(slot.getAttribute("data-diary-url") || "").trim();
+        const url = normalizeDiaryUrl(openUrl || attrUrl);
+
+        if (!isNew || !latestTs || !url) {
+          if (existing) {
+            try { existing.remove(); } catch (_) { existing.style.display = "none"; }
+          }
+          return;
+        }
+
+        if (!existing) {
+          const badge = createNewBadge(pid, url, latestTs);
+          slot.appendChild(badge);
+        } else {
+          try { existing.setAttribute("data-diary-key", latestTs); } catch (_) {}
+        }
+      });
+
+      applyDiarySeenFromLocalStorage();
+
+      // ★重要：rerunSort によるDOM移動で MutationObserver が反応し、再フェッチする自己ループを防ぐ
+      // ソート直後しばらく MutationObserver 起因のfetchを抑制
+      suppressMutationFetch(1200);
+      document.dispatchEvent(new CustomEvent("kb:personResults:rerunSort"));
+    } finally {
+      latestInFlight = false;
+    }
   }
 
   // ============================================================
@@ -276,11 +301,13 @@
         if (list) {
           let t = null;
           const schedule = () => {
+            if (isSuppressedNow()) return; // ★ソート由来のDOM移動は無視
             if (t) clearTimeout(t);
             t = setTimeout(() => fetchDiaryLatestAndRender().catch(() => {}), 450);
           };
 
           const mo = new MutationObserver((mutations) => {
+            if (isSuppressedNow()) return; // ★ここでも抑制（保険）
             for (const m of mutations) {
               if (m.type !== "childList") continue;
 
@@ -366,7 +393,6 @@
           if (!stage) return;
           if (activeRid && rid && rid !== activeRid) return;
 
-          // 受信できた時点で「注入されてる」確度が上がる
           if (stage === "force_received") { clearAckTimer(); setStatus("受信…"); }
           else if (stage === "force_debounced") { clearAckTimer(); setStatus("連打防止"); }
           else if (stage === "force_accept") { clearAckTimer(); setStatus("取得開始…"); }
@@ -411,14 +437,12 @@
         activeRid = newRid();
         setStatus("送信…");
 
-        // ACK待ちタイムアウト：注入されてない/ガードでreturn等を可視化
         clearAckTimer();
         ackTimer = setTimeout(() => {
           ackTimer = null;
           setStatus("Userscript未注入/合言葉未許可の可能性");
         }, FORCE_ACK_TIMEOUT_MS);
 
-        // ★documentへ送るのが本命
         const detail = {
           rid: activeRid,
           origin: "button",
@@ -441,6 +465,10 @@
   }
 
   document.addEventListener("DOMContentLoaded", () => {
+    // ここに入れると「initが何回呼ばれたか」が分かりやすいです
+    window.__kbDiaryInitCount = (window.__kbDiaryInitCount || 0) + 1;
+    console.log("[kb_diary_show] init count =", window.__kbDiaryInitCount);
+
     initKbDiaryNewBadges();
     initKbDiaryForceButton();
   });

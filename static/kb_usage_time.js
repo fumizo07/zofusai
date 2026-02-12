@@ -22,7 +22,7 @@
   }
 
   function initKbDuration() {
-    const forms = document.querySelectorAll("form");
+    const forms = document.querySelectorAll('form[data-kb-duration-form]');
     if (!forms || !forms.length) return;
 
     forms.forEach((form) => {
