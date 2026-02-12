@@ -230,25 +230,26 @@
             </div>
             <form class="kb-quick-edit" method="post" action="/kb/person/{{ p.id }}/quick_update">
               <select name="candidate_rank">
-                <option value="" {% if not p.candidate_rank %}selected{% endif %}>候補なし</option>
+                <option value="" {% if not p.candidate_rank %}selected{% endif %}>未設定</option>
                 {% for n in range(1, 6) %}
                   <option value="{{ n }}" {% if p.candidate_rank == n %}selected{% endif %}>候補#{{ n }}</option>
                 {% endfor %}
               </select>
             
               <select name="repeat_intent">
-                <option value="" {% if not p.repeat_intent %}selected{% endif %}>行動未</option>
+                <option value="" {% if not p.repeat_intent %}selected{% endif %}>未判定</option>
                 <option value="yes"  {% if p.repeat_intent == 'yes' %}selected{% endif %}>リピ確</option>
                 <option value="hold" {% if p.repeat_intent == 'hold' %}selected{% endif %}>保留</option>
                 <option value="no"   {% if p.repeat_intent == 'no' %}selected{% endif %}>NG</option>
               </select>
             
               <select name="next_action">
-                <option value="" {% if not p.next_action %}selected{% endif %}>次:未</option>
-                <option value="research" {% if p.next_action == 'research' %}selected{% endif %}>調べる</option>
-                <option value="reserve"  {% if p.next_action == 'reserve' %}selected{% endif %}>予約する</option>
-                <option value="revisit"  {% if p.next_action == 'revisit' %}selected{% endif %}>再訪検討</option>
-                <option value="hold"     {% if p.next_action == 'hold' %}selected{% endif %}>見送り</option>
+                <option value="" {% if not p.next_action %}selected{% endif %}>未設定</option>
+                <option value="調べる" {% if p.next_action == "調べる" %}selected{% endif %}>調べる</option>
+                <option value="予約する" {% if p.next_action == "予約する" %}selected{% endif %}>予約する</option>
+                <option value="再訪検討" {% if p.next_action == "再訪検討" %}selected{% endif %}>再訪検討</option>
+                <option value="見送り" {% if p.next_action == "見送り" %}selected{% endif %}>見送り</option>
+                <option value="メモだけ" {% if p.next_action == "メモだけ" %}selected{% endif %}>メモだけ</option>
               </select>
             </form>
           </div>
