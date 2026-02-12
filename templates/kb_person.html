@@ -196,7 +196,7 @@
             <select class="kb-input-sm kb-select" name="repeat_intent">
               <option value="" {% if not person.repeat_intent %}selected{% endif %}>未判定</option>
               <option value="yes"  {% if person.repeat_intent == 'yes' %}selected{% endif %}>リピ確定</option>
-              <option value="hold" {% if person.repeat_intent == 'hold' %}selected{% endif %}>リピ保留</option>
+              <option value="hold" {% if person.repeat_intent == 'hold' %}selected{% endif %}>保留</option>
               <option value="no"   {% if person.repeat_intent == 'no' %}selected{% endif %}>NG</option>
             </select>
             {# repeat_intent の表示ラベル #}
@@ -216,12 +216,12 @@
           </div>
         </div>
 
-        {# 次アクション（軽いタスクボード化） #}
+        {# 次のアクション（軽いタスクボード化） #}
         <div class="inner-flex-box">
-          <div class="kb-grid-label">次アクション：</div>
+          <div class="kb-grid-label">次のアクション：</div>
           <div class="kb-grid-input">
             <select class="kb-input-sm kb-select" name="next_action">
-              <option value="" {% if not person.next_action %}selected{% endif %}>(未設定)</option>
+              <option value="" {% if not person.next_action %}selected{% endif %}>未設定</option>
               <option value="調べる" {% if person.next_action == "調べる" %}selected{% endif %}>調べる</option>
               <option value="予約する" {% if person.next_action == "予約する" %}selected{% endif %}>予約する</option>
               <option value="再訪検討" {% if person.next_action == "再訪検討" %}selected{% endif %}>再訪検討</option>
