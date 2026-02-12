@@ -183,9 +183,7 @@
                   {{ '★' if p.favorite else '☆' }}
                 </button>
 
-                <a href="/kb/person/{{ p.id }}">{{ p.name }}</a><!-- 空白除去
-                -->{# 候補ランク / リピ意思（表示だけ） #}
-                {# 次アクション #}
+                <a href="/kb/person/{{ p.id }}">{{ p.name }}</a>
                 {%- if p.next_action -%}
                   <span class="sep">/</span><span class="kb-next-action">{{ p.next_action }}</span>
                 {%- endif -%}
