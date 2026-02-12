@@ -421,18 +421,16 @@
         <div class="thread-results">
           {% for s in stores %}
             <div class="result">
-              <div class="result-id">
-                <a href="/kb/store/{{ s.id }}">{{ s.name }}</a>
-                <span class="muted">（{{ (person_counts or {}).get(s.id, 0) }}人）</span>
-              
-                <button type="button"
+              <div class="result-id stores-box">
+                <a href="/kb/store/{{ s.id }}">{{ s.name }}</a><!-- 空白除去
+                --><span class="muted">({{ (person_counts or {}).get(s.id, 0) }}人)</span><!-- 空白除去
+                --><button type="button"
                         class="btn-secondary kb-store-edit-btn"
                         data-kb-store-edit-toggle="1"
                         data-store-id="{{ s.id }}">
                   編集
                 </button>
               </div>
-              
               <form method="post"
                     action="/kb/store/{{ s.id }}/update"
                     class="kb-store-edit-form kb-hidden"
