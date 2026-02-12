@@ -128,6 +128,10 @@ def kb_export(db: Session = Depends(get_db)):
         if hasattr(p, "repeat_intent"):
             d["repeat_intent"] = getattr(p, "repeat_intent", None)
 
+        # ★ next_action（次アクション）
+        if hasattr(p, "next_action"):
+            d["next_action"] = getattr(p, "next_action", None)
+
         # ★ favorite（お気に入り）
         if hasattr(p, "favorite"):
             try:
@@ -181,7 +185,7 @@ def kb_export(db: Session = Depends(get_db)):
         }
 
     payload = {
-        "version": 5,  # ★ candidate_rank / repeat_intent を追加
+        "version": 6,  # ★ next_action を追加
         "exported_at_utc": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
         "regions": [region_to_dict(r) for r in regions],
         "stores": [store_to_dict(s) for s in stores],
@@ -341,6 +345,10 @@ def kb_import(
             obj.services = (p.get("services", "") or "").strip() or None
             obj.tags = (p.get("tags", "") or "").strip() or None
             obj.memo = (p.get("memo", "") or "").strip() or None
+
+            # ★ next_action（次アクション）
+            if hasattr(obj, "next_action"):
+                obj.next_action = (p.get("next_action", "") or "").strip() or None
             
             # ★意思決定（候補ランク / リピ意思）
             # 仕様：
