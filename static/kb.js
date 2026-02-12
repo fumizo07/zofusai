@@ -60,6 +60,17 @@
       return String(el?.dataset?.repeat || "").trim().toLowerCase(); // yes/hold/no/""
     }
 
+    function getNextActionRank(el) {
+      const a = String(el?.dataset?.nextAction || "").trim();
+      if (!a) return 99;
+      if (a === "調べる") return 0;
+      if (a === "予約する") return 1;
+      if (a === "再訪検討") return 2;
+      if (a === "見送り") return 3;
+      if (a === "メモだけ") return 4;
+      return 9;
+    }
+    
     function applyFilter(items) {
       const repeatVal = String(repeatSel?.value || "").trim().toLowerCase(); // yes/hold/no/""
       const hideNg = !!hideNgChk?.checked;
@@ -101,6 +112,7 @@
         price: getNumKey(el, "sortPrice"),
         age: getNumKey(el, "sortAge"),
         cand: getNumKey(el, "sortCand"), // 1..5 / null
+        nextActionRank: getNextActionRank(el),
         lastVisitTs: getNumKey(el, "lastVisitTs"),
         diaryLatestTs: getNumKey(el, "diaryLatestTs"),
       }));
@@ -120,12 +132,18 @@
             const c1 = compareNullableNumber(A.cand, B.cand, true);
             if (c1 !== 0) return c1;
 
+            const cAct = compareNullableNumber(A.nextActionRank, B.nextActionRank, true);
+            if (cAct !== 0) return cAct;
+
             const c2 = compareNullableNumber(A.diaryLatestTs, B.diaryLatestTs, false);
             if (c2 !== 0) return c2;
 
             const c3 = compareNullableNumber(A.lastVisitTs, B.lastVisitTs, true);
             if (c3 !== 0) return c3;
           } else {
+            const cAct = compareNullableNumber(A.nextActionRank, B.nextActionRank, true);
+            if (cAct !== 0) return cAct;
+            
             // 3) 候補外は 日記最新(新しい→古い) → 最終訪問(古い→新しい)
             const c2 = compareNullableNumber(A.diaryLatestTs, B.diaryLatestTs, false);
             if (c2 !== 0) return c2;
