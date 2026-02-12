@@ -1489,13 +1489,14 @@ input[type="time"] {
 
 .candidates {
     color:#dc0032;
+    font-weight: normal;
 }
 
 .kb-hidden {
   display: none !important;
 }
 
-.kb-warn{
+.kb-warn {
   border: 1px solid #caa;
   background: #fff5f5;
   padding: 10px 12px;
@@ -1503,3 +1504,7 @@ input[type="time"] {
   margin: 10px 0 12px;
 }
 
+.kb-next-action {
+    color:#009500;
+    font-weight: normal;
+}
