@@ -1519,7 +1519,8 @@ input[type="time"] {
 }
 
 @media (max-width: 768px) {
-    .stores-box span.muted {
+    .stores-box span.muted,
+    .kb-store-edit-btn{
         flex: 0 0 auto;
     }
 }
