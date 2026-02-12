@@ -434,7 +434,6 @@ def kb_add_region(request: Request, name: str = Form(""), db: Session = Depends(
 
     return RedirectResponse(url="/kb", status_code=303)
 
-
 @router.post("/kb/store")
 def kb_add_store(
     request: Request,
@@ -461,6 +460,42 @@ def kb_add_store(
 
     return RedirectResponse(url="/kb", status_code=303)
 
+@router.post("/kb/store/{store_id}/update")
+def kb_update_store(
+    request: Request,
+    store_id: int,
+    name: str = Form(""),
+    db: Session = Depends(get_db),
+):
+    back_url = request.headers.get("referer") or f"/kb/store/{store_id}"
+
+    s = db.query(KBStore).filter(KBStore.id == int(store_id)).first()
+    if not s:
+        return RedirectResponse(url="/kb", status_code=303)
+
+    new_name = (name or "").strip()
+    if not new_name:
+        return RedirectResponse(url=back_url, status_code=303)
+
+    # 同一regionで重複名を禁止（UniqueConstraint対策）
+    dup = (
+        db.query(KBStore)
+        .filter(KBStore.region_id == s.region_id, KBStore.name == new_name, KBStore.id != s.id)
+        .first()
+    )
+    if dup:
+        return RedirectResponse(url=back_url + "?store_update=dup", status_code=303)
+
+    try:
+        s.name = new_name
+        if hasattr(s, "name_norm"):
+            s.name_norm = norm_text(new_name)
+        db.commit()
+    except Exception:
+        db.rollback()
+        return RedirectResponse(url=back_url + "?store_update=failed", status_code=303)
+
+    return RedirectResponse(url=back_url + "?store_update=done", status_code=303)
 
 @router.get("/kb/store/{store_id}", response_class=HTMLResponse)
 def kb_store_page(
