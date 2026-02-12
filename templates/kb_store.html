@@ -16,6 +16,22 @@
     <div class="thread-info">
       <div>地域：<strong>{{ region.name if region else "（不明）" }}</strong></div>
       <div>店舗：<strong>{{ store.name }}</strong></div>
+      {# 店舗名の編集（追加） #}
+      <form method="post" action="/kb/store/{{ store.id }}/update" class="kb-store-edit-form">
+        <div class="form-row">
+          <label class="muted">店舗名を変更：</label>
+          <input type="text" name="name" value="{{ store.name }}" required>
+          <button type="submit" class="btn-secondary">保存</button>
+        </div>
+      
+        {% if request.query_params.get("store_update") == "dup" %}
+          <div class="muted">⚠ 同じ地域に同名の店舗があるため保存できませんでした。</div>
+        {% elif request.query_params.get("store_update") == "failed" %}
+          <div class="muted">⚠ 保存に失敗しました。</div>
+        {% elif request.query_params.get("store_update") == "done" %}
+          <div class="muted">✅ 保存しました。</div>
+        {% endif %}
+      </form>
     </div>
   </section>
 
