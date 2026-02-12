@@ -1489,6 +1489,7 @@ input[type="time"] {
 
 .candidates {
     color:#dc0032;
+    font-weight: normal;
 }
 
 .kb-hidden {
@@ -1505,4 +1506,5 @@ input[type="time"] {
 
 .kb-next-action {
     color:#009500;
+    font-weight: normal;
 }
