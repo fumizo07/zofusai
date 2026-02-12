@@ -424,7 +424,24 @@
               <div class="result-id">
                 <a href="/kb/store/{{ s.id }}">{{ s.name }}</a>
                 <span class="muted">（{{ (person_counts or {}).get(s.id, 0) }}人）</span>
+              
+                <button type="button"
+                        class="btn-secondary kb-store-edit-btn"
+                        data-kb-store-edit-toggle="1"
+                        data-store-id="{{ s.id }}">
+                  編集
+                </button>
               </div>
+              
+              <form method="post"
+                    action="/kb/store/{{ s.id }}/update"
+                    class="kb-store-edit-form kb-hidden"
+                    data-kb-store-edit-form="1"
+                    data-store-id="{{ s.id }}">
+                <input type="text" name="name" value="{{ s.name }}" class="kb-input-sm" style="max-width: 260px;">
+                <button type="submit" class="btn-primary">保存</button>
+                <button type="button" class="btn-secondary" data-kb-store-edit-cancel="1">キャンセル</button>
+              </form>
             </div>
           {% endfor %}
         </div>
