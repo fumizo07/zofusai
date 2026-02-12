@@ -942,6 +942,50 @@ def kb_update_person(
 
     return RedirectResponse(url=back_url, status_code=303)
 
+@router.post("/kb/person/{person_id}/quick_update")
+def kb_quick_update_person(
+    request: Request,
+    person_id: int,
+    candidate_rank: str = Form(""),
+    repeat_intent: str = Form(""),
+    next_action: str = Form(""),
+    db: Session = Depends(get_db),
+):
+    back_url = request.headers.get("referer") or "/kb"
+
+    p = db.query(KBPerson).filter(KBPerson.id == int(person_id)).first()
+    if not p:
+        return RedirectResponse(url=back_url, status_code=303)
+
+    try:
+        # --- repeat_intent: yes/hold/no 以外は None
+        ri = (repeat_intent or "").strip().lower()
+        if hasattr(p, "repeat_intent"):
+            p.repeat_intent = ri if ri in ("yes", "hold", "no") else None
+
+        # --- candidate_rank: 1..5 / repeat が入ってたら必ず None
+        if hasattr(p, "candidate_rank"):
+            if getattr(p, "repeat_intent", None) is not None:
+                p.candidate_rank = None
+            else:
+                cr = parse_int((candidate_rank or "").strip())
+                p.candidate_rank = int(cr) if (cr is not None and 1 <= int(cr) <= 5) else None
+
+        # --- next_action: （設計に合わせて）自由入力 or enum
+        if hasattr(p, "next_action"):
+            na = (next_action or "").strip()
+            p.next_action = na or None
+
+        # 検索用blobを更新（あなたの設計だとここ重要）
+        p.search_norm = build_person_search_blob(db, p)
+
+        db.commit()
+    except Exception:
+        db.rollback()
+
+    return RedirectResponse(url=back_url, status_code=303)
+
+
 @router.post("/kb/person/{person_id}/visit")
 def kb_add_visit(
     request: Request,
