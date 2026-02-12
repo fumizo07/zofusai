@@ -216,7 +216,7 @@
           </div>
         </div>
 
-        {# ★追加：次アクション（軽いタスクボード化） #}
+        {# 次アクション（軽いタスクボード化） #}
         <div class="inner-flex-box">
           <div class="kb-grid-label">次アクション：</div>
           <div class="kb-grid-input">
@@ -290,7 +290,7 @@
   <section class="card">
     <h2>利用ログを追加</h2>
 
-    <form method="post" action="/kb/person/{{ person.id }}/visit">
+    <form data-kb-duration-form method="post" action="/kb/person/{{ person.id }}/visit">
       <div class="form-row">
         <label>利用日：</label>
         <input type="date" name="visited_at">
