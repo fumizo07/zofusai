@@ -232,7 +232,7 @@
   }
 
   // ============================================================
-  // ★追加：KB パニックボタン（チェックONで有効化）
+  // KB パニックボタン（チェックONで有効化）
   // ============================================================
   function initKbPanicCheck() {
     const chk = document.getElementById("kb_panic_check");
@@ -250,7 +250,7 @@
   }
 
   // ============================================================
-  // ★追加：KB バックアップ生成＆コピー＋インポート確認
+  // KB バックアップ生成＆コピー＋インポート確認
   // ============================================================
   function initKbBackupUi() {
     const btnGen = document.getElementById("kb_backup_generate");
@@ -329,6 +329,31 @@
       }
     });
   }
+  
+
+  // ============================================================
+  // KB 店舗名編集+保存
+  // ============================================================
+  function initKbStoreInlineEdit() {
+  // 編集ボタンのクリックを委譲で拾う（一覧は繰り返し要素なのでこれが安全）
+  document.addEventListener("click", (ev) => {
+    const btn = ev.target?.closest?.("[data-kb-store-edit-toggle='1']");
+    if (btn) {
+      const storeId = String(btn.dataset.storeId || "");
+      const form = document.querySelector(`[data-kb-store-edit-form='1'][data-store-id='${storeId}']`);
+      if (form) form.classList.toggle("kb-hidden");
+      return;
+    }
+
+    const cancel = ev.target?.closest?.("[data-kb-store-edit-cancel='1']");
+    if (cancel) {
+      const form = cancel.closest("form");
+      if (form) form.classList.add("kb-hidden");
+      return;
+    }
+  });
+}
+
 
   // ============================================================
   // 起動
@@ -339,6 +364,7 @@
     // ★日記系は kb_diary_show.js 側で起動します
     // ★料金項目/テンプレは kb_price_temp.js 側で起動します（kb_person.html だけ_footer.htmlで読み込む想定）
     // ★利用時間は kb_usage_time.js 側で起動します（kb_person.html だけ_footer.htmlで読み込む想定）
+    initKbStoreInlineEdit();
     initKbPanicCheck();
     initKbBackupUi();
   });
