@@ -8,9 +8,9 @@
 {% set price_temp_usage_time_js = true %}
 {% include "_header.html" %}
 
-{# dto.jp の場合：
-   - 画面表示（DB保存値）は person.url をそのまま使う（＝ www.dto.jp のまま表示される）
-   - クリックで開くURL（href）だけ dto.jp に寄せる（www / s を除去）
+{# dto の場合：
+   - 画面表示（DB保存値）は person.url をそのまま使う（＝ www のまま表示される）
+   - クリックで開くURL（href）だけ www / s を除去
 #}
 {% set profile_open_url = (person.url or '') %}
 {% if profile_open_url.startswith('https://www.dto.jp') %}
@@ -28,6 +28,19 @@
 
   <section class="card">
     <div class="section-title">人物</div>
+    {# ★重複警告（URL一致）: pages.py が ?dup_url=1,2,3 を付けて返す #}
+    {% set dup_url = request.query_params.get("dup_url") or "" %}
+    {% if dup_url %}
+      <div class="kb-warn">
+        <strong>⚠ URL重複の可能性</strong>：同じURL(正規化後)が登録済みの人物があります(ID: {{ dup_url }})。
+        <div class="muted">※保存は完了しています。別人の可能性もあるので、必要なら該当IDを開いて確認してください。</div>
+        <div class="muted">
+          {% for pid in dup_url.split(',') if pid %}
+            <a href="/kb/person/{{ pid|trim }}">→ 人物ID {{ pid|trim }} を開く</a>{% if not loop.last %} / {% endif %}
+          {% endfor %}
+        </div>
+      </div>
+    {% endif %}
 
     <p class="back-link">
       <a href="/kb/store/{{ store.id if store else '' }}">店舗に戻る</a>
