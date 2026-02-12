@@ -1508,3 +1508,18 @@ input[type="time"] {
     color:#009500;
     font-weight: normal;
 }
+
+.stores-box {
+    display: flex;
+    align-items: baseline;
+}
+
+.kb-store-edit-btn {
+    margin-left: auto;
+}
+
+@media (max-width: 768px) {
+    .stores-box span.muted {
+        flex: 0 0 auto;
+    }
+}
