@@ -245,11 +245,11 @@
             
               <select name="next_action">
                 <option value="" {% if not p.next_action %}selected{% endif %}>未設定</option>
-                <option value="調べる"    {% if p.next_action == "調べる" %}selected{% endif %}>調べる</option>
-                <option value="予約する"  {% if p.next_action == "予約する" %}selected{% endif %}>予約する</option>
-                <option value="再訪検討"  {% if p.next_action == "再訪検討" %}selected{% endif %}>再訪検討</option>
-                <option value="見送り"    {% if p.next_action == "見送り" %}selected{% endif %}>見送り</option>
-                <option value="メモだけ"  {% if p.next_action == "メモだけ" %}selected{% endif %}>メモだけ</option>
+                <option value="調べる" {% if p.next_action == "調べる" %}selected{% endif %}>調べる</option>
+                <option value="予約する" {% if p.next_action == "予約する" %}selected{% endif %}>予約する</option>
+                <option value="再訪検討" {% if p.next_action == "再訪検討" %}selected{% endif %}>再訪検討</option>
+                <option value="見送り" {% if p.next_action == "見送り" %}selected{% endif %}>見送り</option>
+                <option value="メモだけ" {% if p.next_action == "メモだけ" %}selected{% endif %}>メモだけ</option>
               </select>
             </form>
           </div>
