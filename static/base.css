@@ -1494,3 +1494,12 @@ input[type="time"] {
 .kb-hidden {
   display: none !important;
 }
+
+.kb-warn{
+  border: 1px solid #caa;
+  background: #fff5f5;
+  padding: 10px 12px;
+  border-radius: 8px;
+  margin: 10px 0 12px;
+}
+

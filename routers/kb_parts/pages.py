@@ -150,6 +150,40 @@ def _coerce_dto_hosts(fetch_url: str) -> Tuple[str, str]:
     return fetch_www, open_sp
 
 
+def _normalize_url_for_dup(raw: str) -> str:
+    """
+    重複検出用のURL正規化キーを作る。
+    - スキームは https 扱い（_normalize_url_https を使う）
+    - host は小文字、www. は除去
+    - dto系は click側に寄せる（www/s の揺れ吸収）
+    - query/fragment は捨てる（追跡パラメータ等の揺れを吸収）
+    - path 末尾の / は除去
+    """
+    u0 = _normalize_url_https(raw)
+    if not u0:
+        return ""
+
+    # dto系は open(host=dto.jp) に寄せて揺れ吸収
+    fetch_url, open_url = _coerce_dto_hosts(u0)
+    u = urlparse(open_url or u0)
+
+    host = (u.netloc or "").strip().lower()
+    if host.startswith("www."):
+        host = host[4:]
+
+    path = (u.path or "").strip()
+    # 末尾スラッシュは削る（/diary/ と /diary の揺れ等）
+    path = path.rstrip("/")
+
+    if not host:
+        return ""
+
+    # query/fragment は捨てる
+    key = f"{host}{path}"
+    return key
+
+
+
 def _attach_diary_urls_for_templates(persons: List[KBPerson]) -> Tuple[dict[int, str], dict[int, str]]:
     """
     persons の各要素に、テンプレで使えるよう下記を付与します。
@@ -720,6 +754,10 @@ def kb_update_person(
     url: str = Form(""),
     image_urls_text: str = Form(""),
     memo: str = Form(""),
+    next_action: str = Form(""),
+    reason_good: str = Form(""),
+    reason_bad: str = Form(""),
+    reason_next: str = Form(""),
     candidate_rank: str = Form(""),   # 未設定/1..5
     repeat_intent: str = Form(""),    # 未判定/yes/hold/no
     track_diary: str = Form(""),  # フロント name="track_diary"
@@ -762,13 +800,45 @@ def kb_update_person(
             u = (url or "").strip()
             p.url = u or None
             if hasattr(p, "url_norm"):
-                p.url_norm = norm_text(p.url or "")
+                p.url_norm = _normalize_url_for_dup(p.url or "")
+
+        # ============================================================
+        # ★重複検出（URL）
+        # - url_norm が同じ人が他にいるなら「dup_url」クエリで警告表示へ
+        #   ※テンプレ側で表示は次のステップで実装（まずは検出を確実に）
+        # ============================================================
+        dup_url_ids = []
+        try:
+            if getattr(p, "url_norm", None):
+                qdup = (
+                    db.query(KBPerson)
+                    .filter(
+                        KBPerson.id != int(person_id),
+                        KBPerson.url_norm == p.url_norm,
+                    )
+                    .all()
+                )
+                dup_url_ids = [str(int(x.id)) for x in qdup if x and getattr(x, "id", None)]
+        except Exception:
+            dup_url_ids = []
+
 
         if hasattr(p, "image_urls"):
             urls = sanitize_image_urls(image_urls_text or "")
             p.image_urls = urls or None
 
         p.memo = (memo or "").strip() or None
+
+        # ★次アクション & 判断理由テンプレ
+        if hasattr(p, "next_action"):
+            p.next_action = (next_action or "").strip() or None
+        if hasattr(p, "reason_good"):
+            p.reason_good = (reason_good or "").strip() or None
+        if hasattr(p, "reason_bad"):
+            p.reason_bad = (reason_bad or "").strip() or None
+        if hasattr(p, "reason_next"):
+            p.reason_next = (reason_next or "").strip() or None
+
 
         # ============================================================
         # ★意思決定（確定仕様）
@@ -823,12 +893,19 @@ def kb_update_person(
 
         p.search_norm = build_person_search_blob(db, p)
 
+        # URL重複が見つかった場合は、保存はするが「警告付きで戻す」ためにフラグを立てる
+        dup_url_param = ",".join(dup_url_ids) if dup_url_ids else ""
+
         db.commit()
     except Exception:
         db.rollback()
 
-    return RedirectResponse(url=back_url, status_code=303)
+    # dup_url がある時はクエリで返す（テンプレで警告表示に使う）
+    if "dup_url_param" in locals() and dup_url_param:
+        sep = "&" if ("?" in back_url) else "?"
+        return RedirectResponse(url=f"{back_url}{sep}dup_url={dup_url_param}", status_code=303)
 
+    return RedirectResponse(url=back_url, status_code=303)
 
 @router.post("/kb/person/{person_id}/visit")
 def kb_add_visit(

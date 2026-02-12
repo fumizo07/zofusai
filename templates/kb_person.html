@@ -8,9 +8,9 @@
 {% set price_temp_usage_time_js = true %}
 {% include "_header.html" %}
 
-{# dto.jp の場合：
-   - 画面表示（DB保存値）は person.url をそのまま使う（＝ www.dto.jp のまま表示される）
-   - クリックで開くURL（href）だけ dto.jp に寄せる（www / s を除去）
+{# dto の場合：
+   - 画面表示（DB保存値）は person.url をそのまま使う（＝ www のまま表示される）
+   - クリックで開くURL（href）だけ www / s を除去
 #}
 {% set profile_open_url = (person.url or '') %}
 {% if profile_open_url.startswith('https://www.dto.jp') %}
@@ -28,6 +28,19 @@
 
   <section class="card">
     <div class="section-title">人物</div>
+    {# ★重複警告（URL一致）: pages.py が ?dup_url=1,2,3 を付けて返す #}
+    {% set dup_url = request.query_params.get("dup_url") or "" %}
+    {% if dup_url %}
+      <div class="kb-warn">
+        <strong>⚠ URL重複の可能性</strong>：同じURL(正規化後)が登録済みの人物があります(ID: {{ dup_url }})。
+        <div class="muted">※保存は完了しています。別人の可能性もあるので、必要なら該当IDを開いて確認してください。</div>
+        <div class="muted">
+          {% for pid in dup_url.split(',') if pid %}
+            <a href="/kb/person/{{ pid|trim }}">→ 人物ID {{ pid|trim }} を開く</a>{% if not loop.last %} / {% endif %}
+          {% endfor %}
+        </div>
+      </div>
+    {% endif %}
 
     <p class="back-link">
       <a href="/kb/store/{{ store.id if store else '' }}">店舗に戻る</a>
@@ -203,20 +216,36 @@
           </div>
         </div>
 
-        {# ★追加：写メ日記の追跡フラグ（URLがある人物のみ対象） #}
+        {# ★追加：次アクション（軽いタスクボード化） #}
         <div class="inner-flex-box">
-          <div class="kb-grid-label">写メ日記：</div>
+          <div class="kb-grid-label">次アクション：</div>
+          <div class="kb-grid-input">
+            <select class="kb-input-sm kb-select" name="next_action">
+              <option value="" {% if not person.next_action %}selected{% endif %}>(未設定)</option>
+              <option value="調べる" {% if person.next_action == "調べる" %}selected{% endif %}>調べる</option>
+              <option value="予約する" {% if person.next_action == "予約する" %}selected{% endif %}>予約する</option>
+              <option value="再訪検討" {% if person.next_action == "再訪検討" %}selected{% endif %}>再訪検討</option>
+              <option value="見送り" {% if person.next_action == "見送り" %}selected{% endif %}>見送り</option>
+              <option value="メモだけ" {% if person.next_action == "メモだけ" %}selected{% endif %}>メモだけ</option>
+            </select>
+            <div class="muted">※「次に何する？」を1秒で決めるためのメモです。</div>
+          </div>
+        </div>
+
+        {# 日記の追跡フラグ（URLがある人物のみ対象） #}
+        <div class="inner-flex-box">
+          <div class="kb-grid-label">日記：</div>
           <div class="kb-grid-input">
             {% if person.url %}
               <label>
                 <input type="checkbox" name="track_diary" value="1" {% if track_diary %}checked{% endif %}>
-                写メ日記を追跡する
+                日記を追跡する
               </label>
               <div class="muted">※検索時の取得対象が「追跡ON」の人物だけになります。</div>
             {% else %}
               <label class="muted">
                 <input type="checkbox" disabled>
-                写メ日記を追跡する(URL未登録のため不可)
+                日記を追跡する(URL未登録のため不可)
               </label>
               <div class="muted">※まずURLを登録してください。</div>
             {% endif %}
@@ -229,6 +258,16 @@
                     placeholder="1行に1つ、http(s)の直リンクURLを貼ってください(例：https://.../a.jpg)">{% if person.image_urls %}{{ person.image_urls|join('\n') }}{% endif %}</textarea>
           <div class="muted">※画像自体は保存せず、URLだけ保存します。表示はブラウザが外部から読み込みます。</div>
         </div>
+
+        {# 判断理由テンプレ（ミニ構造化メモ） #}
+        <div class="kb-grid-label">判断理由(良)：</div>
+        <div><textarea name="reason_good" rows="4" placeholder="良かった点(箇条書き推奨)">{{ person.reason_good or '' }}</textarea></div>
+
+        <div class="kb-grid-label">判断理由(悪)：</div>
+        <div><textarea name="reason_bad" rows="4" placeholder="気になった点(箇条書き推奨)">{{ person.reason_bad or '' }}</textarea></div>
+
+        <div class="kb-grid-label">次回の条件：</div>
+        <div><textarea name="reason_next" rows="4" placeholder="○○なら再訪/△△なら見送り など">{{ person.reason_next or '' }}</textarea></div>
 
         <div class="kb-grid-label">メモ：</div>
         <div><textarea name="memo" rows="15">{{ person.memo or '' }}</textarea></div>

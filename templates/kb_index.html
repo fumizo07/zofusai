@@ -242,9 +242,9 @@
 
           {# =========================
              日記URL（ベースURL + "/diary"）
-             dto.jp の場合：
-               - 取得(data-diary-url)は www.dto.jp に寄せる（fetch側）
-               - 外部リンク(プロフ)は dto.jp に寄せる（クリック側）
+             dto の場合：
+               - 取得(data-diary-url)は www に寄せる（fetch側）
+               - 外部リンク(プロフ)は www / s を削除（クリック側）
              ========================= #}
 
           {% set base_url = (p.url or '') %}

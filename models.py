@@ -136,16 +136,15 @@ class KBPerson(Base):
     services = Column(Text, nullable=True)
     tags = Column(Text, nullable=True)
 
-    # ★追加：URL
     url = Column(Text, nullable=True)
 
-    # ★追加：画像URL（複数）: ["https://...jpg", "https://...png", ...]
+    # 画像URL（複数）: ["https://...jpg", "https://...png", ...]
     image_urls = Column(JSON, nullable=True)
 
     memo = Column(Text, nullable=True)
 
     # ------------------------------------------------------------
-    # ★追加：意思決定（確定仕様）
+    # 意思決定（確定仕様）
     # - candidate_rank: 訪問前の候補ランク（1..5 / NULL=候補外・未設定）
     # - repeat_intent: 訪問後のリピ意思（yes/hold/no / NULL=未判定）
     # ------------------------------------------------------------
@@ -157,8 +156,20 @@ class KBPerson(Base):
     services_norm = Column(Text, nullable=True, index=True)
     tags_norm = Column(Text, nullable=True, index=True)
 
-    # ★追加：URLの正規化
+    # URLの正規化
     url_norm = Column(Text, nullable=True, index=True)
+
+    # ------------------------------------------------------------
+    # 次アクション & 判断理由テンプレ（2026/02/12追加）
+    # ------------------------------------------------------------
+    next_action = Column(Text, nullable=True, index=True)
+
+    reason_good = Column(Text, nullable=True)
+    reason_bad = Column(Text, nullable=True)
+    reason_next = Column(Text, nullable=True)
+    # ------------------------------------------------------------
+    # ここまで（2026/02/12追加）
+    # ------------------------------------------------------------
 
     memo_norm = Column(Text, nullable=True, index=True)
 
