@@ -351,9 +351,20 @@
       if (form) form.classList.add("kb-hidden");
       return;
     }
-  });
-}
+    });
+  }
 
+  // ============================================================
+  // KB 人物一覧で編集
+  // ============================================================
+  function initKbQuickEdit() {
+  document.querySelectorAll("form.kb-quick-edit select").forEach((sel) => {
+    sel.addEventListener("change", () => {
+      const form = sel.closest("form.kb-quick-edit");
+      if (form) form.submit();
+    });
+  });
+  }
 
   // ============================================================
   // 起動
@@ -365,6 +376,7 @@
     // ★料金項目/テンプレは kb_price_temp.js 側で起動します（kb_person.html だけ_footer.htmlで読み込む想定）
     // ★利用時間は kb_usage_time.js 側で起動します（kb_person.html だけ_footer.htmlで読み込む想定）
     initKbStoreInlineEdit();
+    initKbQuickEdit();
     initKbPanicCheck();
     initKbBackupUi();
   });
