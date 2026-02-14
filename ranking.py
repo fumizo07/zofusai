@@ -37,107 +37,77 @@ _cache_time: Dict[Tuple[str, str, str], datetime] = {}
 
 def _parse_ranking_links(soup: BeautifulSoup, src_url: str) -> BoardRanking:
     """
-    爆サイのランキングページから
     「おすすめ / 総合アクセス / 急上昇」の各ランキングを抽出する。
-
-    ランキング見出しは「○○ ランキング」というテキストになっており、
-    それが入っている <dt> を起点に、その後ろの <a> から
-    「閲覧数」「レス数」を含む行を拾う。
     """
 
-    # 1) 「◯◯ ランキング」と書かれている <dt> を探す
-    heading_dt = None
-    for dt in soup.find_all("dt"):
-        txt = dt.get_text(" ", strip=True)
-        if "ランキング" in txt:
-            heading_dt = dt
-            logging.info("ランキング見出し: %s", txt)
-            break
+    # ランキングDL（クラス名は色々付いているので brdRanking を目印にする）
+    dl = soup.select_one("dl.brdRanking")
+    if not dl:
+        raise ValueError("ランキング <dl class='brdRanking'> が見つかりませんでした。")
 
-    if not heading_dt:
-        raise ValueError("ランキング見出しテキスト（◯◯ ランキング）が見つかりませんでした。")
+    tabs = dl.select("div.thr_rankingTab")
+    if len(tabs) < 1:
+        raise ValueError("ランキングタブ本体 div.thr_rankingTab が見つかりませんでした。")
 
-    rank_links: List[Tag] = []
+    tab_osusume = tabs[0] if len(tabs) >= 1 else None
+    tab_sogo = tabs[1] if len(tabs) >= 2 else None
+    tab_kyujo = tabs[2] if len(tabs) >= 3 else None
 
-    # 2) 見出しの後ろ側を順に見ていき、「11位以下を見る」が出てきたら終了
-    for el in heading_dt.next_elements:
-        # テキストに「11位以下を見る」が出たらランキングブロック終端
-        if isinstance(el, NavigableString):
-            txt = str(el).strip()
-            if not txt:
+    def collect_links(tab: Optional[Tag]) -> List[Tag]:
+        if not tab:
+            return []
+        links: List[Tag] = []
+        for a in tab.select("dd > a"):
+            text = a.get_text(" ", strip=True)
+            if not text:
                 continue
-            if "11位以下を見る" in txt:
-                break
-            continue
-
-        if not isinstance(el, Tag):
-            continue
-
-        if el.name != "a":
-            continue
-
-        text = el.get_text(" ", strip=True)
-        if not text:
-            continue
-
-        # ランキング行は「閲覧数」「レス数」を含む
-        if "閲覧数" in text and "レス数" in text:
-            rank_links.append(el)
-
-    if len(rank_links) < 3:
-        raise ValueError(f"ランキング用リンクが想定より少ないです: {len(rank_links)}件")
-
-    total = len(rank_links)
-    # 通常は 30 件（10×3カテゴリ）だが、念のため 3 で割ってブロックを推定
-    chunk = total // 3
-    if chunk == 0:
-        raise ValueError(f"ランキングリンク数からカテゴリ分割ができません: total={total}")
+            # ランキング行は「閲覧数」「レス数」を含む（仕様変更で外れたらここを緩める）
+            if "閲覧数" in text and "レス数" in text:
+                links.append(a)
+        return links
 
     def to_items(links: List[Tag]) -> List[RankingItem]:
         items: List[RankingItem] = []
-
-        # 上位 5 件だけ使う
-        for a in links[:5]:
+        for a in links[:5]:  # 上位5件だけ表示
             text = a.get_text(" ", strip=True)
 
-            # 例: "1 カーサビアンカ⑧ 閲覧数 36.3万 レス数 7,552"
-            m = re.search(r"\d+\s+(.+?)\s+閲覧数", text)
-            if m:
-                name = m.group(1)
+            # 新HTMLは .rank_title に店名が入っているのでそれを最優先
+            title_el = a.select_one(".rank_title")
+            if title_el:
+                name = title_el.get_text(" ", strip=True)
             else:
-                # 失敗したら「閲覧数」以降を削るだけのフォールバック
-                name = text
-                idx = name.find("閲覧数")
-                if idx != -1:
-                    name = name[:idx].strip()
+                # フォールバック：従来のテキスト解析
+                m = re.search(r"\d+\s+(.+?)\s+閲覧数", text)
+                if m:
+                    name = m.group(1)
+                else:
+                    name = text
+                    idx = name.find("閲覧数")
+                    if idx != -1:
+                        name = name[:idx].strip()
 
             href = a.get("href") or ""
             if href and not href.startswith("http"):
                 href = "https://bakusai.com" + href
-
             if not href:
-                # どうしても URL が取れない場合は元ページに飛ばす
                 href = src_url
 
             items.append(RankingItem(name=name, url=href))
-
         return items
 
-    # 3カテゴリ分に割り振り（おすすめ / 総合アクセス / 急上昇）
-    osusume_links = rank_links[0:chunk]
-    sogo_links = rank_links[chunk : 2 * chunk]
-    kyujo_links = rank_links[2 * chunk : 3 * chunk]
+    osusume_links = collect_links(tab_osusume)
+    sogo_links = collect_links(tab_sogo)
+    kyujo_links = collect_links(tab_kyujo)
 
     osusume_items = to_items(osusume_links)
     sogo_items = to_items(sogo_links)
     kyujo_items = to_items(kyujo_links)
 
     logging.info(
-        "爆サイランキング解析: total_links=%d, osusume=%d, sogo=%d, kyujo=%d",
-        total,
-        len(osusume_items),
-        len(sogo_items),
-        len(kyujo_items),
+        "爆サイランキング解析: osusume_links=%d, sogo_links=%d, kyujo_links=%d",
+        len(osusume_links),
+        len(sogo_links),
+        len(kyujo_links),
     )
 
     return BoardRanking(
@@ -149,9 +119,10 @@ def _parse_ranking_links(soup: BeautifulSoup, src_url: str) -> BoardRanking:
 
 
 
+
 def _fetch_from_web(acode: str, ctgid: str, bid: str) -> BoardRanking:
     """
-    爆サイのページにアクセスしてランキングを取得。
+    ページにアクセスしてランキングを取得。
     失敗した場合はダミーデータ＋errorメッセージ付きで返す。
     """
     src_url = RANKING_URL_TEMPLATE.format(acode=acode, ctgid=ctgid, bid=bid)
@@ -197,7 +168,6 @@ def _fetch_from_web(acode: str, ctgid: str, bid: str) -> BoardRanking:
 def get_board_ranking(acode: str, ctgid: str, bid: str) -> Optional[BoardRanking]:
     """
     板ごとのランキング取得用窓口。
-
     - (acode, ctgid, bid) が欠けている場合は None を返す
     - 初回アクセス時は必ずWebから取得
     - 2回目以降は CACHE_TTL の間キャッシュを返す
