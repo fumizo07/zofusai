@@ -1,6 +1,9 @@
 # 001
 # services.py
 from __future__ import annotations
+# フェーズ1ログ用
+import time
+import logging
 
 import re
 from datetime import datetime, timedelta
@@ -672,8 +675,23 @@ def get_thread_posts_cached(db: Session, thread_url: str) -> List[object]:
     # show 側で保存されていれば canonical に移し替える
     _migrate_cache_key_if_needed(db, alt_show_url, canonical_url)
 
+    # フェーズ1ログ用
+    tA = time.perf_counter()
+    
     now = datetime.utcnow()
+
+    # フェーズ1ログ用
+    perf_logger = logging.getLogger("uvicorn.error")
+    t0 = time.perf_counter()
+    def _p(label: str, t_start: float) -> float:
+        dt_ms = (time.perf_counter() - t_start) * 1000.0
+        perf_logger.info("[PERF][get_thread_posts_cached] %s: %.1f ms", label, dt_ms)
+        return time.perf_counter()
+
+    
     meta = db.query(CachedThread).filter(CachedThread.thread_url == canonical_url).first()
+    # フェーズ1ログ用
+    tA = _p("A1) query CachedThread meta", tA)
 
     # 移し替え失敗で show 側だけ残ってるケース救済
     if meta is None:
@@ -686,17 +704,54 @@ def get_thread_posts_cached(db: Session, thread_url: str) -> List[object]:
     if meta and (now - meta.fetched_at < THREAD_CACHE_TTL):
         need_refresh = False
 
+    perf_logger.info(
+        "[PERF][get_thread_posts_cached] need_refresh=%s has_meta=%s age_s=%s",
+        str(need_refresh),
+        "1" if meta else "0",
+        (now - meta.fetched_at).total_seconds() if meta else -1,
+    )
+
+
     if need_refresh:
+        # フェーズ1ログ用
+        tB = time.perf_counter()
+        # これは消したらダメ
         posts = fetch_posts_from_thread(canonical_url)
+        # フェーズ1ログ用
+        tB = _p("A3) fetch_posts_from_thread", tB)
+
+        # フェーズ1ログ用
+        tC = time.perf_counter()
+        # これは消したらダメ
         _save_thread_posts_to_cache(db, canonical_url, list(posts))
+        # フェーズ1ログ用
+        tC = _p("A4) save_thread_posts_to_cache", tC)
+
+        # フェーズ1ログ用
+        tD = time.perf_counter()
+        # これは消したらダメ
         cached_rows = _load_thread_posts_from_cache(db, canonical_url)
+        # フェーズ1ログ用
+        tD = _p("A5) load_thread_posts_from_cache", tD)
+
     else:
+        # フェーズ1ログ用
+        tE = time.perf_counter()
         try:
             meta.last_accessed_at = now
             db.commit()
         except Exception:
             db.rollback()
+        # フェーズ1ログ用
+        tE = _p("A2b) update last_accessed_at", tE)
+
+        # フェーズ1ログ用
+        tF = time.perf_counter()
+        
         cached_rows = _load_thread_posts_from_cache(db, canonical_url)
+        # フェーズ1ログ用
+        tF = _p("A5b) load_thread_posts_from_cache", tF)
+
 
     result: List[object] = []
     for r in cached_rows:
@@ -709,3 +764,5 @@ def get_thread_posts_cached(db: Session, thread_url: str) -> List[object]:
             )
         )
     return result
+    
+    _p("Z) total get_thread_posts_cached", t0)
