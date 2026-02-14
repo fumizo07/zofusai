@@ -2,6 +2,10 @@
 # routers/external_search.py
 from __future__ import annotations
 
+# フェーズ1ログ用
+import time
+import logging
+
 import json
 from collections import defaultdict
 from datetime import datetime
@@ -43,8 +47,7 @@ from utils import (
     build_google_site_search_url,
 )
 
-# フェーズ1ログ用
-import time
+
 
 router = APIRouter()
 
