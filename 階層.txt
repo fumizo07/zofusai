@@ -19,6 +19,8 @@ static/kb.js
 static/kb_diary_filter.js
 static/kb_diary_show.js
 static/kb_favorite.js
+static/kb_price_temp.js
+static/kb_usage_time.js
 templates/_footer.html
 templates/_header.html
 templates/_ranking.html

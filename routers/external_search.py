@@ -795,7 +795,7 @@ def thread_search_posts(
 
             prev_thread_url, next_thread_url = find_prev_next_thread_urls(selected_thread)
 
-            # ★003機能移植：prev/next のタイトルもキャッシュ経由（失敗しても空でOK）
+            # prev/next のタイトルもキャッシュ経由（失敗しても空でOK）
             if prev_thread_url:
                 prev_thread_title = _get_thread_title_cached(db, prev_thread_url)
             if next_thread_url:
@@ -808,10 +808,24 @@ def thread_search_posts(
 
             all_posts_sorted = sorted(list(all_posts), key=_post_key)
 
+            # 追加ここから：post_no索引 & 本文正規化の使い回し（リクエスト内キャッシュ）
             posts_by_no: Dict[int, object] = {}
+            body_norm_by_no: Dict[int, str] = {}
+            
             for p in all_posts_sorted:
-                if p.post_no is not None and p.post_no not in posts_by_no:
-                    posts_by_no[p.post_no] = p
+                pn = getattr(p, "post_no", None)
+                if pn is None:
+                    continue
+            
+                # post_no -> post（最初に出たものを採用）
+                if pn not in posts_by_no:
+                    posts_by_no[pn] = p
+            
+                # post_no -> normalize(body)
+                # （検索語を変えても同一リクエスト内では再計算しない）
+                if pn not in body_norm_by_no:
+                    body_norm_by_no[pn] = normalize_for_search(getattr(p, "body", "") or "")
+            # 追加ここまで
 
             replies: Dict[int, List[object]] = defaultdict(list)
             for p in all_posts_sorted:
@@ -844,20 +858,23 @@ def thread_search_posts(
             post_keyword_norm = normalize_for_search(post_keyword)
 
             for root in all_posts_sorted:
-                body = root.body or ""
-                body_norm = normalize_for_search(body)
-                if post_keyword_norm not in body_norm:
+                pn = getattr(root, "post_no", None)
+                if pn is None:
+                    continue
+            
+                body_norm = body_norm_by_no.get(pn, "")
+                if not body_norm or (post_keyword_norm not in body_norm):
                     continue
 
                 context_posts: List[object] = []
-                if root.post_no is not None:
-                    start_no = max(1, root.post_no - 5)
-                    end_no = root.post_no + 5
-                    for p in all_posts_sorted:
-                        if p.post_no is None:
-                            continue
-                        if start_no <= p.post_no <= end_no:
-                            context_posts.append(p)
+                pn = getattr(root, "post_no", None)
+                if pn is not None:
+                    start_no = max(1, pn - 5)
+                    end_no = pn + 5
+                    for n in range(start_no, end_no + 1):
+                        hit_p = posts_by_no.get(n)
+                        if hit_p is not None:
+                            context_posts.append(hit_p)
 
                 tree_items = build_reply_tree_external(root)
 
