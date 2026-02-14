@@ -931,11 +931,11 @@ def thread_search_posts(
             # フェーズ1ログ用
             tD = _p("D) scan hits + build entries (context/tree/anchors)", tD)
             if PERF_LOG:
-            logging.info(
-                "[PERF][thread_search_posts] posts=%d hits=%d",
-                len(all_posts_sorted),
-                len(entries),
-            )
+                logging.info(
+                    "[PERF][thread_search_posts] posts=%d hits=%d",
+                    len(all_posts_sorted),
+                    len(entries),
+                )
 
 
 
