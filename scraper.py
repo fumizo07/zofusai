@@ -199,9 +199,30 @@ def fetch_posts_from_thread(url: str, max_pages: int = 20) -> List[ScrapedPost]:
     """
     all_posts: List[ScrapedPost] = []
 
+    # フェーズ1ログ用
+    logger = logging.getLogger(__name__)
+    t0_all = time.perf_counter()
+    logger.info("[PERF][fetch_posts_from_thread] start url=%s max_pages=%d", url, max_pages)
+
+
     for page in range(1, max_pages + 1):
         page_url = make_page_url(url, page)
+        # フェーズ1ログ用
+        t0_page = time.perf_counter()
+        
         posts = _fetch_single_page(page_url)
+        
+        # フェーズ1ログ用
+        dt_page_ms = (time.perf_counter() - t0_page) * 1000.0
+        logger.info(
+            "[PERF][fetch_posts_from_thread] page=%d url=%s posts=%d dt=%.1fms total_posts=%d",
+            page,
+            page_url,
+            len(posts) if posts else 0,
+            dt_page_ms,
+            len(all_posts) + (len(posts) if posts else 0),
+        )
+
 
         if not posts:
             # 1ページ目からして空なら「そもそもスレを読めていない」と判断
@@ -211,10 +232,21 @@ def fetch_posts_from_thread(url: str, max_pages: int = 20) -> List[ScrapedPost]:
 
         all_posts.extend(posts)
 
+        # フェーズ1ログ用
+        logger.info("[PERF][fetch_posts_from_thread] sleep=1.0s page=%d", page)
         # マナーとしてちょっと待つ（連続アクセスを抑える）
         time.sleep(1)
 
     if not all_posts:
         raise ScrapingError("投稿らしきテキストが見つかりませんでした。")
+
+    # フェーズ1ログ用
+    dt_all_ms = (time.perf_counter() - t0_all) * 1000.0
+    logger.info(
+        "[PERF][fetch_posts_from_thread] done pages=%d total_posts=%d dt=%.1fms",
+        min(max_pages, page),
+        len(all_posts),
+        dt_all_ms,
+    )
 
     return all_posts
