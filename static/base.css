@@ -44,11 +44,14 @@ header h1 {
 
 .nav-links {
     display: flex;
+    align-items: stretch;
     margin-top: 4px;
     font-size: 13px;
 }
 
 .nav-links a {
+    display: flex;
+    align-items: center;
     color: #e5e7eb;
     text-decoration: none;
     margin-right: 8px;
