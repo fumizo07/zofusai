@@ -753,12 +753,19 @@ def thread_search_posts(
 ):
     # ---- フェーズ1ログ用 PERF: スレ内検索の所要時間内訳ログ（必要なくなったら False に）
     PERF_LOG = True
+    perf_logger = logging.getLogger("uvicorn.error")
     t0_all = time.perf_counter()
+
     def _p(label: str, t_start: float) -> float:
         if PERF_LOG:
             dt_ms = (time.perf_counter() - t_start) * 1000.0
-            logging.info("[PERF][thread_search_posts] %s: %.1f ms", label, dt_ms)
+            perf_logger.info("[PERF][thread_search_posts] %s: %.1f ms", label, dt_ms)
         return time.perf_counter()
+
+
+    # フェーズ1ログ用
+    perf_logger = logging.getLogger("uvicorn.error")
+
 
     selected_thread = (selected_thread or "").strip()
     post_keyword = (post_keyword or "").strip()
@@ -934,11 +941,12 @@ def thread_search_posts(
             # フェーズ1ログ用
             tD = _p("D) scan hits + build entries (context/tree/anchors)", tD)
             if PERF_LOG:
-                logging.info(
+                perf_logger.info(
                     "[PERF][thread_search_posts] posts=%d hits=%d",
                     len(all_posts_sorted),
                     len(entries),
                 )
+
 
 
 
@@ -952,6 +960,7 @@ def thread_search_posts(
 
     # フェーズ1ログ用
     _p("Z) total thread_search_posts()", t0_all)
+    
     return templates.TemplateResponse(
         "thread_search_posts.html",
         {
