@@ -2,6 +2,9 @@
 # scraper.py
 import re
 import time
+# フェーズ1ログ用
+import logging
+
 from dataclasses import dataclass
 from typing import List, Optional
 
