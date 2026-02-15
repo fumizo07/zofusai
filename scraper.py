@@ -2,6 +2,8 @@
 # scraper.py
 import re
 import time
+import random
+
 # フェーズ1ログ用
 import logging
 
@@ -113,15 +115,14 @@ def get_thread_title(url: str) -> Optional[str]:
     return None
 
 
-def _fetch_single_page(url: str) -> List[ScrapedPost]:
+def _fetch_single_page(session: requests.Session, url: str, headers: dict) -> List[ScrapedPost]:
     """
     指定URL（1ページ分）からレス一覧を取得。
     レスがない場合は空リストを返す（エラーにはしない）。
     """
-    headers = _build_headers()
 
     try:
-        resp = requests.get(url, headers=headers, timeout=10)
+        resp = session.get(url, headers=headers, timeout=10)
     except Exception as e:
         raise ScrapingError(f"ページ取得に失敗しました: {e}")
 
@@ -195,12 +196,13 @@ def _fetch_single_page(url: str) -> List[ScrapedPost]:
 def fetch_posts_from_thread(url: str, max_pages: int = 20) -> List[ScrapedPost]:
     """
     スレURLから最大 max_pages ページまで巡回してレスを取得する。
-
     - 1ページ目: 渡された URL をそのまま使う
     - 2ページ目以降: /p=2/, /p=3/, ... のように URL を変えて取得
     - あるページでレスが 0 件になったらそこで打ち切り
     """
     all_posts: List[ScrapedPost] = []
+    session = requests.Session()
+    headers = _build_headers()
 
     # フェーズ1ログ用
     t0_all = time.perf_counter()
@@ -212,7 +214,7 @@ def fetch_posts_from_thread(url: str, max_pages: int = 20) -> List[ScrapedPost]:
         # フェーズ1ログ用
         t0_page = time.perf_counter()
         
-        posts = _fetch_single_page(page_url)
+        posts = _fetch_single_page(session, page_url, headers)
         
         # フェーズ1ログ用
         dt_page_ms = (time.perf_counter() - t0_page) * 1000.0
@@ -236,8 +238,9 @@ def fetch_posts_from_thread(url: str, max_pages: int = 20) -> List[ScrapedPost]:
 
         # フェーズ1ログ用
         logging.info("[PERF][fetch_posts_from_thread] sleep=1.0s page=%d", page)
-        # マナーとしてちょっと待つ（連続アクセスを抑える）
-        time.sleep(1)
+        # マナー：短め + ランダム（botっぽさを減らす）
+        time.sleep(random.uniform(0.1, 0.2))
+
 
     if not all_posts:
         raise ScrapingError("投稿らしきテキストが見つかりませんでした。")
