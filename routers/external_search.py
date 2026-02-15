@@ -2,10 +2,6 @@
 # routers/external_search.py
 from __future__ import annotations
 
-# フェーズ1ログ用
-import time
-import logging
-
 import json
 from collections import defaultdict
 from datetime import datetime
@@ -751,22 +747,7 @@ def thread_search_posts(
     back_url: str = Form(""),
     db: Session = Depends(get_db),
 ):
-    # ---- フェーズ1ログ用 PERF: スレ内検索の所要時間内訳ログ（必要なくなったら False に）
-    PERF_LOG = True
-    perf_logger = logging.getLogger("uvicorn.error")
-    t0_all = time.perf_counter()
-
-    def _p(label: str, t_start: float) -> float:
-        if PERF_LOG:
-            dt_ms = (time.perf_counter() - t_start) * 1000.0
-            perf_logger.info("[PERF][thread_search_posts] %s: %.1f ms", label, dt_ms)
-        return time.perf_counter()
-
-
-    # フェーズ1ログ用
-    perf_logger = logging.getLogger("uvicorn.error")
-
-
+    
     selected_thread = (selected_thread or "").strip()
     post_keyword = (post_keyword or "").strip()
 
@@ -823,23 +804,12 @@ def thread_search_posts(
             if next_thread_url:
                 next_thread_title = _get_thread_title_cached(db, next_thread_url)
 
-            # フェーズ1ログ用
-            tA = time.perf_counter()
-            # これは消したらダメ
             all_posts = get_thread_posts_cached(db, selected_thread)
-            # フェーズ1ログ用
-            tA = _p("A) get_thread_posts_cached()", tA)
-
 
             def _post_key(p):
                 return p.post_no if getattr(p, "post_no", None) is not None else 10**9
 
-            # フェーズ1ログ用
-            tB = time.perf_counter()
-            # これは消したらダメ
             all_posts_sorted = sorted(list(all_posts), key=_post_key)
-            # フェーズ1ログ用
-            tB = _p("B) sort(all_posts)", tB)
 
             # 追加ここから：post_no索引 & 本文正規化の使い回し（リクエスト内キャッシュ）
             posts_by_no: Dict[int, object] = {}
@@ -859,22 +829,13 @@ def thread_search_posts(
                 if pn not in body_norm_by_no:
                     body_norm_by_no[pn] = normalize_for_search(getattr(p, "body", "") or "")
             # 追加ここまで
-            # フェーズ1ログ用
-            tB = _p("B2) build indexes (posts_by_no/body_norm_by_no)", tB)
-
-            # フェーズ1ログ用
-            tC = time.perf_counter()
-            
+         
             replies: Dict[int, List[object]] = defaultdict(list)
             for p in all_posts_sorted:
                 if not getattr(p, "anchors", None):
                     continue
                 for a in p.anchors:
                     replies[a].append(p)
-
-            # フェーズ1ログ用
-            tC = _p("C) build replies map (anchors->posts)", tC)
-
 
             def build_reply_tree_external(root) -> List[dict]:
                 result: List[dict] = []
@@ -897,8 +858,6 @@ def thread_search_posts(
                         dfs(child, 0)
                 return result
 
-            # フェーズ1ログ用
-            tD = time.perf_counter()
             post_keyword_norm = normalize_for_search(post_keyword)
 
             for root in all_posts_sorted:
@@ -938,18 +897,6 @@ def thread_search_posts(
                     }
                 )
 
-            # フェーズ1ログ用
-            tD = _p("D) scan hits + build entries (context/tree/anchors)", tD)
-            if PERF_LOG:
-                perf_logger.info(
-                    "[PERF][thread_search_posts] posts=%d hits=%d",
-                    len(all_posts_sorted),
-                    len(entries),
-                )
-
-
-
-
         except Exception as e:
             error_message = f"スレッド内検索中にエラーが発生しました: {e}"
             entries = []
@@ -957,10 +904,7 @@ def thread_search_posts(
     store_base_title = build_store_search_title(thread_title_display or title_keyword)
     store_cityheaven_url = build_google_site_search_url("cityheaven.net", store_base_title)
     store_dto_url = build_google_site_search_url("dto.jp", store_base_title)
-
-    # フェーズ1ログ用
-    _p("Z) total thread_search_posts()", t0_all)
-    
+   
     return templates.TemplateResponse(
         "thread_search_posts.html",
         {
