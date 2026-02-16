@@ -44,7 +44,7 @@ header h1 {
 
 .nav-links {
     display: flex;
-    align-items: stretch;
+    align-items: baseline;
     margin-top: 4px;
     font-size: 13px;
 }
