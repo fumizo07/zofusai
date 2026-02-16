@@ -204,11 +204,12 @@ def _touch_external_history(
         db.add(row)
 
     try:
-        db.commit()
-        # 保存上限（100件）を超えた分を古い順に削除
+        db.flush()  # ★ここが肝：commitせずにDBへ反映（同一Tx内でID確定など）
+
+        # 保存上限（100件）を超えた分を古い順に削除（新しい順に並べて101件目以降）
         old_ids = [
-            r.id
-            for r in (
+            rid
+            for (rid,) in (
                 db.query(ExternalSearchHistory.id)
                 .order_by(desc(ExternalSearchHistory.last_seen_at))
                 .offset(100)
@@ -216,13 +217,14 @@ def _touch_external_history(
             )
         ]
         if old_ids:
-            db.query(ExternalSearchHistory).filter(ExternalSearchHistory.id.in_(old_ids)).delete(
-                synchronize_session=False
-            )
-            db.commit()
+            db.query(ExternalSearchHistory).filter(
+                ExternalSearchHistory.id.in_(old_ids)
+            ).delete(synchronize_session=False)
 
+        db.commit()  # ★commitはここ1回だけ
     except Exception:
         db.rollback()
+
 
 def _build_recent_external_searches(db: Session, limit: int = 15) -> List[dict]:
     rows = (
