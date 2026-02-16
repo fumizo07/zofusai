@@ -205,11 +205,24 @@ def _touch_external_history(
 
     try:
         db.commit()
+        # 保存上限（100件）を超えた分を古い順に削除
+        old_ids = [
+            r.id
+            for r in (
+                db.query(ExternalSearchHistory.id)
+                .order_by(desc(ExternalSearchHistory.last_seen_at))
+                .offset(100)
+                .all()
+            )
+        ]
+        if old_ids:
+            db.query(ExternalSearchHistory).filter(ExternalSearchHistory.id.in_(old_ids)).delete(
+                synchronize_session=False
+            )
+            db.commit()
+
     except Exception:
         db.rollback()
-        # 競合（同時リクエスト）等で unique 失敗した場合も、ここでは黙って戻す
-        # 次回アクセス時に更新されます。
-
 
 def _build_recent_external_searches(db: Session, limit: int = 15) -> List[dict]:
     rows = (
@@ -490,7 +503,11 @@ def thread_search_page(
         keyword=keyword,
     )
 
-    recent_external_searches = _build_recent_external_searches(db, limit=15)
+    # 履歴を全て見る（最大100件表示）
+    show_all_history = (request.query_params.get("history") or "").strip().lower() == "all"
+    history_limit = 100 if show_all_history else 30
+
+    recent_external_searches = _build_recent_external_searches(db, limit=history_limit)
 
     saved_flag = request.query_params.get("saved")
     if saved_flag and not error_message:
@@ -516,7 +533,8 @@ def thread_search_page(
             "ranking_board": ranking_board,
             "ranking_board_label": ranking_board_label,
             "ranking_source_url": ranking_source_url,
-            "back_url": back_url,  # ★テンプレはこれだけ使う
+            "back_url": back_url,
+            "show_all_history": show_all_history,
         },
     )
 
