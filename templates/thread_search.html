@@ -71,7 +71,7 @@
 
     {% if recent_external_searches %}
     <section class="card">
-        <div class="section-title">最近の外部検索（最大15件）</div>
+        <div class="section-title">最近の外部検索(最大30件)</div>
         <ul class="history-list">
             {% for e in recent_external_searches %}
                 <li>
@@ -91,6 +91,10 @@
         <form method="post" action="/thread_search/history/clear" style="margin-top:6px;">
             <button type="submit" class="btn-secondary btn-mini">履歴を全て削除</button>
         </form>
+        <a href="/thread_search?history=all">履歴を全て見る(直近100件)</a>
+        {% if show_all_history %}
+          <a href="/thread_search">戻る</a>
+        {% endif %}
     </section>
     {% endif %}
 
