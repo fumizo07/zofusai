@@ -44,14 +44,12 @@ header h1 {
 
 .nav-links {
     display: flex;
-    align-items: stretch;
+    align-items: baseline;
     margin-top: 4px;
     font-size: 13px;
 }
 
 .nav-links a {
-    display: flex;
-    align-items: center;
     color: #e5e7eb;
     text-decoration: none;
     margin-right: 8px;
@@ -475,6 +473,19 @@ mark {
 
 .history-list a:hover {
     text-decoration: underline;
+}
+
+.history-btn-box {
+    display: flex;
+    align-items: baseline;
+    margin-top: 6px;
+}
+
+.history-btn-box a {
+    padding: 6px 14px;
+    border-radius: 4px;
+    text-decoration: none;
+    margin-left: 8px;
 }
 
 /* thread_search_posts.html 用 */
