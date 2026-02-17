@@ -478,6 +478,7 @@ mark {
 .history-btn-box {
     display: flex;
     align-items: baseline;
+    margin-top: 6px;
 }
 
 .history-btn-box a {
