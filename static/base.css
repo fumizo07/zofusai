@@ -1387,6 +1387,11 @@ input[type="time"] {
   gap: 10px;
 }
 
+.kb-person-result-text {
+  flex: 1 1 auto;
+  min-width: 0; /* 長い名前などの折返し安定用 */
+}
+
 .kb-person-thumb {
     min-width: 46.0833px;
     height: 61.4333px;
@@ -1399,9 +1404,12 @@ input[type="time"] {
     .kb-person-result {
         flex-direction: column;
     }
-    .result-mobi-box {
-        display: block;
+    .kb-person-result-text {
+        width: 100%;
         text-align: center;
+    }
+    .kb-diary-slot {
+        display: block;
     }
     .kb-person-thumb-link {
         align-self: center;
@@ -1413,17 +1421,9 @@ input[type="time"] {
     .kb-quick-edit {
         width: 100%;
     }
-    .ex-link {
-        text-align: right;
-    }
     .is-mobi-box {
         display: none;
     }
-}
-
-.kb-person-result-text {
-  flex: 1 1 auto;
-  min-width: 0; /* 長い名前などの折返し安定用 */
 }
 
 .kb-input-sm, .kb-input-xs {
