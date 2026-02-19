@@ -1392,6 +1392,10 @@ input[type="time"] {
   min-width: 0; /* 長い名前などの折返し安定用 */
 }
 
+.result-mobi-box {
+    display: inline;
+}
+
 .kb-person-thumb {
     min-width: 46.0833px;
     height: 61.4333px;
@@ -1417,6 +1421,9 @@ input[type="time"] {
     }
     .kb-person-thumb {
         height: auto;
+    }
+    .result-mobi-box {
+        display: block;
     }
     .kb-quick-edit {
         width: 100%;
