@@ -165,6 +165,7 @@
 
             <div class="kb-person-result-text">
               <div class="result-id">
+                <div class="result-mobi-box">
                 {% if tracked and diary_fetch_url %}
                   <span
                     class="kb-diary-slot"
@@ -192,9 +193,10 @@
                 {%- endif -%}
                 {%- if repeat_label -%}
                   <span class="sep">/</span><span class="candidates">{{ repeat_label }}</span>
-                {%- endif -%}<!-- 空白除去
+                {%- endif -%}
+                </div><!-- 空白除去
                 --><span>
-                  {%- if p.age -%}/{{ p.age }}歳{%- endif -%}
+                  {%- if p.age -%}<span class="is-mobi-box">/</span>{{ p.age }}歳{%- endif -%}
                   {%- if p.height_cm -%}/T{{ p.height_cm }}{%- endif -%}
                   {% if p.bust_cm %}-B{{ p.bust_cm }}{% if p.cup %}({{ p.cup }}){% endif %}{% endif %}
                   {%- if p.waist_cm -%}-W{{ p.waist_cm }}{%- endif -%}
@@ -221,7 +223,7 @@
                 <span data-kb-diary-checked></span><span data-kb-diary-latest></span>
               </div>
 
-              <div class="muted">
+              <div class="muted ex-link">
                 <a href="/kb/person/{{ p.id }}/external_search" target="_blank">外部検索で調べる</a>
                 {%- if base_url -%}
                   /<a href="{{ profile_open_url|e }}" target="_blank" rel="noopener noreferrer">プロフ(外部)</a>
