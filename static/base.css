@@ -1399,11 +1399,25 @@ input[type="time"] {
     .kb-person-result {
         flex-direction: column;
     }
+    .result-mobi-box {
+        display: block;
+        text-align: center;
+    }
+    .kb-person-thumb-link {
+        align-self: center;
+        max-width: 55%;
+    }
     .kb-person-thumb {
         height: auto;
     }
     .kb-quick-edit {
         width: 100%;
+    }
+    .ex-link {
+        text-align: right;
+    }
+    .is-mobi-box {
+        display: none;
     }
 }
 
