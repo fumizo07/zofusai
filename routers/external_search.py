@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from collections import defaultdict
 from datetime import datetime
 from typing import List, Optional, Dict
@@ -922,6 +923,7 @@ def thread_search_posts(
             entries = []
 
     store_base_title = build_store_search_title(thread_title_display or title_keyword)
+    store_base_title = re.sub(r"【[^】]*】", "", store_base_title).strip()
     store_cityheaven_url = build_google_site_search_url("cityheaven.net", store_base_title)
     store_dto_url = build_google_site_search_url("dto.jp", store_base_title)
    
