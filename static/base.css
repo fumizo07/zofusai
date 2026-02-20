@@ -505,6 +505,12 @@ mark {
     margin-bottom: 8px;
 }
 
+.back-link > a {
+    padding: 6px 14px;
+    border-radius: 4px;
+    text-decoration: none;
+}
+
 .nav-prev-next {
     margin-top: 8px;
     display: flex;
