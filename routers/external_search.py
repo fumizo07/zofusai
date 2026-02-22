@@ -55,9 +55,9 @@ DEFAULT_AREA = "7"
 DEFAULT_PERIOD = "3m"
 DEFAULT_BOARD_CATEGORY = "103"
 DEFAULT_BOARD_ID_BY_CATEGORY = {
-    "103": "5922",  # 大阪デリヘル・お店
-    "136": "1714",  # 大阪メンエス…・お店（あなたのマスタ内にある）
-    "122": "61",    # Hな悩み
+    "103": "5922", 
+    "136": "1714",
+    "122": "61",
 }
 
 
@@ -279,7 +279,7 @@ def _build_recent_external_searches(db: Session, limit: int = 15) -> List[dict]:
 
 
 # =========================
-# ★追加（003の機能移植）：スレタイのDBキャッシュ
+# スレタイのDBキャッシュ
 # =========================
 def _get_thread_title_cached(db: Session, url: str) -> str:
     url = (url or "").strip()
@@ -326,7 +326,7 @@ def _get_thread_title_cached(db: Session, url: str) -> str:
 
 
 # =========================
-# ★追加：KB経由だけ「板ゆらぎ」フォールバック
+# KB経由だけ「板ゆらぎ」フォールバック
 # =========================
 def _get_board_label(board_category: str, board_id: str) -> str:
     board_category = (board_category or "").strip()
@@ -351,18 +351,10 @@ def _find_board_id_by_label(board_category: str, label: str) -> str:
 
 
 def _fallback_board(board_category: str, board_id: str) -> tuple[str, str]:
-    """
-    現在の板ラベルから「風俗 ⇄ デリヘル」を入れ替えた板を探す。
-    例：
-      大阪デリヘル・お店 -> 大阪風俗・お店
-      東京風俗・お店     -> 東京デリヘル・お店
-    戻り値： (fallback_board_id, fallback_board_label)
-    """
     cur_label = _get_board_label(board_category, board_id)
     if not cur_label:
         return "", ""
 
-    # 「風俗」と「デリヘル」のみを対象（それ以外は何もしない）
     if "デリヘル" in cur_label:
         fb_label = cur_label.replace("デリヘル", "風俗")
     elif ("風俗" in cur_label) and ("デリヘル" not in cur_label):
@@ -418,13 +410,10 @@ def thread_search_page(
         area, period, board_category, board_id, keyword
     )
 
-    # ★no_log はテンプレから隠蔽：戻りURLに勝手に付ける
     no_log_flag = _truthy(no_log) or _truthy(request.query_params.get("no_log"))
 
-    # ★KB経由フラグ（KBからだけ付ける想定）
     kb_flag = _truthy(request.query_params.get("kb"))
 
-    # ★KB経由は「最近の外部検索」に残さない
     if kb_flag:
         no_log_flag = True
 
@@ -450,7 +439,6 @@ def thread_search_page(
         except Exception as e:
             error_message = f"外部検索中にエラーが発生しました: {e}"
 
-        # ★KB経由だけ：0件なら「風俗⇄デリヘル」をフォールバック
         if (not error_message) and kb_flag and (not results):
             fb_id, fb_label = _fallback_board(board_category, board_id)
             if fb_id and fb_id != board_id:
@@ -465,14 +453,13 @@ def thread_search_page(
                     )
                     if fb_results:
                         results = fb_results
-                        board_id = fb_id  # ★以後の表示/リンク/戻りURLもこの板に揃える
-                        # テンプレ追加なしで通知したいので error_message を流用（赤表示でも致命的ではない）
+                        board_id = fb_id
+                        
                         if cur_label and fb_label:
                             error_message = f"0件だったため、板を「{cur_label}」→「{fb_label}」に切り替えて再検索しました。"
                         else:
                             error_message = "0件だったため、板を切り替えて再検索しました。"
                 except Exception as e:
-                    # フォールバックが失敗しても、元の0件を維持して落とさない
                     error_message = f"外部検索中にエラーが発生しました: {e}"
 
         if (not error_message) and board_category and board_id:
@@ -492,8 +479,6 @@ def thread_search_page(
                     bid=board_id,
                 )
 
-        # ★履歴：no_log=1 のときは積まない（戻っただけで増えるのを防ぐ）
-        # ★KB経由も no_log 扱いで積まない
         if not error_message and not no_log_flag:
             _touch_external_history(db, area, period, board_category, board_id, keyword)
 
@@ -803,7 +788,7 @@ def thread_search_posts(
         error_message = "爆サイのスレURLのみ検索できます。"
     else:
         try:
-            # ★003機能移植：タイトルはDBキャッシュ経由（失敗しても空でOK）
+            # タイトルはDBキャッシュ経由（失敗しても空でOK）
             thread_title_display = _get_thread_title_cached(db, selected_thread)
 
             if board_category:
