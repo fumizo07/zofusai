@@ -3,6 +3,7 @@
 import re
 import time
 import random
+import logging
 
 from dataclasses import dataclass
 from typing import List, Optional
@@ -138,8 +139,42 @@ def _fetch_single_page(session: requests.Session, url: str, headers: dict) -> Li
     if not res_elems:
         res_elems = soup.select("ul#res_list li.res_block")
 
+    # 「0件時リトライ」
     if not res_elems:
-        # このページにはレスがない
+    # 一時的にスレHTMLが崩れる/規制ページになることがあるので、短いバックオフで再試行
+    # ※速度を落とさないため、成功時は追加待ちなし。0件のときだけ待つ。
+    for attempt in range(3):
+        wait_s = 0.6 * (attempt + 1) + random.uniform(0.0, 0.4)
+        time.sleep(wait_s)
+
+        try:
+            resp2 = session.get(url, headers=headers, timeout=10)
+        except Exception:
+            continue
+
+        if resp2.status_code != 200:
+            continue
+
+        soup2 = BeautifulSoup(resp2.text, "html.parser")
+        res_elems = soup2.select("dl#res_list div.article.res_list_article")
+        if not res_elems:
+            res_elems = soup2.select("ul#res_list li.res_block")
+
+        if res_elems:
+            resp = resp2
+            html = resp2.text
+            soup = soup2
+            break
+
+    if not res_elems:
+        # それでも0件なら本当にレスなし or 規制ページ濃厚
+        # 原因切り分け用に最小ログ（必要なら後で消せる）
+        try:
+            title = (soup.title.string.strip() if (soup and soup.title and soup.title.string) else "")
+        except Exception:
+            title = ""
+        logging.info("[SCRAPER][empty_res] url=%s status=%s title=%s len=%d",
+                     url, getattr(resp, "status_code", None), title, len(html) if html else 0)
         return []
 
     posts: List[ScrapedPost] = []
