@@ -710,16 +710,15 @@ def thread_showall_page(
             tree_roots = []
             posts_unknown = []
 
-    # 1) ベース文字列を作る（まず必ず代入する）
+    
+    # --- 店舗名検索用タイトル（スレタイの【】除去 + 空白正規化）---
     store_base_title = build_store_search_title(thread_title_display or title_keyword)
-    
-    # 2) 【...】を全部消す（先頭/途中/末尾どこでも）
-    store_base_title = re.sub(r"【[^】]*】", "", store_base_title)
-    
-    # 3) 空白を整形（連続空白→1個、両端trim）
+    store_base_title = re.sub(r"【[^】]*】", "", store_base_title or "")
     store_base_title = re.sub(r"\s+", " ", store_base_title).strip()
     
-    # 4) URLを作る
+    # テンプレ互換：従来キー store_title を維持（中身はサニタイズ済みにする）
+    store_title = store_base_title
+    
     store_cityheaven_url = build_google_site_search_url("cityheaven.net", store_base_title)
     store_dto_url = build_google_site_search_url("dto.jp", store_base_title)
 
@@ -917,7 +916,8 @@ def thread_search_posts(
             entries = []
 
     store_base_title = build_store_search_title(thread_title_display or title_keyword)
-    store_base_title = re.sub(r"\s+", " ", re.sub(r"【[^】]*】", "", store_base_title)).strip()
+    store_base_title = re.sub(r"【[^】]*】", "", store_base_title or "")
+    store_base_title = re.sub(r"\s+", " ", store_base_title).strip()
     store_cityheaven_url = build_google_site_search_url("cityheaven.net", store_base_title)
     store_dto_url = build_google_site_search_url("dto.jp", store_base_title)
    
