@@ -229,6 +229,8 @@ button:disabled {
 .result-text {
     margin-top: 8px;
     white-space: pre-wrap;
+    word-break: break-word;
+    overflow-wrap: anywhere;
 }
 
 .no-result {
@@ -250,6 +252,8 @@ button:disabled {
     padding-left: 6px;
     margin: 2px 0;
     white-space: normal;
+    word-break: break-word;
+    overflow-wrap: anywhere;
 }
 
 .context-line-root {
@@ -272,6 +276,8 @@ button:disabled {
 
 .tree-body {
     white-space: pre-wrap;
+    word-break: break-word;
+    overflow-wrap: anywhere;
 }
 
 .tags {
@@ -544,6 +550,8 @@ mark {
 .anchor-body {
     font-size: 0.9rem;
     white-space: pre-wrap;
+    word-break: break-word;
+    overflow-wrap: anywhere;
 }
 
 .context-collapsed {
