@@ -14,6 +14,11 @@
     box-sizing: border-box;
 }
 
+blockquote {
+    margin: 0;
+    padding: 0;
+}
+
 img {
     max-width: 100%;
     height: auto;
@@ -205,11 +210,10 @@ button:disabled {
     margin-top: 4px;
 }
 
-/* index.html 用 */
 .result {
     border: 1px solid #ddd;
     border-radius: 6px;
-    padding: 10px 12px;
+    padding: 10px;
     margin-bottom: 14px;
     background: #fff;
 }
@@ -236,6 +240,18 @@ button:disabled {
 .no-result {
     color: #777;
     font-size: 0.9rem;
+}
+
+.page-thread-posts section.card > blockquote {
+    margin-left: 10px;
+}
+
+blockquote > blockquote {
+    margin-left: 10px;
+}
+
+blockquote > .result {
+    border-left: 5px solid #ddd;
 }
 
 .section-title-small {
