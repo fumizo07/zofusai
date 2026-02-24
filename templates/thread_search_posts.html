@@ -179,7 +179,7 @@
                     <div class="section-title-small">このレスへの返信ツリー</div>
                     {% if item.tree %}
                         {% for node in item.tree %}
-                            <div class="tree-item" style="margin-left: {{ node.depth * 20 }}px;">
+                            <div class="tree-item" style="margin-left: {{ node.depth * 10 }}px;">
                                 <div class="tree-meta">
                                     {% if node.post.post_no %}#{{ node.post.post_no }}{% else %}レス番号不明{% endif %}
                                     {% if node.post.posted_at %}／ {{ node.post.posted_at }}{% endif %}
