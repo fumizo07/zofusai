@@ -12,6 +12,7 @@ import requests
 from bs4 import BeautifulSoup
 from sqlalchemy.orm import Session
 from sqlalchemy import func, text, or_
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from constants import THREAD_CACHE_TTL, MAX_CACHED_THREADS
 from models import ThreadPost, CachedThread, CachedPost, ThreadMeta
@@ -601,9 +602,9 @@ def _evict_old_cached_threads(db: Session) -> None:
 def _save_thread_posts_to_cache(db: Session, thread_url: str, posts: List[object]) -> None:
     now = datetime.utcnow()
 
-    db.query(CachedPost).filter(CachedPost.thread_url == thread_url).delete(synchronize_session=False)
+    # ここで dict 化して重複 post_no を潰す（念のため）
+    rows_by_key: Dict[Tuple[str, Optional[int]], dict] = {}
 
-    bulk = []
     for p in posts:
         body = (getattr(p, "body", None) or "").strip()
         if not body:
@@ -618,19 +619,16 @@ def _save_thread_posts_to_cache(db: Session, thread_url: str, posts: List[object
         else:
             anchors_str = None
 
-        bulk.append(
-            CachedPost(
-                thread_url=thread_url,
-                post_no=post_no,
-                posted_at=posted_at,
-                body=body,
-                anchors=anchors_str,
-            )
-        )
+        key = (thread_url, post_no)
+        rows_by_key[key] = {
+            "thread_url": thread_url,
+            "post_no": post_no,
+            "posted_at": posted_at,
+            "body": body,
+            "anchors": anchors_str,
+        }
 
-    if bulk:
-        db.bulk_save_objects(bulk)
-
+    # CachedThread（メタ）は先に upsert っぽく更新
     meta = db.query(CachedThread).filter(CachedThread.thread_url == thread_url).first()
     if not meta:
         meta = CachedThread(thread_url=thread_url, fetched_at=now, last_accessed_at=now)
@@ -639,7 +637,25 @@ def _save_thread_posts_to_cache(db: Session, thread_url: str, posts: List[object
         meta.fetched_at = now
         meta.last_accessed_at = now
 
+    # CachedPost は UPSERT（同時実行でも落ちない）
+    rows = list(rows_by_key.values())
+    if rows:
+        stmt = pg_insert(CachedPost).values(rows)
+
+        # 既存があれば更新（posted_at/body/anchors を上書き）
+        stmt = stmt.on_conflict_do_update(
+            index_elements=[CachedPost.thread_url, CachedPost.post_no],
+            set_={
+                "posted_at": stmt.excluded.posted_at,
+                "body": stmt.excluded.body,
+                "anchors": stmt.excluded.anchors,
+            },
+        )
+        db.execute(stmt)
+
     db.commit()
+
+    # スレ数が多ければ古いのを削除（既存ロジック）
     _evict_old_cached_threads(db)
 
 
