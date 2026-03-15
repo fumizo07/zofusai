@@ -161,7 +161,7 @@
                         URL：{{ thread_url }}{% if post.post_no %}（レス #{{ post.post_no }}）{% endif %}
                     </div>
 
-                    <div class="result-text">{{ highlight(post.body, post_keyword) }}</div>
+                    <div class="result-text">{{ highlight_with_links(post.body, post_keyword, thread_url, post.post_no) }}</div>
 
                     {% if item.anchor_targets %}
                         <div class="section-title-small">このレスが参照しているレス</div>
@@ -184,7 +184,7 @@
                                     {% if node.post.post_no %}#{{ node.post.post_no }}{% else %}レス番号不明{% endif %}
                                     {% if node.post.posted_at %}／ {{ node.post.posted_at }}{% endif %}
                                 </div>
-                                <div class="tree-body">{{ highlight(node.post.body, post_keyword) }}</div>
+                                <div class="tree-body">{{ highlight_with_links(node.post.body, post_keyword, thread_url, post.post_no) }}</div>
                             </div>
                         {% endfor %}
                     {% else %}
