@@ -289,11 +289,12 @@ def parse_posted_at_value(value: str) -> Optional[datetime]:
     return None
 
 
-def linkify_anchors_in_html(thread_url: str, html: str) -> Markup:
+def linkify_anchors_in_html(thread_url: str, html: str, exclude_post_no: Optional[int] = None) -> Markup:
     """
     すでに escape / highlight 済みの HTML 文字列内の「&gt;&gt;数字」を
     レス個別ページへのリンクに変換する。
     data-anchor-no を付与
+    exclude_post_no が指定されている場合、その番号だけはリンク化しない。
     """
     if not html:
         return Markup("")
@@ -309,8 +310,16 @@ def linkify_anchors_in_html(thread_url: str, html: str) -> Markup:
     else:
         base_rr = base
 
+    # ★比較用（文字列で統一）
+    exclude_str = str(exclude_post_no) if exclude_post_no is not None else None
+
     def repl(match: re.Match) -> str:
         no = match.group(1)
+
+        # ★除外：親レス番号（root）など
+        if exclude_str is not None and no == exclude_str:
+            return f"&gt;&gt;{no}"
+
         url = base_rr
         if "thr_res_show" not in url:
             url = url.replace("/thr_res/", "/thr_res_show/")
@@ -327,10 +336,16 @@ def linkify_anchors_in_html(thread_url: str, html: str) -> Markup:
     return Markup(linked)
 
 
-def highlight_with_links(text_value: Optional[str], keyword: str, thread_url: str) -> Markup:
+
+def highlight_with_links(
+    text_value: Optional[str],
+    keyword: str,
+    thread_url: str,
+    exclude_post_no: Optional[int] = None,   # ★追加（省略可）
+) -> Markup:
     """
     1) 検索キーワードのハイライト
-    2) >>番号 を個別レスへのリンク化
+    2) >>番号 を個別レスへのリンク化（exclude_post_no はリンク化しない）
     """
     highlighted = highlight_text(text_value, keyword)
-    return linkify_anchors_in_html(thread_url, str(highlighted))
+    return linkify_anchors_in_html(thread_url, str(highlighted), exclude_post_no)
