@@ -185,7 +185,7 @@
                                     {% if node.post.post_no %}#{{ node.post.post_no }}{% else %}レス番号不明{% endif %}
                                     {% if node.post.posted_at %}／ {{ node.post.posted_at }}{% endif %}
                                 </div>
-                                <div class="tree-body">{{ highlight_with_links(node.post.body, post_keyword, thread_url, post.post_no) }}</div>
+                                <div class="tree-body">{{ highlight_with_links(node.post.body, post_keyword, thread_url, visible_nos) }}</div>
                             </div>
                         {% endfor %}
                     {% else %}
