@@ -921,6 +921,15 @@ def thread_search_posts(
                     except Exception:
                         continue
 
+                # anchor_targets（参照しているレス）も画面に出ているので表示済みに含める
+                for a in anchor_targets:
+                    try:
+                        pno = getattr(a, "post_no", None)
+                        if pno is not None:
+                            visible_nos.add(int(pno))
+                    except Exception:
+                        continue
+
                 entries.append(
                     {
                         "root": root,
