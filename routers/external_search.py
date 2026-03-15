@@ -902,12 +902,41 @@ def thread_search_posts(
                         if target:
                             anchor_targets.append(target)
 
+                # ★ツリー内に「表示済み」のレス番号（=リンク化しない対象）を作る
+                visible_nos: set[int] = set()
+                
+                # root 自体（ツリーの親）
+                try:
+                    if getattr(root, "post_no", None) is not None:
+                        visible_nos.add(int(root.post_no))
+                except Exception:
+                    pass
+                
+                # ツリーに表示する各ノード
+                for node in tree_items:
+                    try:
+                        pno = getattr(node.get("post"), "post_no", None)
+                        if pno is not None:
+                            visible_nos.add(int(pno))
+                    except Exception:
+                        continue
+
+                # anchor_targets（参照しているレス）も画面に出ているので表示済みに含める
+                for a in anchor_targets:
+                    try:
+                        pno = getattr(a, "post_no", None)
+                        if pno is not None:
+                            visible_nos.add(int(pno))
+                    except Exception:
+                        continue
+
                 entries.append(
                     {
                         "root": root,
                         "context": context_posts,
                         "tree": tree_items,
                         "anchor_targets": anchor_targets,
+                        "visible_nos": sorted(list(visible_nos)),
                     }
                 )
 

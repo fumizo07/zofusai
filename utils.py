@@ -289,12 +289,17 @@ def parse_posted_at_value(value: str) -> Optional[datetime]:
     return None
 
 
-def linkify_anchors_in_html(thread_url: str, html: str, exclude_post_no: Optional[int] = None) -> Markup:
+def linkify_anchors_in_html(
+    thread_url: str,
+    html: str,
+    exclude_post_nos: Optional[List[int]] = None,
+) -> Markup:
     """
     すでに escape / highlight 済みの HTML 文字列内の「&gt;&gt;数字」を
     レス個別ページへのリンクに変換する。
     data-anchor-no を付与
-    exclude_post_no が指定されている場合、その番号だけはリンク化しない。
+
+    exclude_post_nos が指定されている場合、それらの番号はリンク化しない。
     """
     if not html:
         return Markup("")
@@ -305,47 +310,53 @@ def linkify_anchors_in_html(thread_url: str, html: str, exclude_post_no: Optiona
         r"(https://bakusai\.com/thr_res(?:_show)?/acode=\d+/ctgid=\d+/bid=\d+/tid=\d+/)",
         base,
     )
-    if m:
-        base_rr = m.group(1)
-    else:
-        base_rr = base
+    base_rr = m.group(1) if m else base
 
-    # ★比較用（文字列で統一）
-    exclude_str = str(exclude_post_no) if exclude_post_no is not None else None
+    # ★除外集合（int）
+    exclude_set = set()
+    if exclude_post_nos:
+        for x in exclude_post_nos:
+            try:
+                exclude_set.add(int(x))
+            except Exception:
+                continue
 
     def repl(match: re.Match) -> str:
-        no = match.group(1)
+        no_s = match.group(1)
+        try:
+            no_i = int(no_s)
+        except Exception:
+            no_i = -1
 
-        # ★除外：親レス番号（root）など
-        if exclude_str is not None and no == exclude_str:
-            return f"&gt;&gt;{no}"
+        # ★除外：ツリー内に表示済みの番号など
+        if no_i in exclude_set:
+            return f"&gt;&gt;{no_s}"
 
         url = base_rr
         if "thr_res_show" not in url:
             url = url.replace("/thr_res/", "/thr_res_show/")
         if not url.endswith("/"):
             url += "/"
-        href = f"{url}rrid={no}/"
+        href = f"{url}rrid={no_s}/"
         return (
-            f'<a class="anchor-link" data-anchor-no="{no}" '
+            f'<a class="anchor-link" data-anchor-no="{no_s}" '
             f'href="{href}" target="_blank" '
-            f'rel="nofollow noopener noreferrer">&gt;&gt;{no}</a>'
+            f'rel="nofollow noopener noreferrer">&gt;&gt;{no_s}</a>'
         )
 
     linked = re.sub(r"&gt;&gt;(\d+)", repl, html)
     return Markup(linked)
 
 
-
 def highlight_with_links(
     text_value: Optional[str],
     keyword: str,
     thread_url: str,
-    exclude_post_no: Optional[int] = None,   # ★追加（省略可）
+    exclude_post_nos: Optional[List[int]] = None,  # ★複数除外に変更
 ) -> Markup:
     """
     1) 検索キーワードのハイライト
-    2) >>番号 を個別レスへのリンク化（exclude_post_no はリンク化しない）
+    2) >>番号 を個別レスへのリンク化（exclude_post_nos はリンク化しない）
     """
     highlighted = highlight_text(text_value, keyword)
-    return linkify_anchors_in_html(thread_url, str(highlighted), exclude_post_no)
+    return linkify_anchors_in_html(thread_url, str(highlighted), exclude_post_nos)
