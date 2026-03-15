@@ -162,7 +162,7 @@
                         URL：{{ thread_url }}{% if post.post_no %}（レス #{{ post.post_no }}）{% endif %}
                     </div>
 
-                    <div class="result-text">{{ highlight_with_links(post.body, post_keyword, thread_url, post.post_no) }}</div>
+                    <div class="result-text">{{ highlight_with_links(post.body, post_keyword, thread_url, visible_nos) }}</div>
 
                     {% if item.anchor_targets %}
                         <div class="section-title-small">このレスが参照しているレス</div>
