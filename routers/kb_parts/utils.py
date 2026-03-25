@@ -449,6 +449,7 @@ SORT_OPTIONS: Dict[str, str] = {
     "avg_rating": "平均評価",
     "height": "身長",
     "cup": "カップ",
+    "work_start": "出勤が早い順",
 }
 
 
@@ -472,6 +473,37 @@ def _cup_rank(cup: Optional[str]) -> int:
     if len(s) >= 1 and "A" <= s[0] <= "Z":
         return ord(s[0]) - ord("A") + 1
     return 0
+
+
+def _work_start_rank(work_start: Optional[str]) -> Optional[int]:
+    s = unicodedata.normalize("NFKC", str(work_start or "")).strip()
+    if not s:
+        return None
+
+    if s == "early":
+        return -1
+    if s == "late":
+        return 99999
+
+    if len(s) == 5 and s[2] == ":":
+        try:
+            hh = int(s[:2])
+            mm = int(s[3:])
+        except Exception:
+            return None
+
+        if mm not in (0, 30):
+            return None
+        if hh < 10:
+            return None
+        if hh > 24:
+            return None
+        if hh == 24 and mm > 30:
+            return None
+
+        return hh * 60 + mm
+
+    return None
 
 
 def parse_rating_min(x: str) -> Optional[int]:
@@ -610,6 +642,10 @@ def sort_persons(
                 return float(v) if v is not None else None
             except Exception:
                 return None
+
+        if sk == "work_start":
+            v = _work_start_rank(getattr(p, "work_start", None))
+            return float(v) if v is not None else None
 
         if sk == "cup":
             v = _cup_rank(getattr(p, "cup", None))
