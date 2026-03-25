@@ -163,9 +163,8 @@
           <div class="kb-grid-input">
             <div class="kb-sizes">
               <select class="kb-input-sm kb-select" name="work_start">
-                <option value=""></option>
                 {% for val, label in work_start_options %}
-                  <option value="{{ val }}" {% if (person.work_start or '') == val %}selected{% endif %}>{{ label }}</option>
+                  <option value="{{ val }}" {% if ((person.work_start or '10:00') == val) %}selected{% endif %}>{{ label }}</option>
                 {% endfor %}
               </select>
               <span class="muted">～</span>
