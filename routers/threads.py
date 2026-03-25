@@ -112,8 +112,9 @@ def list_threads(
     info_message = _get_next_thread_message(request)
 
     return templates.TemplateResponse(
-        "threads.html",
-        {
+        request=request,
+        name="threads.html",
+        context={
             "request": request,
             "threads": threads,
             "popular_tags": popular_tags,

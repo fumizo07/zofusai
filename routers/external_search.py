@@ -502,8 +502,9 @@ def thread_search_page(
         error_message = "スレッドを保存しました。"
 
     return templates.TemplateResponse(
-        "thread_search.html",
-        {
+        request=request,
+        name="thread_search.html",
+        context={
             "request": request,
             "area_options": AREA_OPTIONS,
             "period_options": PERIOD_OPTIONS,
@@ -723,8 +724,9 @@ def thread_showall_page(
     store_dto_url = build_google_site_search_url("dto.jp", store_base_title)
 
     return templates.TemplateResponse(
-        "thread_showall.html",
-        {
+        request=request,
+        name="thread_showall.html",
+        context={
             "request": request,
             "thread_url": url,
             "thread_title": thread_title_display,
@@ -951,8 +953,9 @@ def thread_search_posts(
     store_dto_url = build_google_site_search_url("dto.jp", store_base_title)
    
     return templates.TemplateResponse(
-        "thread_search_posts.html",
-        {
+        request=request,
+        name="thread_search_posts.html",
+        context={
             "request": request,
             "thread_url": selected_thread,
             "thread_title": thread_title_display,
