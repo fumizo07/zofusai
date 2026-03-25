@@ -411,8 +411,9 @@ def kb_index(request: Request, db: Session = Depends(get_db)):
     sort_eff, order_eff = normalize_sort_params("name", "asc")
 
     return templates.TemplateResponse(
-        "kb_index.html",
-        {
+        request=request,
+        name="kb_index.html",
+        context={
             "request": request,
             "kb_allow_secret": _get_kb_allow_secret(),
             "regions": regions,
@@ -602,8 +603,9 @@ def kb_store_page(
     diary_fetch_url_map, diary_open_url_map = _attach_diary_urls_for_templates(persons)
 
     return templates.TemplateResponse(
-        "kb_store.html",
-        {
+        request=request,
+        name="kb_store.html",
+        context={
             "request": request,
             "kb_allow_secret": _get_kb_allow_secret(),
             "region": region,
@@ -777,8 +779,9 @@ def kb_person_page(
     work_start_options.append(("late", "深夜(25時以降)"))
 
     return templates.TemplateResponse(
-        "kb_person.html",
-        {
+        request=request,
+        name="kb_person.html",
+        context={
             "request": request,
             "kb_allow_secret": _get_kb_allow_secret(),
             "region": region,
@@ -1437,8 +1440,9 @@ def kb_search(
     diary_fetch_url_map, diary_open_url_map = _attach_diary_urls_for_templates(persons)
 
     return templates.TemplateResponse(
-        "kb_index.html",
-        {
+        request=request,
+        name="kb_index.html",
+        context={
             "request": request,
             "kb_allow_secret": _get_kb_allow_secret(),
             "regions": regions,
