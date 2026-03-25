@@ -32,6 +32,7 @@ security = HTTPBasic()
 BASIC_AUTH_USER = os.getenv("BASIC_AUTH_USER") or ""
 BASIC_AUTH_PASS = os.getenv("BASIC_AUTH_PASS") or ""
 BASIC_ENABLED = bool(BASIC_AUTH_USER and BASIC_AUTH_PASS)
+KEEPALIVE_PATH = "/fzmx-8f3k2q"
 
 
 def verify_basic(credentials: HTTPBasicCredentials = Depends(security)):
@@ -76,6 +77,9 @@ def _basic_ok_from_header(request: Request) -> bool:
 
 class BasicAuthMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
+        if request.url.path == KEEPALIVE_PATH:
+            return await call_next(request)
+
         if not BASIC_ENABLED:
             return await call_next(request)
 
@@ -125,3 +129,11 @@ register_startup(app)
 @app.get("/robots.txt", response_class=PlainTextResponse)
 def robots_txt():
     return "User-agent: *\nDisallow: /\n"
+
+
+# =========================
+# GET /fzmx-〇〇 に対して 200 OK と "OK" を返す
+# =========================
+@app.api_route(KEEPALIVE_PATH, methods=["GET", "HEAD"], response_class=PlainTextResponse)
+def keepalive_ping():
+    return "OK"
