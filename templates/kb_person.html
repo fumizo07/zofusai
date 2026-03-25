@@ -81,8 +81,9 @@
          {% if person.waist_cm %}-W{{ person.waist_cm }}{% endif %}
          {% if person.hip_cm %}-H{{ person.hip_cm }}{% endif %}
       </div>
-      <div>{%- if person.services -%}プレイ：<strong>{{ person.services }}</strong>{%- endif -%}</div>
-      <div>{%- if person.tags -%}タグ：<strong>{{ person.tags }}</strong>{%- endif -%}</div>
+      {%- if person.services -%}<div>プレイ：<strong>{{ person.services }}</strong></div>{%- endif -%}
+      {%- if person.tags -%}<div>タグ：<strong>{{ person.tags }}</strong></div>{%- endif -%}
+      {%- if work_start_label -%}<div>出勤時間：<strong>{{ work_start_label }}</strong>～</div>{%- endif -%}
 
       {% if person.url %}
         {# 表示は person.url（DBの値＝www.dto.jpのまま） #}
@@ -129,21 +130,20 @@
 
         <div class="inner-flex-box">
           <div class="kb-grid-label">年齢：</div>
-          <div class="kb-grid-input"><input class="kb-input-sm" type="number" name="age" value="{{ person.age or '' }}" placeholder="例：24" min="18" max="99"></div>
+          <div class="kb-grid-input"><input class="kb-input-sm" type="number" name="age" value="{{ person.age if person.age is not none else 20 }}" placeholder="例：24" min="18" max="99"></div>
         </div>
 
         <div class="inner-flex-box">
           <div class="kb-grid-label">身長：</div>
-          <div class="kb-grid-input"><input class="kb-input-sm" type="number" name="height_cm" value="{{ person.height_cm or '' }}" placeholder="例：160" min="100" max="200"></div>
+          <div class="kb-grid-input"><input class="kb-input-sm" type="number" name="height_cm" value="{{ person.height_cm if person.height_cm is not none else 150 }}" placeholder="例：160" min="100" max="200"></div>
         </div>
 
         <div class="inner-flex-box">
           <div class="kb-grid-label">カップ：</div>
           <div class="kb-grid-input">
             <select class="kb-input-sm kb-select" name="cup">
-              <option value="" {% if not person.cup %}selected{% endif %}>(未設定)</option>
               {% for c in "ABCDEFGHIJKLMNOPQRSTUVWXYZ" %}
-                <option value="{{ c }}" {% if person.cup == c %}selected{% endif %}>{{ c }}カップ</option>
+                <option value="{{ c }}" {% if (person.cup or 'E') == c %}selected{% endif %}>{{ c }}カップ</option>
               {% endfor %}
             </select>
           </div>
@@ -152,9 +152,23 @@
         <div class="inner-flex-box">
           <div class="kb-grid-label">3サイズ：</div>
           <div class="kb-sizes">
-            <input class="kb-input-xs" type="number" name="bust_cm" value="{{ person.bust_cm or '' }}" placeholder="B" min="0" max="200">
-            <input class="kb-input-xs" type="number" name="waist_cm" value="{{ person.waist_cm or '' }}" placeholder="W" min="0" max="200">
-            <input class="kb-input-xs" type="number" name="hip_cm" value="{{ person.hip_cm or '' }}" placeholder="H" min="0" max="200">
+            <input class="kb-input-xs" type="number" name="bust_cm" value="{{ person.bust_cm if person.bust_cm is not none else 88 }}" placeholder="B" min="0" max="200">
+            <input class="kb-input-xs" type="number" name="waist_cm" value="{{ person.waist_cm if person.waist_cm is not none else 55 }}" placeholder="W" min="0" max="200">
+            <input class="kb-input-xs" type="number" name="hip_cm" value="{{ person.hip_cm if person.hip_cm is not none else 85 }}" placeholder="H" min="0" max="200">
+          </div>
+        </div>
+
+      　<div class="inner-flex-box">
+          <div class="kb-grid-label">出勤：</div>
+          <div class="kb-grid-input">
+            <div class="kb-sizes">
+              <select class="kb-input-sm kb-select" name="work_start">
+                {% for val, label in work_start_options %}
+                  <option value="{{ val }}" {% if ((person.work_start or '10:00') == val) %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+              </select>
+              <span class="muted">～</span>
+            </div>
           </div>
         </div>
 
@@ -233,21 +247,16 @@
         </div>
 
         {# 日記の追跡フラグ（URLがある人物のみ対象） #}
-        <div class="inner-flex-box">
+      　<div class="inner-flex-box">
           <div class="kb-grid-label">日記：</div>
           <div class="kb-grid-input">
-            {% if person.url %}
-              <label>
-                <input type="checkbox" name="track_diary" value="1" {% if track_diary %}checked{% endif %}>
-                日記を追跡する
-              </label>
-              <div class="muted">※検索時の取得対象が「追跡ON」の人物だけになります。</div>
-            {% else %}
-              <label class="muted">
-                <input type="checkbox" disabled>
-                日記を追跡する(URL未登録のため不可)
-              </label>
-              <div class="muted">※まずURLを登録してください。</div>
+            <label>
+              <input type="checkbox" name="track_diary" value="1" {% if track_diary %}checked{% endif %}>
+              日記を追跡する
+            </label>
+            <div class="muted">※検索時の取得対象が「追跡ON」の人物だけになります。</div>
+            {% if not person.url %}
+              <div class="muted">※URL未登録でも保存はできますが、取得時にはURLが必要です。</div>
             {% endif %}
           </div>
         </div>

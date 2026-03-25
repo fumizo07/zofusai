@@ -6,7 +6,7 @@ import os
 import json
 import unicodedata
 from datetime import datetime
-from typing import List, Tuple
+from typing import List, Tuple, Optional
 from urllib.parse import urlencode, urlparse, urlunparse
 
 from fastapi import APIRouter, Depends, Form, Query, Request
@@ -91,6 +91,46 @@ def _coerce_bool(v) -> bool:
         return False
     return False
 
+# =========================
+# 出勤用ヘルパー
+# =========================
+def _normalize_work_start(v: str | None) -> str | None:
+    s = (v or "").strip()
+    if not s:
+        return None
+    if s == "early":
+        return "early"
+    if s == "late":
+        return "late"
+    if len(s) == 5 and s[2] == ":":
+        hh = parse_int(s[:2])
+        mm = parse_int(s[3:])
+        if hh is not None and mm in (0, 30):
+            if (hh > 10 or (hh == 10 and mm >= 0)) and (hh < 24 or (hh == 24 and mm <= 30)):
+                return f"{int(hh):02d}:{int(mm):02d}"
+    return None
+
+
+def _work_start_sort_key(v: str | None) -> int:
+    s = _normalize_work_start(v)
+    if s == "early":
+        return -1
+    if s == "late":
+        return 99999
+    if s and len(s) == 5 and s[2] == ":":
+        hh = int(s[:2])
+        mm = int(s[3:])
+        return hh * 60 + mm
+    return 88888
+
+
+def _work_start_label(v: str | None) -> str:
+    s = _normalize_work_start(v)
+    if s == "early":
+        return "早朝(10時前)"
+    if s == "late":
+        return "深夜(25時以降)"
+    return s or ""
 
 # =========================
 # DTO URL: fetchは www / clickは s を使い分け
@@ -584,6 +624,7 @@ def kb_store_page(
             "rating_min": str(rmin) if rmin is not None else "",
             "star_only": "1" if (star_only or "") == "1" else "",
             "diary_latest_ts_map": diary_latest_ts_map,
+            "work_start_label": _work_start_label,
         },
     )
 
@@ -619,6 +660,17 @@ def kb_add_person(
         dup = find_similar_persons_in_store(db, int(store_id), name, exclude_person_id=None)
 
         p = KBPerson(store_id=int(store_id), name=name)
+
+        # 人物ページの初期値
+        p.age = 20
+        p.height_cm = 150
+        p.cup = "C"
+        p.bust_cm = 88
+        p.waist_cm = 55
+        p.hip_cm = 85
+        if hasattr(p, "work_start"):
+            p.work_start = "10:00"
+            
         p.name_norm = norm_text(name)
         p.search_norm = build_person_search_blob(db, p)
 
@@ -711,6 +763,19 @@ def kb_person_page(
     google_cityheaven_diary_url = build_google_site_search_url("cityheaven.net", diary_q)
     google_dto_diary_url = build_google_site_search_url("dto.jp", diary_q)
 
+    work_start_options = [("early", "早朝(10時前)")]
+    hh = 10
+    mm = 0
+    while True:
+        work_start_options.append((f"{hh:02d}:{mm:02d}", f"{hh:02d}:{mm:02d}"))
+        if hh == 24 and mm == 30:
+            break
+        mm += 30
+        if mm >= 60:
+            hh += 1
+            mm = 0
+    work_start_options.append(("late", "深夜(25時以降)"))
+
     return templates.TemplateResponse(
         "kb_person.html",
         {
@@ -734,6 +799,8 @@ def kb_person_page(
             "active_page": "kb",
             "page_title_suffix": "KB",
             "body_class": "page-kb",
+            "work_start_options": work_start_options,
+            "work_start_label": _work_start_label(getattr(person, "work_start", None)),
         },
     )
 
@@ -784,6 +851,7 @@ def kb_update_person(
     bust_cm: str = Form(""),
     waist_cm: str = Form(""),
     hip_cm: str = Form(""),
+    work_start: str = Form(""),
     services: str = Form(""),
     tags: str = Form(""),
     url: str = Form(""),
@@ -827,6 +895,8 @@ def kb_update_person(
         p.bust_cm = parse_int(bust_cm)
         p.waist_cm = parse_int(waist_cm)
         p.hip_cm = parse_int(hip_cm)
+        if hasattr(p, "work_start"):
+            p.work_start = _normalize_work_start(work_start)
 
         p.services = (services or "").strip() or None
         p.tags = (tags or "").strip() or None
@@ -1410,5 +1480,6 @@ def kb_search(
             "rating_min": str(rmin) if rmin is not None else "",
             "star_only": "1" if (star_only or "") == "1" else "",
             "diary_latest_ts_map": diary_latest_ts_map,
+            "work_start_label": _work_start_label,
         },
     )

@@ -111,6 +111,7 @@
         height: getNumKey(el, "sortHeight"),
         price: getNumKey(el, "sortPrice"),
         age: getNumKey(el, "sortAge"),
+        workStart: getNumKey(el, "sortWorkStart"),
         cand: getNumKey(el, "sortCand"), // 1..5 / null
         nextActionRank: getNextActionRank(el),
         lastVisitTs: getNumKey(el, "lastVisitTs"),
@@ -159,6 +160,9 @@
           if (c !== 0) return c;
         } else if (mode === "height") {
           const c = compareNullableNumber(A.height, B.height, true);
+          if (c !== 0) return c;
+        } else if (mode === "work_start") {
+          const c = compareNullableNumber(A.workStart, B.workStart, true);
           if (c !== 0) return c;
         } else if (mode === "cup") {
           const c = compareNullableNumber(A.cupRank, B.cupRank, false);

@@ -133,6 +133,8 @@ class KBPerson(Base):
     waist_cm = Column(Integer, nullable=True)
     hip_cm = Column(Integer, nullable=True)
 
+    work_start = Column(Text, nullable=True, index=True)
+
     services = Column(Text, nullable=True)
     tags = Column(Text, nullable=True)
 
