@@ -669,7 +669,7 @@ def kb_add_person(
         p.waist_cm = 55
         p.hip_cm = 85
         if hasattr(p, "work_start"):
-            p.work_start = None
+            p.work_start = "10:00"
             
         p.name_norm = norm_text(name)
         p.search_norm = build_person_search_blob(db, p)
