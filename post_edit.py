@@ -37,8 +37,9 @@ def edit_post_get(
         raise HTTPException(status_code=404, detail="not_found")
 
     return templates.TemplateResponse(
-        "post_edit.html",
-        {
+        request=request,
+        name="post_edit.html",
+        context={
             "request": request,
             "post": row,
             "saved": False,
@@ -82,8 +83,9 @@ def edit_post_post(
         error = str(e)
 
     return templates.TemplateResponse(
-        "post_edit.html",
-        {
+        request=request,
+        name="post_edit.html",
+        context={
             "request": request,
             "post": row,
             "saved": (error == ""),

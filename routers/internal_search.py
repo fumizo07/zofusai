@@ -299,8 +299,9 @@ def show_search_page(
         page = last_page
 
     return templates.TemplateResponse(
-        "index.html",
-        {
+        request=request,
+        name="index.html",
+        context={
             "request": request,
             "keyword": keyword_raw,
             "thread_filter": thread_filter_raw,

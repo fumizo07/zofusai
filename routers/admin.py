@@ -30,8 +30,9 @@ def _add_flag_to_url(back_url: str, key: str) -> str:
 @router.get("/admin/fetch", response_class=HTMLResponse)
 def fetch_thread_get(request: Request, url: str = ""):
     return templates.TemplateResponse(
-        "fetch.html",
-        {"request": request, "url": url or "", "imported": None, "error": ""},
+        request=request,
+        name="fetch.html",
+        context={"request": request, "url": url or "", "imported": None, "error": ""},
     )
 
 
@@ -61,8 +62,9 @@ def fetch_thread_post(
         error = "URLが入力されていません。"
 
     return templates.TemplateResponse(
-        "fetch.html",
-        {"request": request, "url": url, "imported": imported, "error": error},
+        request=request,
+        name="fetch.html",
+        context={"request": request, "url": url, "imported": imported, "error": error},
     )
 
 
