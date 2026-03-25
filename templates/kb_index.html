@@ -338,13 +338,13 @@
               </div>
 
               <div class="muted">
-                {%- if p.services -%}プレイ:{{ p.services }}{%- endif -%}
+                {%- if p.services -%}プレイ:<strong>{{ p.services }}</strong>{%- endif -%}
                 {%- if p.services and p.tags -%}/{%- endif -%}
                 {%- if p.tags -%}タグ:{{ p.tags }}{%- endif -%}
               </div>
 
               {%- if p.work_start -%}
-                <div class="muted">出勤時間:{{ work_start_label(p.work_start) }}～</div>
+                <div class="muted">出勤時間:<strong>{{ work_start_label(p.work_start) }}～</strong></div>
               {%- endif -%}
 
               <div class="muted">
