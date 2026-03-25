@@ -6,7 +6,7 @@ import os
 import json
 import unicodedata
 from datetime import datetime
-from typing import List, Tuple
+from typing import List, Tuple, Optional
 from urllib.parse import urlencode, urlparse, urlunparse
 
 from fastapi import APIRouter, Depends, Form, Query, Request
