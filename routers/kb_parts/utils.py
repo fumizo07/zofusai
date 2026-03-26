@@ -478,7 +478,7 @@ def _cup_rank(cup: Optional[str]) -> int:
 def _work_start_rank(work_start: Optional[str]) -> Optional[int]:
     s = unicodedata.normalize("NFKC", str(work_start or "")).strip()
     if not s:
-        return None
+        return 100000
 
     if s == "early":
         return -1
