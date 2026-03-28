@@ -202,6 +202,23 @@
                         スレッド内検索
                     </button>
                 </div>
+                <div class="form-row">
+                    <label style="display:flex; align-items:center; gap:6px;">
+                        <input type="checkbox" id="post_match_or_ui" value="1">
+                        <span>OR</span>
+                        <span class="muted" style="font-size:12px;">どちらかを含む</span>
+                    </label>
+                
+                    <label style="display:flex; align-items:center; gap:6px; margin-left:12px;">
+                        <input type="checkbox" id="post_match_and_ui" value="1">
+                        <span>AND</span>
+                        <span class="muted" style="font-size:12px;">両方含む</span>
+                    </label>
+                
+                    <span class="muted" style="font-size:12px; margin-left:12px;">
+                        ※半角スペース区切り/*は任意の1文字/除外は -〇〇
+                    </span>
+                </div>
             </form>
 
             <div class="thread-actions-inline">
