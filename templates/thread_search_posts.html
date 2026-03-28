@@ -58,11 +58,30 @@
             <input type="hidden" name="board_category" value="{{ board_category }}">
             <input type="hidden" name="board_id" value="{{ board_id }}">
             <input type="hidden" name="back_url" value="{{ _back_url|e }}">
+            <input type="hidden" name="title_keyword" value="{{ title_keyword|e }}">
 
             <div class="form-row">
                 <label for="post_keyword_bottom">本文キーワード：</label>
                 <input type="text" class="key_input_box" id="post_keyword_bottom" name="post_keyword" value="{{ post_keyword|e }}">
                 <button type="submit" class="btn-primary">このスレで再検索</button>
+            </div>
+
+            <div class="form-row">
+              <label style="display:flex; align-items:center; gap:6px;">
+                  <input type="checkbox" name="post_match_or" value="1" {% if post_match_or %}checked{% endif %}>
+                  <span>OR</span>
+                  <span class="muted" style="font-size:12px;">どちらかを含む</span>
+              </label>
+          
+              <label style="display:flex; align-items:center; gap:6px; margin-left:12px;">
+                  <input type="checkbox" name="post_match_and" value="1" {% if post_match_and %}checked{% endif %}>
+                  <span>AND</span>
+                  <span class="muted" style="font-size:12px;">両方含む</span>
+              </label>
+          
+              <span class="muted" style="font-size:12px; margin-left:12px;">
+                  ※半角スペース区切り/*は任意の1文字/除外は -〇〇
+              </span>
             </div>
 
             <div class="form-row">
@@ -83,6 +102,9 @@
                 <input type="hidden" name="board_category" value="{{ board_category }}">
                 <input type="hidden" name="board_id" value="{{ board_id }}">
                 <input type="hidden" name="back_url" value="{{ _back_url|e }}">
+                <input type="hidden" name="title_keyword" value="{{ title_keyword|e }}">
+                <input type="hidden" name="post_match_or" value="{% if post_match_or %}1{% endif %}">
+                <input type="hidden" name="post_match_and" value="{% if post_match_and %}1{% endif %}">
 
                 <button type="submit" class="btn-secondary" {% if not prev_thread_url %}disabled{% endif %}>
                     前スレで再検索
@@ -107,6 +129,9 @@
                 <input type="hidden" name="board_category" value="{{ board_category }}">
                 <input type="hidden" name="board_id" value="{{ board_id }}">
                 <input type="hidden" name="back_url" value="{{ _back_url|e }}">
+                <input type="hidden" name="title_keyword" value="{{ title_keyword|e }}">
+                <input type="hidden" name="post_match_or" value="{% if post_match_or %}1{% endif %}">
+                <input type="hidden" name="post_match_and" value="{% if post_match_and %}1{% endif %}">
 
                 <button type="submit" class="btn-secondary" {% if not next_thread_url %}disabled{% endif %}>
                     次スレで再検索
@@ -253,11 +278,30 @@
             <input type="hidden" name="board_id" value="{{ board_id }}">
             <input type="hidden" name="title_keyword" value="{{ title_keyword|e }}">
             <input type="hidden" name="back_url" value="{{ _back_url|e }}">
+            <input type="hidden" name="title_keyword" value="{{ title_keyword|e }}">
 
             <div class="form-row">
                 <label for="post_keyword_bottom2">本文キーワード：</label>
                 <input type="text" class="key_input_box" id="post_keyword_bottom2" name="post_keyword" value="{{ post_keyword|e }}">
                 <button type="submit" class="btn-primary">このスレで再検索</button>
+            </div>
+
+            <div class="form-row">
+              <label style="display:flex; align-items:center; gap:6px;">
+                  <input type="checkbox" name="post_match_or" value="1" {% if post_match_or %}checked{% endif %}>
+                  <span>OR</span>
+                  <span class="muted" style="font-size:12px;">どちらかを含む</span>
+              </label>
+          
+              <label style="display:flex; align-items:center; gap:6px; margin-left:12px;">
+                  <input type="checkbox" name="post_match_and" value="1" {% if post_match_and %}checked{% endif %}>
+                  <span>AND</span>
+                  <span class="muted" style="font-size:12px;">両方含む</span>
+              </label>
+          
+              <span class="muted" style="font-size:12px; margin-left:12px;">
+                  ※半角スペース区切り/*は任意の1文字/除外は -〇〇
+              </span>
             </div>
 
             <div class="form-row">
@@ -278,6 +322,9 @@
                 <input type="hidden" name="board_category" value="{{ board_category }}">
                 <input type="hidden" name="board_id" value="{{ board_id }}">
                 <input type="hidden" name="back_url" value="{{ _back_url|e }}">
+                <input type="hidden" name="title_keyword" value="{{ title_keyword|e }}">
+                <input type="hidden" name="post_match_or" value="{% if post_match_or %}1{% endif %}">
+                <input type="hidden" name="post_match_and" value="{% if post_match_and %}1{% endif %}">
 
                 <button type="submit" class="btn-secondary" {% if not prev_thread_url %}disabled{% endif %}>
                     前スレで再検索
@@ -301,6 +348,9 @@
                 <input type="hidden" name="board_category" value="{{ board_category }}">
                 <input type="hidden" name="board_id" value="{{ board_id }}">
                 <input type="hidden" name="back_url" value="{{ _back_url|e }}">
+                <input type="hidden" name="title_keyword" value="{{ title_keyword|e }}">
+                <input type="hidden" name="post_match_or" value="{% if post_match_or %}1{% endif %}">
+                <input type="hidden" name="post_match_and" value="{% if post_match_and %}1{% endif %}">
 
                 <button type="submit" class="btn-secondary" {% if not next_thread_url %}disabled{% endif %}>
                     次スレで再検索
