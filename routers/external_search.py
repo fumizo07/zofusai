@@ -69,6 +69,34 @@ def _truthy(v: Optional[str]) -> bool:
     return s in ("1", "true", "yes", "on")
 
 
+def _resolve_post_match_mode(
+    post_match_mode: str,
+    post_match_or: str,
+    post_match_and: str,
+) -> tuple[str, bool, bool]:
+    """
+    新方式:
+      post_match_mode = "", "or", "and"
+
+    旧方式:
+      post_match_or / post_match_and
+    を後方互換で受ける
+    """
+    mode = (post_match_mode or "").strip().lower()
+
+    if mode not in ("", "or", "and"):
+        mode = ""
+
+    # 旧方式 fallback
+    if not mode:
+        if _truthy(post_match_and):
+            mode = "and"
+        elif _truthy(post_match_or):
+            mode = "or"
+
+    return mode, (mode == "or"), (mode == "and")
+
+
 def _split_post_keyword_expr(raw: str) -> Tuple[List[str], List[str]]:
     """
     半角/全角スペース区切りで分解
