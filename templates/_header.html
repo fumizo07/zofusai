@@ -86,12 +86,12 @@
                             <div>
                                 <label>
                                     <input type="radio" name="tag_mode" value="or" {% if (tag_mode|default('or')) != 'and' %}checked{% endif %}>
-                                    OR（いずれか含む）
+                                    OR(いずれか含む)
                                 </label>
                                 &nbsp;
                                 <label>
                                     <input type="radio" name="tag_mode" value="and" {% if (tag_mode|default('or')) == 'and' %}checked{% endif %}>
-                                    AND（すべて含む）
+                                    AND(全て含む)
                                 </label>
                             </div>
                         </div>
@@ -157,13 +157,13 @@
                             <label style="display:flex; align-items:center; gap:6px; margin-left:12px;">
                                 <input type="radio" name="post_match_mode" value="or" {% if post_match_mode == 'or' %}checked{% endif %}>
                                 <span>OR</span>
-                                <span class="muted" style="font-size:12px;">どちらかを含む</span>
+                                <span class="muted" style="font-size:12px;">いずれかを含む</span>
                             </label>
                         
                             <label style="display:flex; align-items:center; gap:6px; margin-left:12px;">
                                 <input type="radio" name="post_match_mode" value="and" {% if post_match_mode == 'and' %}checked{% endif %}>
                                 <span>AND</span>
-                                <span class="muted" style="font-size:12px;">両方含む</span>
+                                <span class="muted" style="font-size:12px;">全て含む</span>
                             </label>
                         
                             <span class="muted" style="font-size:12px; margin-left:12px;">
