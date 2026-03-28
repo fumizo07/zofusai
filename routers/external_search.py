@@ -861,6 +861,7 @@ def thread_search_posts(
     selected_thread: str = Form(""),
     title_keyword: str = Form(""),
     post_keyword: str = Form(""),
+    post_match_mode: str = Form(""),
     post_match_or: str = Form(""),
     post_match_and: str = Form(""),
     area: str = Form(DEFAULT_AREA),
@@ -873,8 +874,11 @@ def thread_search_posts(
     
     selected_thread = (selected_thread or "").strip()
     post_keyword = (post_keyword or "").strip()
-    post_match_or_flag = _truthy(post_match_or)
-    post_match_and_flag = _truthy(post_match_and)
+    post_match_mode, post_match_or_flag, post_match_and_flag = _resolve_post_match_mode(
+        post_match_mode=post_match_mode,
+        post_match_or=post_match_or,
+        post_match_and=post_match_and,
+    )
 
     area, period, board_category, board_id, title_keyword = _normalize_thread_search_params(
         area, period, board_category, board_id, title_keyword
@@ -983,8 +987,6 @@ def thread_search_posts(
                         dfs(child, 0)
                 return result
 
-            post_keyword_norm = normalize_for_search(post_keyword)
-
             for root in all_posts_sorted:
                 pn = getattr(root, "post_no", None)
                 if pn is None:
@@ -1080,6 +1082,7 @@ def thread_search_posts(
             "post_keyword": post_keyword,
             "post_match_or": post_match_or_flag,
             "post_match_and": post_match_and_flag,
+            "post_match_mode": post_match_mode,
             "area": area,
             "period": period,
             "entries": entries,
