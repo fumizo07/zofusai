@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+import html
 import unicodedata
 from collections import defaultdict
 from datetime import datetime
@@ -940,7 +941,7 @@ def thread_search_posts(
 
             all_posts_sorted = sorted(list(all_posts), key=_post_key)
 
-            # 追加ここから：post_no索引 & 本文正規化の使い回し（リクエスト内キャッシュ）
+
             posts_by_no: Dict[int, object] = {}
             body_norm_by_no: Dict[int, str] = {}
             
@@ -956,8 +957,9 @@ def thread_search_posts(
                 # post_no -> normalize(body)
                 # （検索語を変えても同一リクエスト内では再計算しない）
                 if pn not in body_norm_by_no:
-                    body_norm_by_no[pn] = normalize_for_search(getattr(p, "body", "") or "")
-            # 追加ここまで
+                    raw_body = getattr(p, "body", "") or ""
+                    search_body = html.unescape(raw_body)
+                    body_norm_by_no[pn] = normalize_for_search(search_body)
          
             replies: Dict[int, List[object]] = defaultdict(list)
             for p in all_posts_sorted:
