@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+import unicodedata
 from collections import defaultdict
 from datetime import datetime
 from typing import List, Optional, Dict, Tuple
