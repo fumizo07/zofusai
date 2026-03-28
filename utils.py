@@ -218,28 +218,46 @@ def highlight_text(text_value: Optional[str], keyword: str) -> Markup:
     - AND/OR/除外/ワイルドカード式に対応
     - 除外語（-AAA）はハイライトしない
     - * は任意の1文字
+
+    重要:
+    - escape後のHTML実体参照（例: &gt;）に対して検索しない
+    - 生テキスト上でマッチ判定し、出力時にだけ escape する
     """
     if text_value is None:
         text_value = ""
+
     text_value = _normalize_lines(text_value)
+
     if not keyword:
         return Markup(escape(text_value))
 
-    escaped = escape(text_value)
     patterns = _build_highlight_patterns(keyword)
     if not patterns:
-        return Markup(escaped)
+        return Markup(escape(text_value))
 
     try:
         pattern = re.compile("(" + "|".join(patterns) + ")", re.IGNORECASE)
     except re.error:
-        return Markup(escaped)
+        return Markup(escape(text_value))
 
-    def repl(match):
-        return Markup(f"<mark>{match.group(0)}</mark>")
+    parts: List[str] = []
+    last_end = 0
 
-    highlighted = pattern.sub(lambda m: repl(m), escaped)
-    return Markup(highlighted)
+    for m in pattern.finditer(text_value):
+        start, end = m.span()
+
+        if start > last_end:
+            parts.append(str(escape(text_value[last_end:start])))
+
+        matched_text = text_value[start:end]
+        parts.append(f"<mark>{escape(matched_text)}</mark>")
+
+        last_end = end
+
+    if last_end < len(text_value):
+        parts.append(str(escape(text_value[last_end:])))
+
+    return Markup("".join(parts))
 
 
 def simplify_thread_title(title: str) -> str:
