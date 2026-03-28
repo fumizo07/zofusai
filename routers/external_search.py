@@ -960,6 +960,11 @@ def thread_search_posts(
                     raw_body = getattr(p, "body", "") or ""
                     search_body = html.unescape(raw_body)
                     body_norm_by_no[pn] = normalize_for_search(search_body)
+                    # ★デバッグ：後で消す
+                    if pn == 72:
+                        print("[DBG raw_body]", repr(raw_body))
+                        print("[DBG unescaped]", repr(search_body))
+                    # ★ここまでデバッグ：後で消す
          
             replies: Dict[int, List[object]] = defaultdict(list)
             for p in all_posts_sorted:
