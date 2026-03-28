@@ -6,7 +6,7 @@ import json
 import re
 from collections import defaultdict
 from datetime import datetime
-from typing import List, Optional, Dict
+from typing import List, Optional, Dict, Tuple
 from urllib.parse import urlencode
 
 from fastapi import APIRouter, Request, Depends, Form
@@ -66,6 +66,82 @@ def _truthy(v: Optional[str]) -> bool:
         return False
     s = str(v).strip().lower()
     return s in ("1", "true", "yes", "on")
+
+
+def _split_post_keyword_expr(raw: str) -> Tuple[List[str], List[str]]:
+    """
+    半角/全角スペース区切りで分解
+    - 先頭が - の語は除外語
+    - * はここではそのまま保持（後で正規表現化）
+    """
+    s = unicodedata.normalize("NFKC", raw or "").strip()
+    if not s:
+        return [], []
+
+    parts = [p.strip() for p in re.split(r"[ ]+", s.replace("　", " ")) if p.strip()]
+
+    positives: List[str] = []
+    negatives: List[str] = []
+
+    for p in parts:
+        if p.startswith("-") and len(p) >= 2:
+            negatives.append(p[1:])
+        else:
+            positives.append(p)
+
+    return positives, negatives
+
+
+def _compile_wildcard_pattern(token_norm: str) -> re.Pattern[str]:
+    """
+    * を「任意の1文字」にする
+    例:
+      A*   -> A.
+      A**A -> A..A
+    """
+    escaped = re.escape(token_norm)
+    pattern = escaped.replace(r"\*", ".")
+    return re.compile(pattern)
+
+
+def _token_hit(body_norm: str, token_raw: str) -> bool:
+    token_norm = normalize_for_search(token_raw or "")
+    if not token_norm:
+        return False
+
+    if "*" in token_norm:
+        return bool(_compile_wildcard_pattern(token_norm).search(body_norm))
+
+    return token_norm in body_norm
+
+
+def _match_post_keyword_expr(
+    body_norm: str,
+    post_keyword_raw: str,
+    use_and: bool,
+    use_or: bool,
+) -> bool:
+    positives, negatives = _split_post_keyword_expr(post_keyword_raw)
+
+    # 除外語は本文全体から除外
+    for ng in negatives:
+        if _token_hit(body_norm, ng):
+            return False
+
+    # positive が無いならヒットさせない
+    if not positives:
+        return False
+
+    # AND 優先（UI側でも排他にするが、保険）
+    if use_and:
+        return all(_token_hit(body_norm, t) for t in positives)
+
+    # OR 指定、または複数語で未指定なら OR 扱い
+    if use_or or len(positives) >= 2:
+        return any(_token_hit(body_norm, t) for t in positives)
+
+    # 単語1個なら従来どおり
+    return _token_hit(body_norm, positives[0])
 
 
 def _safe_back_url(back_url: str, default: str = "/thread_search") -> str:
@@ -756,6 +832,8 @@ def thread_search_posts(
     selected_thread: str = Form(""),
     title_keyword: str = Form(""),
     post_keyword: str = Form(""),
+    post_match_or: str = Form(""),
+    post_match_and: str = Form(""),
     area: str = Form(DEFAULT_AREA),
     period: str = Form(DEFAULT_PERIOD),
     board_category: str = Form(DEFAULT_BOARD_CATEGORY),
@@ -766,6 +844,8 @@ def thread_search_posts(
     
     selected_thread = (selected_thread or "").strip()
     post_keyword = (post_keyword or "").strip()
+    post_match_or_flag = _truthy(post_match_or)
+    post_match_and_flag = _truthy(post_match_and)
 
     area, period, board_category, board_id, title_keyword = _normalize_thread_search_params(
         area, period, board_category, board_id, title_keyword
@@ -880,9 +960,17 @@ def thread_search_posts(
                 pn = getattr(root, "post_no", None)
                 if pn is None:
                     continue
-            
+
                 body_norm = body_norm_by_no.get(pn, "")
-                if not body_norm or (post_keyword_norm not in body_norm):
+                if not body_norm:
+                    continue
+
+                if not _match_post_keyword_expr(
+                    body_norm=body_norm,
+                    post_keyword_raw=post_keyword,
+                    use_and=post_match_and_flag,
+                    use_or=post_match_or_flag,
+                ):
                     continue
 
                 context_posts: List[object] = []
@@ -961,6 +1049,8 @@ def thread_search_posts(
             "thread_title": thread_title_display,
             "title_keyword": title_keyword,
             "post_keyword": post_keyword,
+            "post_match_or": post_match_or_flag,
+            "post_match_and": post_match_and_flag,
             "area": area,
             "period": period,
             "entries": entries,
