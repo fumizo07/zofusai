@@ -142,7 +142,6 @@
                         <input type="hidden" name="board_id" value="{{ (board_id|default(''))|e }}">
                         <input type="hidden" name="title_keyword" value="{{ (title_keyword|default(''))|e }}">
                         <input type="hidden" name="back_url" value="{{ _back_url|e }}">
-                        <input type="hidden" name="title_keyword" value="{{ title_keyword|e }}">
 
                         <div class="form-row">
                             <label>本文キーワード：</label>
@@ -151,13 +150,18 @@
 
                         <div class="form-row">
                             <label style="display:flex; align-items:center; gap:6px;">
-                                <input type="checkbox" name="post_match_or" value="1" {% if post_match_or %}checked{% endif %}>
+                                <input type="radio" name="post_match_mode" value="" {% if (post_match_mode or '') == '' %}checked{% endif %}>
+                                <span>通常</span>
+                            </label>
+                        
+                            <label style="display:flex; align-items:center; gap:6px; margin-left:12px;">
+                                <input type="radio" name="post_match_mode" value="or" {% if post_match_mode == 'or' %}checked{% endif %}>
                                 <span>OR</span>
                                 <span class="muted" style="font-size:12px;">どちらかを含む</span>
                             </label>
                         
                             <label style="display:flex; align-items:center; gap:6px; margin-left:12px;">
-                                <input type="checkbox" name="post_match_and" value="1" {% if post_match_and %}checked{% endif %}>
+                                <input type="radio" name="post_match_mode" value="and" {% if post_match_mode == 'and' %}checked{% endif %}>
                                 <span>AND</span>
                                 <span class="muted" style="font-size:12px;">両方含む</span>
                             </label>

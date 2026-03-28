@@ -127,8 +127,7 @@
                 <input type="hidden" name="board_id" value="{{ current_board_id|e }}">
                 <input type="hidden" name="back_url" value="{{ _back_url|e }}">
                 <input type="hidden" id="post_keyword_hidden" name="post_keyword" value="">
-                <input type="hidden" id="post_match_or_hidden" name="post_match_or" value="">
-                <input type="hidden" id="post_match_and_hidden" name="post_match_and" value="">
+                <input type="hidden" id="post_match_mode_hidden" name="post_match_mode" value="">
 
                 <div class="section-title" style="margin-top: 12px;">
                     選んだスレ内でキーワード検索
@@ -144,13 +143,18 @@
 
                 <div class="form-row">
                     <label style="display:flex; align-items:center; gap:6px;">
-                        <input type="checkbox" id="post_match_or_ui" value="1">
+                        <input type="radio" name="post_match_mode_ui_top" id="post_match_mode_top_normal" value="" checked>
+                        <span>通常</span>
+                    </label>
+                
+                    <label style="display:flex; align-items:center; gap:6px; margin-left:12px;">
+                        <input type="radio" name="post_match_mode_ui_top" id="post_match_mode_top_or" value="or">
                         <span>OR</span>
                         <span class="muted" style="font-size:12px;">どちらかを含む</span>
                     </label>
                 
                     <label style="display:flex; align-items:center; gap:6px; margin-left:12px;">
-                        <input type="checkbox" id="post_match_and_ui" value="1">
+                        <input type="radio" name="post_match_mode_ui_top" id="post_match_mode_top_and" value="and">
                         <span>AND</span>
                         <span class="muted" style="font-size:12px;">両方含む</span>
                     </label>
@@ -201,6 +205,28 @@
                     <button type="submit" class="btn-primary">
                         スレッド内検索
                     </button>
+                </div>
+                <div class="form-row">
+                    <label style="display:flex; align-items:center; gap:6px;">
+                        <input type="radio" name="post_match_mode_ui_bottom" id="post_match_mode_bottom_normal" value="" checked>
+                        <span>通常</span>
+                    </label>
+                
+                    <label style="display:flex; align-items:center; gap:6px; margin-left:12px;">
+                        <input type="radio" name="post_match_mode_ui_bottom" id="post_match_mode_bottom_or" value="or">
+                        <span>OR</span>
+                        <span class="muted" style="font-size:12px;">どちらかを含む</span>
+                    </label>
+                
+                    <label style="display:flex; align-items:center; gap:6px; margin-left:12px;">
+                        <input type="radio" name="post_match_mode_ui_bottom" id="post_match_mode_bottom_and" value="and">
+                        <span>AND</span>
+                        <span class="muted" style="font-size:12px;">両方含む</span>
+                    </label>
+                
+                    <span class="muted" style="font-size:12px; margin-left:12px;">
+                        ※半角スペース区切り/*は任意の1文字/除外は -〇〇
+                    </span>
                 </div>
             </form>
 
@@ -357,39 +383,51 @@ document.addEventListener("DOMContentLoaded", function() {
 
   const top = document.getElementById("post_keyword_top");
   const bottom = document.getElementById("post_keyword_bottom");
-  const hidden = document.getElementById("post_keyword_hidden");
+  const hiddenKeyword = document.getElementById("post_keyword_hidden");
+  const hiddenMode = document.getElementById("post_match_mode_hidden");
 
-  const orUi = document.getElementById("post_match_or_ui");
-  const andUi = document.getElementById("post_match_and_ui");
-  const orHidden = document.getElementById("post_match_or_hidden");
-  const andHidden = document.getElementById("post_match_and_hidden");
+  const topRadios = Array.from(document.querySelectorAll('input[name="post_match_mode_ui_top"]'));
+  const bottomRadios = Array.from(document.querySelectorAll('input[name="post_match_mode_ui_bottom"]'));
 
-  function syncModeHidden() {
-    if (orHidden) orHidden.value = orUi?.checked ? "1" : "";
-    if (andHidden) andHidden.value = andUi?.checked ? "1" : "";
+  function getCheckedValue(radios) {
+    const found = radios.find(r => r.checked);
+    return found ? found.value : "";
   }
 
-  if (orUi && andUi) {
-    orUi.addEventListener("change", function() {
-      if (orUi.checked) andUi.checked = false;
-      syncModeHidden();
-    });
-
-    andUi.addEventListener("change", function() {
-      if (andUi.checked) orUi.checked = false;
-      syncModeHidden();
+  function setCheckedValue(radios, value) {
+    radios.forEach(r => {
+      r.checked = (r.value === value);
     });
   }
 
-  syncModeHidden();
+  function syncAllFrom(value) {
+    setCheckedValue(topRadios, value);
+    setCheckedValue(bottomRadios, value);
+    if (hiddenMode) hiddenMode.value = value;
+  }
+
+  topRadios.forEach(r => {
+    r.addEventListener("change", function() {
+      syncAllFrom(this.value);
+    });
+  });
+
+  bottomRadios.forEach(r => {
+    r.addEventListener("change", function() {
+      syncAllFrom(this.value);
+    });
+  });
+
+  // 初期値
+  syncAllFrom("");
 
   form.addEventListener("submit", function(e) {
     const vTop = (top?.value || "").trim();
     const vBottom = (bottom?.value || "").trim();
     const v = vTop || vBottom;
 
-    if (hidden) hidden.value = v;
-    syncModeHidden();
+    if (hiddenKeyword) hiddenKeyword.value = v;
+    if (hiddenMode) hiddenMode.value = getCheckedValue(topRadios) || getCheckedValue(bottomRadios) || "";
 
     if (!v) {
       e.preventDefault();

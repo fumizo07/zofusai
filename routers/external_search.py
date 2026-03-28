@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+import unicodedata
 from collections import defaultdict
 from datetime import datetime
 from typing import List, Optional, Dict, Tuple
@@ -66,6 +67,34 @@ def _truthy(v: Optional[str]) -> bool:
         return False
     s = str(v).strip().lower()
     return s in ("1", "true", "yes", "on")
+
+
+def _resolve_post_match_mode(
+    post_match_mode: str,
+    post_match_or: str,
+    post_match_and: str,
+) -> tuple[str, bool, bool]:
+    """
+    新方式:
+      post_match_mode = "", "or", "and"
+
+    旧方式:
+      post_match_or / post_match_and
+    を後方互換で受ける
+    """
+    mode = (post_match_mode or "").strip().lower()
+
+    if mode not in ("", "or", "and"):
+        mode = ""
+
+    # 旧方式 fallback
+    if not mode:
+        if _truthy(post_match_and):
+            mode = "and"
+        elif _truthy(post_match_or):
+            mode = "or"
+
+    return mode, (mode == "or"), (mode == "and")
 
 
 def _split_post_keyword_expr(raw: str) -> Tuple[List[str], List[str]]:
@@ -832,6 +861,7 @@ def thread_search_posts(
     selected_thread: str = Form(""),
     title_keyword: str = Form(""),
     post_keyword: str = Form(""),
+    post_match_mode: str = Form(""),
     post_match_or: str = Form(""),
     post_match_and: str = Form(""),
     area: str = Form(DEFAULT_AREA),
@@ -844,8 +874,11 @@ def thread_search_posts(
     
     selected_thread = (selected_thread or "").strip()
     post_keyword = (post_keyword or "").strip()
-    post_match_or_flag = _truthy(post_match_or)
-    post_match_and_flag = _truthy(post_match_and)
+    post_match_mode, post_match_or_flag, post_match_and_flag = _resolve_post_match_mode(
+        post_match_mode=post_match_mode,
+        post_match_or=post_match_or,
+        post_match_and=post_match_and,
+    )
 
     area, period, board_category, board_id, title_keyword = _normalize_thread_search_params(
         area, period, board_category, board_id, title_keyword
@@ -954,8 +987,6 @@ def thread_search_posts(
                         dfs(child, 0)
                 return result
 
-            post_keyword_norm = normalize_for_search(post_keyword)
-
             for root in all_posts_sorted:
                 pn = getattr(root, "post_no", None)
                 if pn is None:
@@ -1051,6 +1082,7 @@ def thread_search_posts(
             "post_keyword": post_keyword,
             "post_match_or": post_match_or_flag,
             "post_match_and": post_match_and_flag,
+            "post_match_mode": post_match_mode,
             "area": area,
             "period": period,
             "entries": entries,

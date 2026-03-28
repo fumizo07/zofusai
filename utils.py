@@ -161,10 +161,63 @@ def _build_highlight_variants(keyword: str) -> List[str]:
     return sorted(variants, key=len, reverse=True)
 
 
+def _split_highlight_positive_tokens(keyword_expr: str) -> List[str]:
+    """
+    複合検索式から、ハイライト対象にする positive 語だけ取り出す
+    - 半角/全角スペース区切り
+    - -AAA は除外語なのでハイライトしない
+    """
+    s = unicodedata.normalize("NFKC", keyword_expr or "").strip()
+    if not s:
+        return []
+
+    parts = [p.strip() for p in re.split(r"[ ]+", s.replace("　", " ")) if p.strip()]
+
+    out: List[str] = []
+    seen = set()
+
+    for p in parts:
+        if p.startswith("-") and len(p) >= 2:
+            continue
+        if not p:
+            continue
+        if p in seen:
+            continue
+        seen.add(p)
+        out.append(p)
+
+    return out
+
+
+def _build_highlight_patterns(keyword_expr: str) -> List[str]:
+    """
+    複合検索式からハイライト用の正規表現断片を作る
+    - * は任意の1文字
+    - ひらがな/カタカナ/小書き母音の揺れも拾う
+    """
+    tokens = _split_highlight_positive_tokens(keyword_expr)
+    patterns: List[str] = []
+    seen = set()
+
+    for token in tokens:
+        for v in _build_highlight_variants(token):
+            if not v:
+                continue
+            pat = re.escape(v).replace(r"\*", ".")
+            if pat in seen:
+                continue
+            seen.add(pat)
+            patterns.append(pat)
+
+    return sorted(patterns, key=len, reverse=True)
+
+
 def highlight_text(text_value: Optional[str], keyword: str) -> Markup:
     """
     本文の中でキーワード部分を <mark> で囲って強調表示
-    （ひらがな/カタカナ/小書き母音の揺れも拾う）
+    - AND/OR/除外/ワイルドカード式に対応
+    - 除外語（-AAA）はハイライトしない
+    - * は任意の1文字
     """
     if text_value is None:
         text_value = ""
@@ -173,12 +226,12 @@ def highlight_text(text_value: Optional[str], keyword: str) -> Markup:
         return Markup(escape(text_value))
 
     escaped = escape(text_value)
-    variants = _build_highlight_variants(keyword)
-    if not variants:
+    patterns = _build_highlight_patterns(keyword)
+    if not patterns:
         return Markup(escaped)
 
     try:
-        pattern = re.compile("(" + "|".join(re.escape(v) for v in variants) + ")", re.IGNORECASE)
+        pattern = re.compile("(" + "|".join(patterns) + ")", re.IGNORECASE)
     except re.error:
         return Markup(escaped)
 
