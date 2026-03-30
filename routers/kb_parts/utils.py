@@ -253,6 +253,24 @@ def make_store_keyword(store_name: str) -> str:
     if not toks:
         return ""
 
+    # 先頭語優先:
+    # 「セクション 谷9」のような店名は、後ろの地域/支店っぽい語ではなく
+    # 先頭のブランド語で外部検索したい
+    first_tok = (toks[0] if toks else "").strip()
+    if first_tok:
+        first_vars = [v for v in _variants(first_tok) if v]
+        if first_vars:
+            first_best = first_vars[0].strip()
+
+            # 先頭語が stopword でなく、数字だけでもなく、末尾支店語そのものでもなければ採用
+            if (
+                first_best
+                and not _is_stopword(first_best)
+                and not _STORE_DIGITS_RE.match(first_best)
+                and not _STORE_BRANCH_TAIL_RE.search(first_best)
+            ):
+                return first_best
+
     candidates: List[str] = []
     for t in toks:
         if _is_stopword(t):
