@@ -43,6 +43,38 @@ from .utils import (
 
 router = APIRouter()
 
+def _normalize_url_for_dup_backup(raw: str) -> str:
+    """
+    backup import用の簡易URL正規化。
+    pages.py の _normalize_url_for_dup と意図を揃える。
+    """
+    s = (raw or "").strip()
+    if not s:
+        return ""
+
+    try:
+        from urllib.parse import urlparse
+        if s.startswith(("http://", "https://")):
+            u = urlparse(s)
+        elif s.startswith("//"):
+            u = urlparse("https:" + s)
+        else:
+            u = urlparse("https://" + s)
+    except Exception:
+        return ""
+
+    host = (u.netloc or "").strip().lower()
+    if not host:
+        return ""
+
+    if host in ("www.dto.jp", "s.dto.jp"):
+        host = "dto.jp"
+    elif host.startswith("www."):
+        host = host[4:]
+
+    path = (u.path or "").strip().rstrip("/")
+    return f"{host}{path}"
+
 
 @router.post("/kb/panic_delete_all")
 def kb_panic_delete_all(
@@ -144,6 +176,8 @@ def kb_export(db: Session = Depends(get_db)):
             d["url"] = getattr(p, "url", None)
         if hasattr(p, "image_urls"):
             d["image_urls"] = getattr(p, "image_urls", None)
+        if hasattr(p, "sub_urls"):
+            d["sub_urls"] = getattr(p, "sub_urls", None)
 
         # ★ diary fields（diary_core の getter で統一：DB state / person列 どちらでもOK）
         track = get_person_diary_track(p, st)
@@ -185,7 +219,7 @@ def kb_export(db: Session = Depends(get_db)):
         }
 
     payload = {
-        "version": 6,  # ★ next_action を追加
+        "version": 7,
         "exported_at_utc": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
         "regions": [region_to_dict(r) for r in regions],
         "stores": [store_to_dict(s) for s in stores],
@@ -376,7 +410,29 @@ def kb_import(
                 u = (p.get("url", "") or "").strip()
                 obj.url = u or None
                 if hasattr(obj, "url_norm"):
-                    obj.url_norm = norm_text(obj.url or "")
+                    obj.url_norm = _normalize_url_for_dup_backup(obj.url or "")
+
+            if hasattr(obj, "sub_urls"):
+                su = p.get("sub_urls", None)
+                if isinstance(su, list):
+                    cleaned = []
+                    seen = set()
+                    main_key = _normalize_url_for_dup_backup(obj.url or "")
+
+                    for x in su:
+                        s = str(x or "").strip()
+                        if not s:
+                            continue
+                        k = _normalize_url_for_dup_backup(s)
+                        if main_key and k == main_key:
+                            continue
+                        sig = k or f"raw::{s}"
+                        if sig in seen:
+                            continue
+                        seen.add(sig)
+                        cleaned.append(s)
+
+                    obj.sub_urls = cleaned or None
 
             if hasattr(obj, "image_urls"):
                 iu = p.get("image_urls", None)
