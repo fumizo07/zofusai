@@ -223,6 +223,42 @@ def _normalize_url_for_dup(raw: str) -> str:
     return key
 
 
+def _parse_sub_urls_text(raw: str) -> list[str]:
+    """
+    サブURL入力欄（改行区切り）を JSON保存用の配列へ変換する。
+    - 空行は捨てる
+    - 前後空白は削る
+    - URLの重複は除去
+    - メインURLとの重複除去は呼び出し側で行う
+    """
+    lines = []
+    seen = set()
+
+    for line in (raw or "").splitlines():
+        s = (line or "").strip()
+        if not s:
+            continue
+        if s in seen:
+            continue
+        seen.add(s)
+        lines.append(s)
+
+    return lines
+
+
+def _normalize_profile_open_url(raw: str) -> str:
+    """
+    人物ページの「クリック先」用URL。
+    DTO の場合だけ jp に寄せる。
+    それ以外は https 正規化したURLを返す。
+    """
+    u0 = _normalize_url_https(raw)
+    if not u0:
+        return ""
+
+    fetch_url, open_url = _coerce_dto_hosts(u0)
+    return open_url or u0
+
 
 def _attach_diary_urls_for_templates(persons: List[KBPerson]) -> Tuple[dict[int, str], dict[int, str]]:
     """
@@ -747,6 +783,19 @@ def kb_person_page(
     one_list = [person]
     diary_fetch_url_map, diary_open_url_map = _attach_diary_urls_for_templates(one_list)
 
+    sub_profile_urls = []
+    raw_sub_urls = getattr(person, "sub_urls", None)
+
+    if isinstance(raw_sub_urls, list):
+        for u in raw_sub_urls:
+            s = (u or "").strip()
+            if not s:
+                continue
+            sub_profile_urls.append({
+                "raw": s,                              # 画面表示用
+                "open": _normalize_profile_open_url(s) # クリック先用
+            })
+
     base_parts = []
     if region and region.name:
         base_parts.append(region.name)
@@ -787,6 +836,7 @@ def kb_person_page(
             "region": region,
             "store": store,
             "person": person,
+            "sub_profile_urls": sub_profile_urls,
             "visits": visits,
             "rating_avg": rating_avg,
             "amount_avg_yen": amount_avg_yen,
@@ -858,6 +908,7 @@ def kb_update_person(
     services: str = Form(""),
     tags: str = Form(""),
     url: str = Form(""),
+    sub_urls_text: str = Form(""),
     image_urls_text: str = Form(""),
     memo: str = Form(""),
     next_action: str = Form(""),
@@ -904,11 +955,33 @@ def kb_update_person(
         p.services = (services or "").strip() or None
         p.tags = (tags or "").strip() or None
 
+                main_url = (url or "").strip()
+
         if hasattr(p, "url"):
-            u = (url or "").strip()
-            p.url = u or None
-            if hasattr(p, "url_norm"):
-                p.url_norm = _normalize_url_for_dup(p.url or "")
+            p.url = main_url or None
+
+        if hasattr(p, "url_norm"):
+            p.url_norm = _normalize_url_for_dup(main_url or "")
+
+        if hasattr(p, "sub_urls"):
+            sub_urls = _parse_sub_urls_text(sub_urls_text or "")
+
+            main_key = _normalize_url_for_dup(main_url or "")
+            cleaned = []
+            seen_keys = set()
+
+            for su in sub_urls:
+                k = _normalize_url_for_dup(su)
+
+                if main_key and k == main_key:
+                    continue
+                sig = k or f"raw::{su}"
+                if sig in seen_keys:
+                    continue
+                seen_keys.add(sig)
+                cleaned.append(su)
+
+            p.sub_urls = cleaned or None
 
         # ============================================================
         # ★重複検出（URL）
