@@ -511,6 +511,79 @@ def kb_add_region(request: Request, name: str = Form(""), db: Session = Depends(
 
     return RedirectResponse(url="/kb", status_code=303)
 
+@router.post("/kb/region/{region_id}/update")
+def kb_update_region(
+    request: Request,
+    region_id: int,
+    name: str = Form(""),
+    db: Session = Depends(get_db),
+):
+    back_url = request.headers.get("referer") or "/kb"
+
+    r = db.query(KBRegion).filter(KBRegion.id == int(region_id)).first()
+    if not r:
+        return RedirectResponse(url="/kb", status_code=303)
+
+    new_name = (name or "").strip()
+    if not new_name:
+        return RedirectResponse(url=back_url, status_code=303)
+
+    dup = (
+        db.query(KBRegion)
+        .filter(KBRegion.name == new_name, KBRegion.id != r.id)
+        .first()
+    )
+    if dup:
+        sep = "&" if ("?" in back_url) else "?"
+        return RedirectResponse(url=f"{back_url}{sep}region_update=dup", status_code=303)
+
+    try:
+        r.name = new_name
+        if hasattr(r, "name_norm"):
+            r.name_norm = norm_text(new_name)
+        db.commit()
+    except Exception:
+        db.rollback()
+        sep = "&" if ("?" in back_url) else "?"
+        return RedirectResponse(url=f"{back_url}{sep}region_update=failed", status_code=303)
+
+    sep = "&" if ("?" in back_url) else "?"
+    return RedirectResponse(url=f"{back_url}{sep}region_update=done", status_code=303)
+
+
+@router.post("/kb/region/{region_id}/delete")
+def kb_delete_region(
+    request: Request,
+    region_id: int,
+    db: Session = Depends(get_db),
+):
+    back_url = request.headers.get("referer") or "/kb"
+
+    r = db.query(KBRegion).filter(KBRegion.id == int(region_id)).first()
+    if not r:
+        return RedirectResponse(url="/kb", status_code=303)
+
+    has_store = (
+        db.query(KBStore)
+        .filter(KBStore.region_id == int(region_id))
+        .first()
+    )
+    if has_store:
+        sep = "&" if ("?" in back_url) else "?"
+        return RedirectResponse(url=f"{back_url}{sep}region_delete=has_store", status_code=303)
+
+    try:
+        db.delete(r)
+        db.commit()
+    except Exception:
+        db.rollback()
+        sep = "&" if ("?" in back_url) else "?"
+        return RedirectResponse(url=f"{back_url}{sep}region_delete=failed", status_code=303)
+
+    sep = "&" if ("?" in back_url) else "?"
+    return RedirectResponse(url=f"{back_url}{sep}region_delete=done", status_code=303)
+    
+
 @router.post("/kb/store")
 def kb_add_store(
     request: Request,
