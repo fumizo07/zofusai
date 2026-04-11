@@ -955,7 +955,7 @@ def kb_update_person(
         p.services = (services or "").strip() or None
         p.tags = (tags or "").strip() or None
 
-                main_url = (url or "").strip()
+        main_url = (url or "").strip()
 
         if hasattr(p, "url"):
             p.url = main_url or None
@@ -966,13 +966,13 @@ def kb_update_person(
         if hasattr(p, "sub_urls"):
             sub_urls = _parse_sub_urls_text(sub_urls_text or "")
 
+            # メインURLと同じものはサブから除外
             main_key = _normalize_url_for_dup(main_url or "")
             cleaned = []
             seen_keys = set()
 
             for su in sub_urls:
                 k = _normalize_url_for_dup(su)
-
                 if main_key and k == main_key:
                     continue
                 sig = k or f"raw::{su}"
