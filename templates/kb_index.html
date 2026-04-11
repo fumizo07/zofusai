@@ -26,6 +26,22 @@
 <main>
   <section class="card">
     <h2>KB(知った情報の整理)</h2>
+    
+    {% if request.query_params.get("region_update") == "done" %}
+      <p class="muted info-message">地域名を保存しました。</p>
+    {% elif request.query_params.get("region_update") == "dup" %}
+      <p class="error-message">同名の地域があるため保存できませんでした。</p>
+    {% elif request.query_params.get("region_update") == "failed" %}
+      <p class="error-message">地域名の保存に失敗しました。</p>
+    {% endif %}
+
+    {% if request.query_params.get("region_delete") == "done" %}
+      <p class="muted info-message">地域を削除しました。</p>
+    {% elif request.query_params.get("region_delete") == "has_store" %}
+      <p class="error-message">店舗が登録されている地域は削除できません。</p>
+    {% elif request.query_params.get("region_delete") == "failed" %}
+      <p class="error-message">地域の削除に失敗しました。</p>
+    {% endif %}
 
     {% if import_status == "done" %}
       <p class="muted info-message">バックアップをインポートしました。</p>
@@ -438,6 +454,22 @@
     {% for r in regions %}
       <hr>
       <h3>{{ r.name }}</h3>
+
+      <form method="post" action="/kb/region/{{ r.id }}/update" class="kb-store-edit-form">
+        <div class="form-row">
+          <label class="muted">地域名を変更：</label>
+          <input type="text" name="name" value="{{ r.name }}" required>
+          <button type="submit" class="btn-secondary">保存</button>
+        </div>
+      </form>
+
+      <form method="post"
+            action="/kb/region/{{ r.id }}/delete"
+            onsubmit="return confirm('この地域を削除しますか？ ※店舗が1件でもある地域は削除できません。');">
+        <div class="form-row">
+          <button type="submit" class="btn-secondary">この地域を削除</button>
+        </div>
+      </form>
 
       <form method="post" action="/kb/store">
         <input type="hidden" name="region_id" value="{{ r.id }}">
