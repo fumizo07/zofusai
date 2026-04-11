@@ -139,6 +139,8 @@ class KBPerson(Base):
     tags = Column(Text, nullable=True)
 
     url = Column(Text, nullable=True)
+    
+    sub_urls = Column(JSON, nullable=True)
 
     # 画像URL（複数）: ["https://...jpg", "https://...png", ...]
     image_urls = Column(JSON, nullable=True)
