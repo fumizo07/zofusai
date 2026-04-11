@@ -85,10 +85,17 @@
       {%- if person.tags -%}<div>タグ：<strong>{{ person.tags }}</strong></div>{%- endif -%}
       {%- if work_start_label -%}<div>出勤時間：<strong>{{ work_start_label }}</strong>～</div>{%- endif -%}
 
-      {% if person.url %}
-        {# 表示は person.url（DBの値＝www.dto.jpのまま） #}
-        {# クリック先だけ profile_open_url（dto.jpへ統一） #}
-        <div>プロフ：<a href="{{ profile_open_url|e }}" target="_blank" rel="noopener noreferrer">{{ person.url }}</a></div>
+      {% if person.url or sub_profile_urls %}
+        <div>
+          プロフ：
+          {% if person.url %}
+            <a href="{{ profile_open_url|e }}" target="_blank" rel="noopener noreferrer">{{ person.url }}</a>
+          {% endif %}
+          {% for item in sub_profile_urls %}
+            {% if person.url or not loop.first %}/{% endif %}
+            <a href="{{ item.open|e }}" target="_blank" rel="noopener noreferrer">{{ item.raw }}</a>
+          {% endfor %}
+        </div>
       {% endif %}
 
       {% if person.image_urls %}
@@ -185,7 +192,16 @@
 
         <div class="inner-flex-box">
           <div class="kb-grid-label">URL：</div>
-          <div class="kb-grid-input"><input type="text" name="url" value="{{ person.url or '' }}" placeholder="https://..."></div>
+          <div class="kb-grid-input">
+            <input type="text" name="url" value="{{ person.url or '' }}" placeholder="https://...">
+            <div class="muted">※日記取得・検索結果の「プロフ(外部)」はこのURLだけを使います。</div>
+          </div>
+        </div>
+
+        <div class="kb-grid-label">サブ：</div>
+        <div>
+          <textarea name="sub_urls_text" rows="4" placeholder="1行に1つずつURLを入力">{% if person.sub_urls %}{{ person.sub_urls|join('\n') }}{% endif %}</textarea>
+          <div class="muted">※人物ページの「プロフ」欄にだけ表示します。日記取得や検索一覧には使いません。</div>
         </div>
 
         {# ============================================================
