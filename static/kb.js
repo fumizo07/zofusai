@@ -339,22 +339,44 @@
   // KB 店舗名編集+保存
   // ============================================================
   function initKbStoreInlineEdit() {
-  // 編集ボタンのクリックを委譲で拾う（一覧は繰り返し要素なのでこれが安全）
-  document.addEventListener("click", (ev) => {
-    const btn = ev.target?.closest?.("[data-kb-store-edit-toggle='1']");
-    if (btn) {
-      const storeId = String(btn.dataset.storeId || "");
-      const form = document.querySelector(`[data-kb-store-edit-form='1'][data-store-id='${storeId}']`);
-      if (form) form.classList.toggle("kb-hidden");
-      return;
-    }
-
-    const cancel = ev.target?.closest?.("[data-kb-store-edit-cancel='1']");
-    if (cancel) {
-      const form = cancel.closest("form");
-      if (form) form.classList.add("kb-hidden");
-      return;
-    }
+    document.addEventListener("click", (ev) => {
+      // 店舗編集
+      const storeBtn = ev.target?.closest?.("[data-kb-store-edit-toggle='1']");
+      if (storeBtn) {
+        const storeId = String(storeBtn.dataset.storeId || "");
+        const form = document.querySelector(
+          `[data-kb-store-edit-form='1'][data-store-id='${storeId}']`
+        );
+        if (form) form.classList.toggle("kb-hidden");
+        return;
+      }
+  
+      // 地域編集
+      const regionBtn = ev.target?.closest?.("[data-kb-region-edit-toggle='1']");
+      if (regionBtn) {
+        const regionId = String(regionBtn.dataset.regionId || "");
+        const box = document.querySelector(
+          `[data-kb-region-edit-form='1'][data-region-id='${regionId}']`
+        );
+        if (box) box.classList.toggle("kb-hidden");
+        return;
+      }
+  
+      // 店舗編集キャンセル
+      const storeCancel = ev.target?.closest?.("[data-kb-store-edit-cancel='1']");
+      if (storeCancel) {
+        const form = storeCancel.closest("form");
+        if (form) form.classList.add("kb-hidden");
+        return;
+      }
+  
+      // 地域編集キャンセル
+      const regionCancel = ev.target?.closest?.("[data-kb-region-edit-cancel='1']");
+      if (regionCancel) {
+        const box = regionCancel.closest("[data-kb-region-edit-form='1']");
+        if (box) box.classList.add("kb-hidden");
+        return;
+      }
     });
   }
 
