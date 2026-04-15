@@ -453,23 +453,33 @@
 
     {% for r in regions %}
       <hr>
-      <h3>{{ r.name }}</h3>
-
-      <form method="post" action="/kb/region/{{ r.id }}/update" class="kb-store-edit-form">
-        <div class="form-row">
-          <label class="muted">地域名を変更：</label>
-          <input type="text" name="name" value="{{ r.name }}" required>
-          <button type="submit" class="btn-secondary">保存</button>
+      <div class="result">
+        <div class="result-id regions-box">
+          {{ r.name }}<!-- 空白除去
+          --><button type="button"
+                  class="btn-secondary"
+                  data-kb-region-edit-toggle="1"
+                  data-region-id="{{ r.id }}">
+            編集
+          </button>
         </div>
-      </form>
 
-      <form method="post"
-            action="/kb/region/{{ r.id }}/delete"
-            onsubmit="return confirm('この地域を削除しますか？ ※店舗が1件でもある地域は削除できません。');">
-        <div class="form-row">
-          <button type="submit" class="btn-secondary">この地域を削除</button>
+        <div class="kb-hidden" data-kb-region-edit-form="1" data-region-id="{{ r.id }}">
+          <form method="post"
+                action="/kb/region/{{ r.id }}/update"
+                class="kb-store-edit-form">
+            <input type="text" name="name" value="{{ r.name }}" class="kb-input-sm" style="max-width: 100px;">
+            <button type="submit" class="btn-primary">保存</button>
+            <button type="button" class="btn-secondary" data-kb-region-edit-cancel="1">キャンセル</button>
+          </form>
+
+          <form method="post"
+                action="/kb/region/{{ r.id }}/delete"
+                onsubmit="return confirm('この地域を削除しますか？ ※店舗が1件でもある地域は削除できません。');">
+            <button type="submit" class="btn-secondary">この地域を削除</button>
+          </form>
         </div>
-      </form>
+      </div>
 
       <form method="post" action="/kb/store">
         <input type="hidden" name="region_id" value="{{ r.id }}">
@@ -500,7 +510,7 @@
                     class="kb-store-edit-form kb-hidden"
                     data-kb-store-edit-form="1"
                     data-store-id="{{ s.id }}">
-                <input type="text" name="name" value="{{ s.name }}" class="kb-input-sm" style="max-width: 260px;">
+                <input type="text" name="name" value="{{ s.name }}" class="kb-input-sm" style="max-width: 380px;">
                 <button type="submit" class="btn-primary">保存</button>
                 <button type="button" class="btn-secondary" data-kb-store-edit-cancel="1">キャンセル</button>
               </form>
