@@ -45,7 +45,7 @@ _DIARY_CACHE: Dict[str, Tuple[float, Optional[int], str]] = {}
 # =========================
 # DTO URL normalize
 # =========================
-_DTO_CANON_HOST = "www.dto.jp"
+_DTO_CANON_HOST = "s.dto.jp"
 _DTO_HOSTS_EQUIV = {"dto.jp", "www.dto.jp", "s.dto.jp"}
 
 # 追跡に不要なクエリは落としてURL揺れを減らす（必要が出たら足す）
@@ -62,9 +62,9 @@ _DTO_DROP_QUERY_KEYS = {
 
 def normalize_dto_url(url: str) -> str:
     """
-    dto.jp / s.dto.jp / www.dto.jp のURLを、同一性のため www.dto.jp（PC版）に寄せて正規化する。
+    dto.jp / s.dto.jp / www.dto.jp のURLを、同一性のため s.dto.jp（版）に寄せて正規化する。
     - scheme は https に統一
-    - host は dto系なら www.dto.jp に統一
+    - host は dto系なら s.dto.jp に統一
     - fragment は除去
     - 末尾スラッシュの揺れを軽く統一（/ 以外の末尾 / は落とす）
     - 追跡用の不要クエリは除去（必要なら拡張）
@@ -854,7 +854,7 @@ def set_person_diary_seen_ts(p: KBPerson, ts: Optional[int], st: Optional[object
 
 def get_person_diary_checked_at(p: KBPerson, st: Optional[object] = None) -> Optional[datetime]:
     if st is not None:
-        for k in ("checked_at", "diary_checked_at", "last_checked_at"):
+        for k in ("fetched_at", "checked_at", "diary_checked_at", "last_checked_at"):
             if hasattr(st, k):
                 try:
                     return getattr(st, k, None)
@@ -870,7 +870,7 @@ def get_person_diary_checked_at(p: KBPerson, st: Optional[object] = None) -> Opt
 
 def set_person_diary_checked_at(p: KBPerson, dt: Optional[datetime], st: Optional[object] = None) -> bool:
     if st is not None:
-        for k in ("checked_at", "diary_checked_at", "last_checked_at"):
+        for k in ("fetched_at", "checked_at", "diary_checked_at", "last_checked_at"):
             if hasattr(st, k):
                 try:
                     setattr(st, k, dt)
@@ -911,7 +911,14 @@ def apply_diary_push_monotonic(
     checked_updated = False
 
     if incoming_i is not None:
-        if stored_before is None or incoming_i > stored_before:
+        should_apply = False
+    
+        if force is True:
+            should_apply = True
+        elif stored_before is None or incoming_i > stored_before:
+            should_apply = True
+    
+        if should_apply:
             if set_person_diary_latest_ts(p, incoming_i, st=st):
                 latest_updated = True
                 applied_after = incoming_i
