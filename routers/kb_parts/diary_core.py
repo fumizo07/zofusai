@@ -854,7 +854,7 @@ def set_person_diary_seen_ts(p: KBPerson, ts: Optional[int], st: Optional[object
 
 def get_person_diary_checked_at(p: KBPerson, st: Optional[object] = None) -> Optional[datetime]:
     if st is not None:
-        for k in ("checked_at", "diary_checked_at", "last_checked_at"):
+        for k in ("fetched_at", "checked_at", "diary_checked_at", "last_checked_at"):
             if hasattr(st, k):
                 try:
                     return getattr(st, k, None)
@@ -870,7 +870,7 @@ def get_person_diary_checked_at(p: KBPerson, st: Optional[object] = None) -> Opt
 
 def set_person_diary_checked_at(p: KBPerson, dt: Optional[datetime], st: Optional[object] = None) -> bool:
     if st is not None:
-        for k in ("checked_at", "diary_checked_at", "last_checked_at"):
+        for k in ("fetched_at", "checked_at", "diary_checked_at", "last_checked_at"):
             if hasattr(st, k):
                 try:
                     setattr(st, k, dt)
