@@ -321,7 +321,19 @@ def kb_api_diary_latest(
         elif checked_at and latest_ts is not None:
             try:
                 age_sec = (now_utc - checked_at).total_seconds()
-                if age_sec >= 0 and age_sec < float(diary_db_recheck_interval_sec()):
+                # dto は取得揺れがあるので、画面APIでは短めに再確認させる
+                interval_sec = float(diary_db_recheck_interval_sec())
+
+                pu_host = ""
+                try:
+                    pu_host = (urlparse(pu_fetch).hostname or "").lower().strip()
+                except Exception:
+                    pu_host = ""
+
+                if pu_host.endswith("dto.jp"):
+                    interval_sec = min(interval_sec, 60 * 5)  # dtoだけ5分
+
+                if age_sec >= 0 and age_sec < interval_sec:
                     need_fetch = False
             except Exception:
                 need_fetch = True
@@ -344,6 +356,7 @@ def kb_api_diary_latest(
             if latest_updated or checked_updated:
                 dirty = True
             latest_ts = get_person_diary_latest_ts(p, st)
+            checked_at = get_person_diary_checked_at(p, st)
 
         seen_ts = get_person_diary_seen_ts(p, st)
         is_new = False
