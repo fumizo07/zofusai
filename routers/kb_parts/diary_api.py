@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 import secrets
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Optional
 from urllib.parse import urlparse
 
@@ -239,7 +239,7 @@ def kb_api_diary_latest(
             regions = db.query(KBRegion).filter(KBRegion.id.in_(region_ids)).all()
             region_map = {int(r.id): r for r in regions if r and getattr(r, "id", None)}
 
-    now_utc = datetime.utcnow()
+    now_utc = datetime.now(timezone.utc)
     dirty = False
     items = []
 
@@ -377,7 +377,13 @@ def kb_api_diary_latest(
         checked_ago_min = None
         try:
             if checked_at:
-                age_sec2 = (now_utc - checked_at).total_seconds()
+                chk = checked_at
+                if getattr(chk, "tzinfo", None) is None:
+                    chk = chk.replace(tzinfo=timezone.utc)
+                else:
+                    chk = chk.astimezone(timezone.utc)
+
+                age_sec2 = (now_utc - chk).total_seconds()
                 if age_sec2 >= 0:
                     checked_ago_min = int(age_sec2 // 60)
         except Exception:
