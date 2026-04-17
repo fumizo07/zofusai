@@ -392,7 +392,7 @@ def kb_api_diary_latest(
         latest_ago_days = None
         try:
             if latest_ts is not None:
-                dt_latest = datetime.utcfromtimestamp(int(latest_ts) / 1000.0)
+                dt_latest = datetime.fromtimestamp(int(latest_ts) / 1000.0, tz=timezone.utc)
                 dsec = (now_utc - dt_latest).total_seconds()
                 if dsec >= 0:
                     latest_ago_days = int(dsec // 86400)
