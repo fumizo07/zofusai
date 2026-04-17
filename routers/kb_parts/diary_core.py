@@ -45,7 +45,7 @@ _DIARY_CACHE: Dict[str, Tuple[float, Optional[int], str]] = {}
 # =========================
 # DTO URL normalize
 # =========================
-_DTO_CANON_HOST = "www.dto.jp"
+_DTO_CANON_HOST = "s.dto.jp"
 _DTO_HOSTS_EQUIV = {"dto.jp", "www.dto.jp", "s.dto.jp"}
 
 # 追跡に不要なクエリは落としてURL揺れを減らす（必要が出たら足す）
@@ -62,9 +62,9 @@ _DTO_DROP_QUERY_KEYS = {
 
 def normalize_dto_url(url: str) -> str:
     """
-    dto.jp / s.dto.jp / www.dto.jp のURLを、同一性のため www.dto.jp（PC版）に寄せて正規化する。
+    dto.jp / s.dto.jp / www.dto.jp のURLを、同一性のため s.dto.jp（版）に寄せて正規化する。
     - scheme は https に統一
-    - host は dto系なら www.dto.jp に統一
+    - host は dto系なら s.dto.jp に統一
     - fragment は除去
     - 末尾スラッシュの揺れを軽く統一（/ 以外の末尾 / は落とす）
     - 追跡用の不要クエリは除去（必要なら拡張）
