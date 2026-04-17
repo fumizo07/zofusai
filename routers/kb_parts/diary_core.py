@@ -911,7 +911,14 @@ def apply_diary_push_monotonic(
     checked_updated = False
 
     if incoming_i is not None:
-        if stored_before is None or incoming_i > stored_before:
+        should_apply = False
+    
+        if force is True:
+            should_apply = True
+        elif stored_before is None or incoming_i > stored_before:
+            should_apply = True
+    
+        if should_apply:
             if set_person_diary_latest_ts(p, incoming_i, st=st):
                 latest_updated = True
                 applied_after = incoming_i
