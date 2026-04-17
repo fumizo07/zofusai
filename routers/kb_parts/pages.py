@@ -168,7 +168,7 @@ def _normalize_url_https(raw: str) -> str:
 def _coerce_dto_hosts(fetch_url: str) -> Tuple[str, str]:
     """
     返り値: (fetch_www_url, open_sp_url)
-    - 埋め込み(data-diary-url)は www.dto.jp に統一（Userscript/解析用）
+    - 埋め込み(data-diary-url)は s.dto.jp に統一（Userscript/解析用）
     - クリック遷移(open)は dto.jp に統一
     dto系以外は (fetch_url, fetch_url) を返す。
     """
@@ -182,7 +182,7 @@ def _coerce_dto_hosts(fetch_url: str) -> Tuple[str, str]:
         return u0, u0
 
     # hostだけ差し替え（path/queryは保持）
-    fetch_host = "www.dto.jp"
+    fetch_host = "s.dto.jp"
     open_host = "dto.jp"
 
     fetch_www = urlunparse(("https", fetch_host, u.path or "", u.params or "", u.query or "", u.fragment or ""))
