@@ -313,7 +313,9 @@ def extract_latest_diary_dt(html: str) -> Optional[datetime]:
     )
     re_jp = re.compile(r"(\d{4})年\s*(\d{1,2})月\s*(\d{1,2})日")
     re_md_hm = re.compile(r"(\d{1,2})[/\-](\d{1,2})(?:\s*|　)*(\d{1,2}):(\d{2})")
-    re_md_jp_hm = re.compile(r"(\d{1,2})月\s*(\d{1,2})日(?:\s*|　)*(\d{1,2}):(\d{2})")
+    re_md_jp_hm = re.compile(
+        r"(\d{1,2})月\s*(\d{1,2})日(?:\s*\([^)]+\))?(?:\s*|　)*(\d{1,2}):(\d{2})"
+    )
     re_md = re.compile(r"(\d{1,2})[/\-](\d{1,2})")
     re_md_jp = re.compile(r"(\d{1,2})月\s*(\d{1,2})日")
 
