@@ -14,6 +14,11 @@ _RE_MMDD_HHMM = re.compile(r"(\d{1,2})/(\d{1,2})\s+(\d{1,2}):(\d{2})")
 # 例: "2026年1月"
 _RE_YEARMON = re.compile(r"(\d{4})年\s*(\d{1,2})月")
 
+# 例: "4月8日(水) 05:20" / "4月8日 05:20"
+_RE_JP_MMDD_HHMM = re.compile(
+    r"(\d{1,2})月\s*(\d{1,2})日(?:\s*\([^)]+\))?(?:\s*|　)+(\d{1,2}):(\d{2})"
+)
+
 
 def _extract_year_month(text: str) -> Tuple[Optional[int], Optional[int]]:
     m = _RE_YEARMON.search(text or "")
@@ -44,14 +49,16 @@ def _parse_latest_ts_ms_from_text(text: str) -> Tuple[Optional[int], str]:
         return None, "empty_html"
 
     m = _RE_MMDD_HHMM.search(text)
-    if not m:
+    jp = None if m else _RE_JP_MMDD_HHMM.search(text)
+    if not m and not jp:
         return None, "no_datetime_found"
 
     try:
-        mm = int(m.group(1))
-        dd = int(m.group(2))
-        hh = int(m.group(3))
-        mi = int(m.group(4))
+        src = m if m is not None else jp
+        mm = int(src.group(1))
+        dd = int(src.group(2))
+        hh = int(src.group(3))
+        mi = int(src.group(4))
         if not (1 <= mm <= 12 and 1 <= dd <= 31 and 0 <= hh <= 23 and 0 <= mi <= 59):
             return None, "datetime_out_of_range"
     except Exception:
