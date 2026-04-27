@@ -462,6 +462,11 @@ mark {
     width: 100%;
 }
 
+.form-row .kb-unsaved-note {
+    color: #f00;
+    font-weight: bold;
+}
+
 .results-summary {
     font-size: 14px;
     margin-bottom: 8px;
