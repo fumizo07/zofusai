@@ -393,6 +393,79 @@
   }
 
   // ============================================================
+  // KB 人物ページ：人物情報の未保存ガード
+  // ============================================================
+  function initKbPersonUnsavedGuard() {
+    const personForm = document.querySelector("form[data-kb-person-edit-form='1']");
+    if (!personForm) return;
+
+    const visitAddForm = document.querySelector("form[data-kb-visit-add-form='1']");
+    const note = document.querySelector("[data-kb-person-unsaved-note]");
+
+    const fields = Array.from(
+      personForm.querySelectorAll("input, textarea, select")
+    ).filter((el) => {
+      if (!el.name) return false;
+      if (el.type === "submit" || el.type === "button" || el.type === "hidden") return false;
+      return true;
+    });
+
+    function snapshot() {
+      return fields.map((el) => {
+        if (el.type === "checkbox" || el.type === "radio") {
+          return `${el.name}=${el.checked ? "1" : "0"}`;
+        }
+        return `${el.name}=${String(el.value || "")}`;
+      }).join("\n");
+    }
+
+    const initial = snapshot();
+    let submittingPersonForm = false;
+
+    function isDirty() {
+      return snapshot() !== initial;
+    }
+
+    function renderDirty() {
+      const dirty = isDirty();
+      if (note) note.classList.toggle("kb-hidden", !dirty);
+      personForm.classList.toggle("kb-person-dirty", dirty);
+      return dirty;
+    }
+
+    fields.forEach((el) => {
+      el.addEventListener("input", renderDirty);
+      el.addEventListener("change", renderDirty);
+    });
+
+    personForm.addEventListener("submit", () => {
+      submittingPersonForm = true;
+    });
+
+    if (visitAddForm) {
+      visitAddForm.addEventListener("submit", (ev) => {
+        if (submittingPersonForm) return;
+
+        if (isDirty()) {
+          ev.preventDefault();
+          renderDirty();
+          alert("人物情報に未保存の変更があります。\n先に「保存」を押してください。\n利用ログの追加は中止しました。");
+        }
+      });
+    }
+
+    window.addEventListener("beforeunload", (ev) => {
+      if (submittingPersonForm) return;
+      if (!isDirty()) return;
+
+      ev.preventDefault();
+      ev.returnValue = "";
+    });
+
+    renderDirty();
+  }
+
+  // ============================================================
   // 起動
   // ============================================================
   document.addEventListener("DOMContentLoaded", () => {
@@ -403,6 +476,7 @@
     // ★利用時間は kb_usage_time.js 側で起動します（kb_person.html だけ_footer.htmlで読み込む想定）
     initKbStoreInlineEdit();
     initKbQuickEdit();
+    initKbPersonUnsavedGuard();
     initKbPanicCheck();
     initKbBackupUi();
   });
