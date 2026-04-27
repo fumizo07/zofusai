@@ -128,6 +128,7 @@ def kb_export(db: Session = Depends(get_db)):
             "id": int(getattr(s, "id")),
             "region_id": int(getattr(s, "region_id")),
             "name": getattr(s, "name", None),
+            "memo": getattr(s, "memo", None),
         }
         for k in ["area", "board_category", "board_id"]:
             if hasattr(s, k):
@@ -321,6 +322,9 @@ def kb_import(
             if sid is None or rid is None or not name:
                 continue
             obj = KBStore(id=int(sid), region_id=int(rid), name=name, name_norm=norm_text(name))
+            if hasattr(obj, "memo"):
+                obj.memo = (s.get("memo", "") or "").strip() or None
+
             for k in ["area", "board_category", "board_id"]:
                 if hasattr(obj, k) and k in s:
                     setattr(obj, k, s.get(k))

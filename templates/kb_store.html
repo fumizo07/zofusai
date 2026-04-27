@@ -21,7 +21,15 @@
         <div class="form-row">
           <label class="muted">店舗名を変更：</label>
           <input type="text" name="name" value="{{ store.name }}" required>
-          <button type="submit" class="btn-secondary">保存</button>
+        </div>
+      
+        <div class="form-row">
+          <label class="muted">店舗メモ：</label>
+          <textarea name="memo" rows="6" placeholder="店舗についてのメモ">{{ store.memo or '' }}</textarea>
+        </div>
+      
+        <div class="form-row">
+          <button type="submit" class="btn-secondary">店舗情報を保存</button>
         </div>
       
         {% if request.query_params.get("store_update") == "dup" %}

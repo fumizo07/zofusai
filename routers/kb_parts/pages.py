@@ -615,6 +615,7 @@ def kb_update_store(
     request: Request,
     store_id: int,
     name: str = Form(""),
+    memo: str = Form(""),
     db: Session = Depends(get_db),
 ):
     back_url = request.headers.get("referer") or f"/kb/store/{store_id}"
@@ -640,6 +641,8 @@ def kb_update_store(
         s.name = new_name
         if hasattr(s, "name_norm"):
             s.name_norm = norm_text(new_name)
+        if hasattr(s, "memo"):
+            s.memo = (memo or "").strip() or None
         db.commit()
     except Exception:
         db.rollback()
