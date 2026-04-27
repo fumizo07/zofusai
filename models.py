@@ -110,6 +110,7 @@ class KBStore(Base):
     region_id = Column(Integer, ForeignKey("kb_regions.id", ondelete="CASCADE"), nullable=False, index=True)
     name = Column(Text, nullable=False, index=True)
     name_norm = Column(Text, nullable=True, index=True)
+    memo = Column(Text, nullable=True)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
 
     __table_args__ = (
