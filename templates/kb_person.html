@@ -127,7 +127,7 @@
   <section class="card">
     <h2>人物情報(編集)</h2>
 
-    <form method="post" action="/kb/person/{{ person.id }}/update">
+    <form method="post" action="/kb/person/{{ person.id }}/update" data-kb-person-edit-form="1">
       <div class="kb-profile-grid">
 
         <div class="inner-flex-box">
@@ -298,7 +298,10 @@
         <div class="kb-grid-label">メモ：</div>
         <div><textarea name="memo" rows="15">{{ person.memo or '' }}</textarea></div>
       </div>
-       
+
+      <div class="form-row kb-unsaved-note kb-hidden" data-kb-person-unsaved-note>
+        人物情報に未保存の変更があります。先に保存してください。
+      </div>
       <div class="form-row">
         <button type="submit" class="btn-primary">保存</button>
       </div>
@@ -316,7 +319,7 @@
   <section class="card">
     <h2>利用ログを追加</h2>
 
-    <form data-kb-duration-form method="post" action="/kb/person/{{ person.id }}/visit">
+    <form data-kb-duration-form data-kb-visit-add-form="1" method="post" action="/kb/person/{{ person.id }}/visit">
       <div class="form-row">
         <label>利用日：</label>
         <input type="date" name="visited_at">
