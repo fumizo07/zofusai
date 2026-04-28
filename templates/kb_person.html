@@ -285,7 +285,9 @@
           <div class="muted">※画像自体は保存せず、URLだけ保存します。表示はブラウザが外部から読み込みます。</div>
         </div>
 
-        {# 判断理由テンプレ（ミニ構造化メモ） #}
+        <div class="kb-grid-label">事前メモ：</div>
+        <div><textarea name="memo" rows="15">{{ person.memo or '' }}</textarea></div>
+      　{# 判断理由テンプレ（ミニ構造化メモ） #}
         <div class="kb-grid-label">判断理由(良)：</div>
         <div><textarea name="reason_good" rows="4" placeholder="良かった点(箇条書き推奨)">{{ person.reason_good or '' }}</textarea></div>
 
@@ -294,9 +296,6 @@
 
         <div class="kb-grid-label">次回の条件：</div>
         <div><textarea name="reason_next" rows="4" placeholder="○○なら再訪/△△なら見送り など">{{ person.reason_next or '' }}</textarea></div>
-
-        <div class="kb-grid-label">メモ：</div>
-        <div><textarea name="memo" rows="15">{{ person.memo or '' }}</textarea></div>
       </div>
 
       <div class="form-row kb-unsaved-note kb-hidden" data-kb-person-unsaved-note>
