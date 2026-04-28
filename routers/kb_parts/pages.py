@@ -987,6 +987,8 @@ def kb_update_person(
     sub_urls_text: str = Form(""),
     image_urls_text: str = Form(""),
     memo: str = Form(""),
+    feature_memo: str = Form(""),
+    other_memo: str = Form(""),
     next_action: str = Form(""),
     reason_good: str = Form(""),
     reason_bad: str = Form(""),
@@ -1084,7 +1086,14 @@ def kb_update_person(
             urls = sanitize_image_urls(image_urls_text or "")
             p.image_urls = urls or None
 
+        # 事前メモ：既存 memo を流用
         p.memo = (memo or "").strip() or None
+
+        # 特徴メモ / その他メモ
+        if hasattr(p, "feature_memo"):
+            p.feature_memo = (feature_memo or "").strip() or None
+        if hasattr(p, "other_memo"):
+            p.other_memo = (other_memo or "").strip() or None
 
         # ★次アクション & 判断理由テンプレ
         if hasattr(p, "next_action"):
