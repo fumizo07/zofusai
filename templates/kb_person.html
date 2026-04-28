@@ -285,9 +285,15 @@
           <div class="muted">※画像自体は保存せず、URLだけ保存します。表示はブラウザが外部から読み込みます。</div>
         </div>
 
+        <div class="kb-grid-label">特徴メモ：</div>
+        <div>
+          <textarea name="feature_memo" rows="4" placeholder="身体的特徴、雰囲気、リストで確認したい内容">{{ person.feature_memo or '' }}</textarea>
+          <div class="muted">※検索結果・店舗ページの人物カードにも表示されます。</div>
+        </div>
+         
         <div class="kb-grid-label">事前メモ：</div>
-        <div><textarea name="memo" rows="15">{{ person.memo or '' }}</textarea></div>
-      　{# 判断理由テンプレ（ミニ構造化メモ） #}
+        <div><textarea name="memo" rows="15" placeholder="遊ぶ前に集めた情報、日記の印象、候補理由など">{{ person.memo or '' }}</textarea></div>
+         
         <div class="kb-grid-label">判断理由(良)：</div>
         <div><textarea name="reason_good" rows="4" placeholder="良かった点(箇条書き推奨)">{{ person.reason_good or '' }}</textarea></div>
 
@@ -296,6 +302,9 @@
 
         <div class="kb-grid-label">次回の条件：</div>
         <div><textarea name="reason_next" rows="4" placeholder="○○なら再訪/△△なら見送り など">{{ person.reason_next or '' }}</textarea></div>
+         
+        <div class="kb-grid-label">その他メモ：</div>
+        <div><textarea name="other_memo" rows="8" placeholder="どれにも当てはまらないメモ">{{ person.other_memo or '' }}</textarea></div>
       </div>
 
       <div class="form-row kb-unsaved-note kb-hidden" data-kb-person-unsaved-note>
