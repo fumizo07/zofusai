@@ -152,7 +152,7 @@ def kb_export(db: Session = Depends(get_db)):
             "services": getattr(p, "services", None),
             "tags": getattr(p, "tags", None),
             "memo": getattr(p, "memo", None),
-            "feature_memo": getattr(p, "feature_memo", None),
+            "feature_tags": getattr(p, "feature_tags", None),
             "other_memo": getattr(p, "other_memo", None),
         }
 
@@ -386,9 +386,10 @@ def kb_import(
             obj.tags = (p.get("tags", "") or "").strip() or None
             # 事前メモ：既存 memo を流用
             obj.memo = (p.get("memo", "") or "").strip() or None
-            # 特徴メモ / その他メモ
-            if hasattr(obj, "feature_memo"):
-                obj.feature_memo = (p.get("feature_memo", "") or "").strip() or None
+            # 特徴タグ / その他メモ
+            if hasattr(obj, "feature_tags"):
+                raw_feature_tags = p.get("feature_tags", p.get("feature_memo", ""))
+                obj.feature_tags = (raw_feature_tags or "").strip() or None
             if hasattr(obj, "other_memo"):
                 obj.other_memo = (p.get("other_memo", "") or "").strip() or None
 
