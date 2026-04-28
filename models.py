@@ -138,21 +138,16 @@ class KBPerson(Base):
 
     services = Column(Text, nullable=True)
     tags = Column(Text, nullable=True)
+    feature_tags = Column(Text, nullable=True)
 
     url = Column(Text, nullable=True)
     
     sub_urls = Column(JSON, nullable=True)
 
-    # 画像URL（複数）: ["https://...jpg", "https://...png", ...]
     image_urls = Column(JSON, nullable=True)
 
-    # 事前メモ：旧「メモ」を流用
     memo = Column(Text, nullable=True)
 
-    # 特徴メモ：人物カードにも表示する短めの特徴
-    feature_memo = Column(Text, nullable=True)
-
-    # その他メモ：分類しにくい自由メモ
     other_memo = Column(Text, nullable=True)
 
     # ------------------------------------------------------------
