@@ -351,25 +351,41 @@ def token_set_norm(raw: Optional[str]) -> set[str]:
     return {norm_text(t) for t in toks if t}
 
 
-def collect_service_tag_options(db: Session) -> Tuple[List[str], List[str]]:
-    persons = db.query(KBPerson.services, KBPerson.tags).all()
+def collect_service_tag_options(db: Session) -> Tuple[List[str], List[str], List[str]]:
+    persons = (
+        db.query(
+            KBPerson.services,
+            KBPerson.tags,
+            getattr(KBPerson, "feature_tags", None),
+        )
+        .all()
+    )
 
     svc_map: Dict[str, str] = {}
     tag_map: Dict[str, str] = {}
+    feature_tag_map: Dict[str, str] = {}
 
-    for services, tags in persons:
+    for services, tags, feature_tags in persons:
         for t in _split_tokens(services):
             k = norm_text(t)
             if k and k not in svc_map:
                 svc_map[k] = t
+
         for t in _split_tokens(tags):
             k = norm_text(t)
             if k and k not in tag_map:
                 tag_map[k] = t
 
+        for t in _split_tokens(feature_tags):
+            k = norm_text(t)
+            if k and k not in feature_tag_map:
+                feature_tag_map[k] = t
+
     svc_list = sorted(svc_map.values(), key=lambda x: norm_text(x))
     tag_list = sorted(tag_map.values(), key=lambda x: norm_text(x))
-    return svc_list, tag_list
+    feature_tag_list = sorted(feature_tag_map.values(), key=lambda x: norm_text(x))
+
+    return svc_list, tag_list, feature_tag_list
 
 
 def cup_letter(raw: Optional[str]) -> str:
