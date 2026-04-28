@@ -442,7 +442,7 @@ def kb_index(request: Request, db: Session = Depends(get_db)):
     import_status = request.query_params.get("import") or ""
     import_error = request.query_params.get("import_error") or ""
 
-    svc_options, tag_options = collect_service_tag_options(db)
+    svc_options, tag_options, feature_tag_options = collect_service_tag_options(db)
 
     sort_eff, order_eff = normalize_sort_params("name", "asc")
 
@@ -469,6 +469,7 @@ def kb_index(request: Request, db: Session = Depends(get_db)):
             "search_waist": [],
             "search_svc": [],
             "search_tag": [],
+            "search_feature_tag": [],
             "search_results": None,
             "search_truncated": False,
             "search_total_count": 0,
@@ -482,6 +483,7 @@ def kb_index(request: Request, db: Session = Depends(get_db)):
             "diary_open_url_map": {},   # ★DTO s統一（クリック用）
             "svc_options": svc_options,
             "tag_options": tag_options,
+            "feature_tag_options": feature_tag_options,
             "active_page": "kb",
             "page_title_suffix": "KB",
             "body_class": "page-kb",
@@ -987,6 +989,8 @@ def kb_update_person(
     sub_urls_text: str = Form(""),
     image_urls_text: str = Form(""),
     memo: str = Form(""),
+    feature_tags: str = Form(""),
+    other_memo: str = Form(""),
     next_action: str = Form(""),
     reason_good: str = Form(""),
     reason_bad: str = Form(""),
@@ -1084,7 +1088,14 @@ def kb_update_person(
             urls = sanitize_image_urls(image_urls_text or "")
             p.image_urls = urls or None
 
+        # 事前メモ：既存 memo を流用
         p.memo = (memo or "").strip() or None
+
+        # 特徴タグ / その他メモ
+        if hasattr(p, "feature_tags"):
+            p.feature_tags = (feature_tags or "").strip() or None
+        if hasattr(p, "other_memo"):
+            p.other_memo = (other_memo or "").strip() or None
 
         # ★次アクション & 判断理由テンプレ
         if hasattr(p, "next_action"):
@@ -1427,13 +1438,14 @@ def kb_search(
     waist: List[str] = Query(default=[]),
     svc: List[str] = Query(default=[]),
     tag: List[str] = Query(default=[]),
+    feature_tag: List[str] = Query(default=[]),
     sort: str = "name",
     order: str = "",
     rating_min: str = "",
     star_only: str = "",
 ):
     regions, stores_by_region, counts = build_tree_data(db)
-    svc_options, tag_options = collect_service_tag_options(db)
+    svc_options, tag_options, feature_tag_options = collect_service_tag_options(db)
 
     rid = parse_int(region_id)
     bmin = parse_int(budget_min)
@@ -1521,6 +1533,7 @@ def kb_search(
 
     svc_norm_set = {norm_text(x) for x in (svc or []) if (x or "").strip()}
     tag_norm_set = {norm_text(x) for x in (tag or []) if (x or "").strip()}
+    feature_tag_norm_set = {norm_text(x) for x in (feature_tag or []) if (x or "").strip()}
 
     def hit_svc(p: KBPerson) -> bool:
         if not svc_norm_set:
@@ -1534,13 +1547,22 @@ def kb_search(
         pt = token_set_norm(getattr(p, "tags", None))
         return any(x in pt for x in tag_norm_set)
 
+    def hit_feature_tag(p: KBPerson) -> bool:
+        if not feature_tag_norm_set:
+            return True
+        pt = token_set_norm(getattr(p, "feature_tags", None))
+        return any(x in pt for x in feature_tag_norm_set)
+
     def hit_cup(p: KBPerson) -> bool:
         if not cup:
             return True
         c = cup_letter(getattr(p, "cup", None))
         return any(cup_bucket_hit(b, c) for b in cup)
 
-    persons = [p for p in candidates if hit_svc(p) and hit_tag(p) and hit_cup(p)]
+    persons = [
+        p for p in candidates
+        if hit_svc(p) and hit_tag(p) and hit_feature_tag(p) and hit_cup(p)
+    ]
 
     truncated = False
     total_count = len(persons)
@@ -1611,6 +1633,7 @@ def kb_search(
             "search_waist": waist or [],
             "search_svc": svc or [],
             "search_tag": tag or [],
+            "search_feature_tag": feature_tag or [],
             "search_results": persons,
             "search_truncated": truncated,
             "search_total_count": total_count,
@@ -1624,6 +1647,7 @@ def kb_search(
             "diary_open_url_map": diary_open_url_map,
             "svc_options": svc_options,
             "tag_options": tag_options,
+            "feature_tag_options": feature_tag_options,
             "active_page": "kb",
             "page_title_suffix": "KB",
             "body_class": "page-kb",

@@ -83,6 +83,7 @@
       </div>
       {%- if person.services -%}<div>プレイ：<strong>{{ person.services }}</strong></div>{%- endif -%}
       {%- if person.tags -%}<div>タグ：<strong>{{ person.tags }}</strong></div>{%- endif -%}
+      {%- if person.feature_tags -%}<div>特徴タグ：<strong>{{ person.feature_tags }}</strong></div>{%- endif -%}
       {%- if work_start_label -%}<div>出勤時間：<strong>{{ work_start_label }}</strong>～</div>{%- endif -%}
 
       {% if person.url or sub_profile_urls %}
@@ -182,12 +183,17 @@
 
         <div class="inner-flex-box">
           <div class="kb-grid-label">プレイ：</div>
-          <div class="kb-grid-input"><input type="text" name="services" value="{{ person.services or '' }}" placeholder="例：○○, △△, ××（カンマ区切りで複数可）"></div>
+          <div class="kb-grid-input"><input type="text" name="services" value="{{ person.services or '' }}" placeholder="カンマ区切り 例:○○, △△, ××"></div>
         </div>
 
         <div class="inner-flex-box">
           <div class="kb-grid-label">タグ：</div>
-          <div class="kb-grid-input"><input type="text" name="tags" value="{{ person.tags or '' }}" placeholder="カンマ区切り"></div>
+          <div class="kb-grid-input"><input type="text" name="tags" value="{{ person.tags or '' }}" placeholder="カンマ区切り 例:No1,LINE"></div>
+        </div>
+
+        <div class="inner-flex-box">
+          <div class="kb-grid-label">特徴タグ：</div>
+      　  <div class="kb-grid-input"><input type="text" name="feature_tags" value="{{ person.feature_tags or '' }}" placeholder="カンマ区切り 例:細身,黒髪,小柄,童顔"></div>
         </div>
 
         <div class="inner-flex-box">
@@ -284,8 +290,10 @@
                     placeholder="1行に1つ、http(s)の直リンクURLを貼ってください(例：https://.../a.jpg)">{% if person.image_urls %}{{ person.image_urls|join('\n') }}{% endif %}</textarea>
           <div class="muted">※画像自体は保存せず、URLだけ保存します。表示はブラウザが外部から読み込みます。</div>
         </div>
-
-        {# 判断理由テンプレ（ミニ構造化メモ） #}
+         
+        <div class="kb-grid-label">事前メモ：</div>
+        <div><textarea name="memo" rows="15" placeholder="遊ぶ前に集めた情報、日記の印象、候補理由など">{{ person.memo or '' }}</textarea></div>
+         
         <div class="kb-grid-label">判断理由(良)：</div>
         <div><textarea name="reason_good" rows="4" placeholder="良かった点(箇条書き推奨)">{{ person.reason_good or '' }}</textarea></div>
 
@@ -294,9 +302,9 @@
 
         <div class="kb-grid-label">次回の条件：</div>
         <div><textarea name="reason_next" rows="4" placeholder="○○なら再訪/△△なら見送り など">{{ person.reason_next or '' }}</textarea></div>
-
-        <div class="kb-grid-label">メモ：</div>
-        <div><textarea name="memo" rows="15">{{ person.memo or '' }}</textarea></div>
+         
+        <div class="kb-grid-label">その他メモ：</div>
+        <div><textarea name="other_memo" rows="8" placeholder="どれにも当てはまらないメモ">{{ person.other_memo or '' }}</textarea></div>
       </div>
 
       <div class="form-row kb-unsaved-note kb-hidden" data-kb-person-unsaved-note>

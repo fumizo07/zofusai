@@ -14,8 +14,10 @@
 {% set search_waist = search_waist|default([]) %}
 {% set search_svc = search_svc|default([]) %}
 {% set search_tag = search_tag|default([]) %}
+{% set search_feature_tag = search_feature_tag|default([]) %}
 {% set svc_options = svc_options|default([]) %}
 {% set tag_options = tag_options|default([]) %}
+{% set feature_tag_options = feature_tag_options|default([]) %}
 {% set search_q = search_q|default('') %}
 {% set search_total_count = search_total_count|default(None) %}
 {% set search_truncated = search_truncated|default(False) %}
@@ -168,6 +170,27 @@
             </details>
           {% else %}
             <span class="muted">タグ候補はまだありません。</span>
+          {% endif %}
+        </div>
+      </div>
+
+      <div class="form-row">
+        <label>特徴タグ：</label>
+        <div>
+          {% if feature_tag_options %}
+            <details {% if search_feature_tag %}open{% endif %}>
+              <summary class="muted">特徴タグを選択({{ feature_tag_options|length }}件)</summary>
+              <div class="kb-tags-box">
+                {% for t in feature_tag_options %}
+                  <label class="kb-tag-chip">
+                    <input type="checkbox" name="feature_tag" value="{{ t }}" {% if t in search_feature_tag %}checked{% endif %}>
+                    {{ t }}
+                  </label>
+                {% endfor %}
+              </div>
+            </details>
+          {% else %}
+            <span class="muted">特徴タグ候補はまだありません。</span>
           {% endif %}
         </div>
       </div>
@@ -358,6 +381,10 @@
                 {%- if p.services and p.tags -%}/{%- endif -%}
                 {%- if p.tags -%}タグ:{{ p.tags }}{%- endif -%}
               </div>
+
+              {%- if p.feature_tags -%}
+                <div class="muted">特徴タグ:<strong>{{ p.feature_tags }}</strong></div>
+              {%- endif -%}
 
               {%- if p.work_start -%}
                 <div class="muted">出勤時間:<strong>{{ work_start_label(p.work_start) }}～</strong></div>

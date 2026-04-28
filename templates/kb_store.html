@@ -218,6 +218,10 @@
                 {%- if p.tags -%}タグ:{{ p.tags }}{%- endif -%}
               </div>
 
+              {%- if p.feature_tags -%}
+                <div class="muted">特徴タグ:<strong>{{ p.feature_tags }}</strong></div>
+              {%- endif -%}
+
               {%- if p.work_start -%}
                 <div class="muted">出勤時間:<strong>{{ work_start_label(p.work_start) }}～</strong></div>
               {%- endif -%}

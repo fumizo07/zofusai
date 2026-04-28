@@ -152,6 +152,8 @@ def kb_export(db: Session = Depends(get_db)):
             "services": getattr(p, "services", None),
             "tags": getattr(p, "tags", None),
             "memo": getattr(p, "memo", None),
+            "feature_tags": getattr(p, "feature_tags", None),
+            "other_memo": getattr(p, "other_memo", None),
         }
 
         # ★意思決定（候補ランク / リピ意思）
@@ -382,7 +384,14 @@ def kb_import(
             obj.hip_cm = parse_int(p.get("hip_cm", ""))
             obj.services = (p.get("services", "") or "").strip() or None
             obj.tags = (p.get("tags", "") or "").strip() or None
+            # 事前メモ：既存 memo を流用
             obj.memo = (p.get("memo", "") or "").strip() or None
+            # 特徴タグ / その他メモ
+            if hasattr(obj, "feature_tags"):
+                raw_feature_tags = p.get("feature_tags", p.get("feature_memo", ""))
+                obj.feature_tags = (raw_feature_tags or "").strip() or None
+            if hasattr(obj, "other_memo"):
+                obj.other_memo = (p.get("other_memo", "") or "").strip() or None
 
             # ★ next_action（次アクション）
             if hasattr(obj, "next_action"):
