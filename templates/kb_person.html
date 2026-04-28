@@ -83,6 +83,7 @@
       </div>
       {%- if person.services -%}<div>プレイ：<strong>{{ person.services }}</strong></div>{%- endif -%}
       {%- if person.tags -%}<div>タグ：<strong>{{ person.tags }}</strong></div>{%- endif -%}
+      {%- if person.feature_tags -%}<div>特徴タグ：<strong>{{ person.feature_tags }}</strong></div>{%- endif -%}
       {%- if work_start_label -%}<div>出勤時間：<strong>{{ work_start_label }}</strong>～</div>{%- endif -%}
 
       {% if person.url or sub_profile_urls %}
@@ -182,12 +183,17 @@
 
         <div class="inner-flex-box">
           <div class="kb-grid-label">プレイ：</div>
-          <div class="kb-grid-input"><input type="text" name="services" value="{{ person.services or '' }}" placeholder="例：○○, △△, ××（カンマ区切りで複数可）"></div>
+          <div class="kb-grid-input"><input type="text" name="services" value="{{ person.services or '' }}" placeholder="カンマ区切り 例:○○, △△, ××"></div>
         </div>
 
         <div class="inner-flex-box">
           <div class="kb-grid-label">タグ：</div>
-          <div class="kb-grid-input"><input type="text" name="tags" value="{{ person.tags or '' }}" placeholder="カンマ区切り"></div>
+          <div class="kb-grid-input"><input type="text" name="tags" value="{{ person.tags or '' }}" placeholder="カンマ区切り 例:No1,LINE"></div>
+        </div>
+
+        <div class="inner-flex-box">
+          <div class="kb-grid-label">特徴タグ：</div>
+      　  <div class="kb-grid-input"><input type="text" name="feature_tags" value="{{ person.feature_tags or '' }}" placeholder="カンマ区切り 例:細身,黒髪,小柄,童顔"></div>
         </div>
 
         <div class="inner-flex-box">
@@ -283,12 +289,6 @@
           <textarea name="image_urls_text" rows="6"
                     placeholder="1行に1つ、http(s)の直リンクURLを貼ってください(例：https://.../a.jpg)">{% if person.image_urls %}{{ person.image_urls|join('\n') }}{% endif %}</textarea>
           <div class="muted">※画像自体は保存せず、URLだけ保存します。表示はブラウザが外部から読み込みます。</div>
-        </div>
-
-        <div class="kb-grid-label">特徴メモ：</div>
-        <div>
-          <textarea name="feature_memo" rows="4" placeholder="身体的特徴、雰囲気、リストで確認したい内容">{{ person.feature_memo or '' }}</textarea>
-          <div class="muted">※検索結果・店舗ページの人物カードにも表示されます。</div>
         </div>
          
         <div class="kb-grid-label">事前メモ：</div>
