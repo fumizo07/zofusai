@@ -455,9 +455,14 @@ def build_person_search_blob(db: Session, p: KBPerson) -> str:
             str(p.hip_cm or ""),
             p.services or "",
             p.tags or "",
+            getattr(p, "feature_tags", "") or "",
             getattr(p, "url", "") or "",
             " ".join([x for x in img_parts if x]),
             p.memo or "",
+            getattr(p, "reason_good", "") or "",
+            getattr(p, "reason_bad", "") or "",
+            getattr(p, "reason_next", "") or "",
+            getattr(p, "other_memo", "") or "",
         ]
     )
     return norm_text(" ".join([x for x in parts if x is not None]))
