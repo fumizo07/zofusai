@@ -442,7 +442,7 @@ def kb_index(request: Request, db: Session = Depends(get_db)):
     import_status = request.query_params.get("import") or ""
     import_error = request.query_params.get("import_error") or ""
 
-    svc_options, tag_options = collect_service_tag_options(db)
+    svc_options, tag_options, feature_tag_options = collect_service_tag_options(db)
 
     sort_eff, order_eff = normalize_sort_params("name", "asc")
 
