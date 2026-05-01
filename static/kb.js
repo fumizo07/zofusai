@@ -62,13 +62,38 @@
 
     function getNextActionRank(el) {
       const a = String(el?.dataset?.nextAction || "").trim();
-      if (!a) return 99;
-      if (a === "調べる") return 0;
-      if (a === "予約する") return 1;
-      if (a === "再訪検討") return 2;
-      if (a === "見送り") return 3;
-      if (a === "メモだけ") return 4;
+    
+      // 数字が小さいほど上位
+      if (a === "予約する") return 0;
+      if (a === "リピ検討") return 1;
+      if (a === "調べる") return 2;
+      if (!a) return 3;
+      if (a === "メモあり") return 4;
+      if (a === "見送り") return 5;
       return 9;
+    }
+
+    function getFavoriteRepeatRank(x) {
+      const fav = x.fav === 1;
+      const repeat = String(x.repeat || "").trim().toLowerCase();
+      const cand = x.cand;
+    
+      // 数字が小さいほど上位
+      if (fav && repeat === "yes") return 0;   // 1. オキニ + リピ確定
+      if (fav && repeat === "hold") return 1;  // 2. オキニ + リピ保留
+      if (fav && !repeat) return 2;            // 3. オキニ + 未判定
+      if (repeat === "yes") return 3;          // 4. リピ確定
+    
+      if (cand != null) {
+        // 5〜9. 候補#1〜候補#5
+        return 3 + Number(cand);
+      }
+    
+      if (repeat === "hold") return 9;         // 10. リピ保留
+      if (!repeat) return 10;                  // 11. 未判定
+      if (repeat === "no") return 11;          // 12. NG
+    
+      return 10;
     }
     
     function applyFilter(items) {
@@ -106,6 +131,8 @@
         idx,
         visible: !el.classList.contains("kb-hidden"),
         name: getNameKey(el),
+        fav: String(el?.dataset?.fav || "") === "1" ? 1 : 0,
+        repeat: getRepeat(el),
         rating: getNumKey(el, "sortRating"),
         cupRank: cupToRank(el?.dataset?.sortCup || ""),
         height: getNumKey(el, "sortHeight"),
@@ -122,7 +149,25 @@
         // 非表示のものは最後へ（順序の安定のため）
         if (A.visible !== B.visible) return A.visible ? -1 : 1;
 
-        if (mode === "smart") {
+        if (mode === "favorite_repeat") {
+          // 1) オキニ・リピ・候補の大枠
+          const r1 = getFavoriteRepeatRank(A);
+          const r2 = getFavoriteRepeatRank(B);
+          if (r1 !== r2) return r1 - r2;
+        
+          // 2) 同じ大枠の中では「次のアクション」
+          const cAct = compareNullableNumber(A.nextActionRank, B.nextActionRank, true);
+          if (cAct !== 0) return cAct;
+        
+          // 3) 日記最新が新しい順
+          const cDiary = compareNullableNumber(A.diaryLatestTs, B.diaryLatestTs, false);
+          if (cDiary !== 0) return cDiary;
+        
+          // 4) 最終訪問が古い順
+          const cVisit = compareNullableNumber(A.lastVisitTs, B.lastVisitTs, true);
+          if (cVisit !== 0) return cVisit;
+        
+        } else if (mode === "smart") {
           // 1) 候補が上（candがある人）
           const aIsCand = A.cand != null;
           const bIsCand = B.cand != null;
@@ -188,7 +233,7 @@
       list.appendChild(frag);
     }
 
-    const rerun = () => applySort(sel.value || "name");
+    const rerun = () => applySort(sel.value || "favorite_repeat");
     document.addEventListener("kb:personResults:rerunSort", rerun);
 
     sel.addEventListener("change", rerun);
