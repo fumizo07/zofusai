@@ -65,11 +65,10 @@
     
       // 数字が小さいほど上位
       if (a === "予約する") return 0;
-      if (a === "リピ検討") return 1;
-      if (a === "調べる") return 2;
-      if (!a) return 3;
-      if (a === "メモあり") return 4;
-      if (a === "見送り") return 5;
+      if (a === "検討中") return 1;
+      if (!a) return 2;
+      if (a === "メモあり") return 3;
+      if (a === "見送り") return 4;
       return 9;
     }
 
