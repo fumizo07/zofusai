@@ -564,6 +564,60 @@
       <p class="muted">利用ログはまだありません。</p>
     {% endif %}
   </section>
+  <section class="card">
+    <h2>所属店舗を変更</h2>
+
+    {% set move_store_status = request.query_params.get("move_store") or "" %}
+    {% if move_store_status == "done" %}
+      <p class="muted info-message">所属店舗を変更しました。</p>
+    {% elif move_store_status == "dup" %}
+      <p class="error-message">
+        移動先店舗に同名の人物がすでに存在するため、移動できませんでした。
+        {% if request.query_params.get("dup_person_id") %}
+          <span class="muted">
+            （<a href="/kb/person/{{ request.query_params.get('dup_person_id') }}">該当人物を開く</a>）
+          </span>
+        {% endif %}
+      </p>
+    {% elif move_store_status == "empty" %}
+      <p class="error-message">移動先店舗が選択されていません。</p>
+    {% elif move_store_status == "not_found" %}
+      <p class="error-message">移動先店舗が見つかりませんでした。</p>
+    {% elif move_store_status == "name_empty" %}
+      <p class="error-message">移動後の名前が空のため、移動できませんでした。</p>
+    {% elif move_store_status == "failed" %}
+      <p class="error-message">所属店舗の変更に失敗しました。</p>
+    {% endif %}
+
+    <p class="muted">
+      人物ID・人物情報・利用ログ・日記追跡・オキニ設定はそのまま維持して、所属店舗だけを変更します。
+    </p>
+
+    <form method="post"
+          action="/kb/person/{{ person.id }}/move_store"
+          onsubmit="return confirm('この人物を選択した店舗へ移動します。よろしいですか？');">
+      <div class="form-row">
+        <label>移動先店舗：</label>
+        <select name="move_store_id" required>
+          <option value="">（選択してください）</option>
+          {% for s, r in all_store_rows %}
+            <option value="{{ s.id }}" {% if store and s.id == store.id %}disabled{% endif %}>
+              {{ r.name }} / {{ s.name }}{% if store and s.id == store.id %}（現在の店舗）{% endif %}
+            </option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div class="form-row">
+        <label>移動後の名前：</label>
+        <input type="text" name="move_name" value="{{ person.name }}" placeholder="空欄の場合は現在の名前を使います">
+      </div>
+
+      <div class="form-row">
+        <button type="submit" class="btn-secondary">この人物を移動する</button>
+      </div>
+    </form>
+  </section>
 </main>
 
 {% include "_footer.html" %}
