@@ -818,6 +818,13 @@ def kb_person_page(
     store = db.query(KBStore).filter(KBStore.id == person.store_id).first()
     region = db.query(KBRegion).filter(KBRegion.id == store.region_id).first() if store else None
 
+    all_store_rows = (
+        db.query(KBStore, KBRegion)
+        .join(KBRegion, KBRegion.id == KBStore.region_id)
+        .order_by(KBRegion.name.asc(), KBStore.name.asc())
+        .all()
+    )
+
     visits = (
         db.query(KBVisit)
         .filter(KBVisit.person_id == person.id)
@@ -914,6 +921,7 @@ def kb_person_page(
             "region": region,
             "store": store,
             "person": person,
+            "all_store_rows": all_store_rows,
             "sub_profile_urls": sub_profile_urls,
             "visits": visits,
             "rating_avg": rating_avg,
@@ -1174,6 +1182,62 @@ def kb_update_person(
         return RedirectResponse(url=f"{back_url}{sep}dup_url={dup_url_param}", status_code=303)
 
     return RedirectResponse(url=back_url, status_code=303)
+    
+
+@router.post("/kb/person/{person_id}/move_store")
+def kb_move_person_store(
+    request: Request,
+    person_id: int,
+    move_store_id: str = Form(""),
+    move_name: str = Form(""),
+    db: Session = Depends(get_db),
+):
+    p = db.query(KBPerson).filter(KBPerson.id == int(person_id)).first()
+    if not p:
+        return RedirectResponse(url="/kb", status_code=303)
+
+    back_url = f"/kb/person/{p.id}"
+
+    target_store_id = parse_int(move_store_id)
+    if target_store_id is None:
+        return RedirectResponse(url=f"{back_url}?move_store=empty", status_code=303)
+
+    target_store = db.query(KBStore).filter(KBStore.id == int(target_store_id)).first()
+    if not target_store:
+        return RedirectResponse(url=f"{back_url}?move_store=not_found", status_code=303)
+
+    new_name = (move_name or "").strip() or (p.name or "").strip()
+    if not new_name:
+        return RedirectResponse(url=f"{back_url}?move_store=name_empty", status_code=303)
+
+    dup = (
+        db.query(KBPerson)
+        .filter(
+            KBPerson.store_id == int(target_store.id),
+            KBPerson.name == new_name,
+            KBPerson.id != int(p.id),
+        )
+        .first()
+    )
+    if dup:
+        return RedirectResponse(url=f"{back_url}?move_store=dup&dup_person_id={int(dup.id)}", status_code=303)
+
+    try:
+        p.store_id = int(target_store.id)
+        p.name = new_name
+
+        if hasattr(p, "name_norm"):
+            p.name_norm = norm_text(new_name)
+
+        p.search_norm = build_person_search_blob(db, p)
+
+        db.commit()
+    except Exception:
+        db.rollback()
+        return RedirectResponse(url=f"{back_url}?move_store=failed", status_code=303)
+
+    return RedirectResponse(url=f"/kb/person/{p.id}?move_store=done", status_code=303)
+    
 
 @router.post("/kb/person/{person_id}/quick_update")
 def kb_quick_update_person(
