@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 
 from app_context import templates
 from db import get_db
-from models import KBPerson, KBRegion, KBStore, KBVisit
+from models import KBPerson, KBRegion, KBSetting, KBStore, KBVisit
 
 from .diary_core import (
     diary_state_enabled,
@@ -90,6 +90,27 @@ def _coerce_bool(v) -> bool:
             return False
         return False
     return False
+
+
+def _get_kb_setting(db: Session, key: str, default: str = "") -> str:
+    try:
+        obj = db.query(KBSetting).filter(KBSetting.key == key).first()
+        if not obj:
+            return default
+        return getattr(obj, "value", None) or default
+    except Exception:
+        return default
+
+
+def _set_kb_setting(db: Session, key: str, value: str) -> None:
+    obj = db.query(KBSetting).filter(KBSetting.key == key).first()
+    if not obj:
+        obj = KBSetting(key=key)
+        db.add(obj)
+
+    obj.value = value
+    if hasattr(obj, "updated_at"):
+        obj.updated_at = datetime.utcnow()
 
 # =========================
 # 出勤用ヘルパー
@@ -443,7 +464,9 @@ def kb_index(request: Request, db: Session = Depends(get_db)):
     import_error = request.query_params.get("import_error") or ""
 
     svc_options, tag_options, feature_tag_options = collect_service_tag_options(db)
-
+    
+    quick_memo = _get_kb_setting(db, "quick_memo", "")
+    
     sort_eff, order_eff = normalize_sort_params("name", "asc")
 
     return templates.TemplateResponse(
@@ -459,6 +482,7 @@ def kb_index(request: Request, db: Session = Depends(get_db)):
             "search_error": search_error,
             "import_status": import_status,
             "import_error": import_error,
+            "quick_memo": quick_memo,
             "search_q": "",
             "search_region_id": "",
             "search_budget_min": "",
@@ -494,6 +518,22 @@ def kb_index(request: Request, db: Session = Depends(get_db)):
             "star_only": "",
         },
     )
+
+
+@router.post("/kb/quick_memo")
+def kb_save_quick_memo(
+    request: Request,
+    quick_memo: str = Form(""),
+    db: Session = Depends(get_db),
+):
+    try:
+        _set_kb_setting(db, "quick_memo", quick_memo or "")
+        db.commit()
+    except Exception:
+        db.rollback()
+        return RedirectResponse(url="/kb?quick_memo=failed", status_code=303)
+
+    return RedirectResponse(url="/kb?quick_memo=done", status_code=303)
 
 
 @router.post("/kb/region")
@@ -1687,6 +1727,7 @@ def kb_search(
             "search_error": "",
             "import_status": request.query_params.get("import") or "",
             "import_error": request.query_params.get("import_error") or "",
+            "quick_memo": _get_kb_setting(db, "quick_memo", ""),
             "search_q": q_raw,
             "search_region_id": rid or "",
             "search_budget_min": str(bmin) if bmin is not None else "",

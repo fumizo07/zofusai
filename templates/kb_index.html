@@ -19,6 +19,7 @@
 {% set tag_options = tag_options|default([]) %}
 {% set feature_tag_options = feature_tag_options|default([]) %}
 {% set search_q = search_q|default('') %}
+{% set quick_memo = quick_memo|default('') %}
 {% set search_total_count = search_total_count|default(None) %}
 {% set search_truncated = search_truncated|default(False) %}
 
@@ -64,6 +65,26 @@
       <p class="error-message">検索条件が空です。</p>
     {% endif %}
 
+    {% if request.query_params.get("quick_memo") == "done" %}
+      <p class="muted info-message">早見メモを保存しました。</p>
+    {% elif request.query_params.get("quick_memo") == "failed" %}
+      <p class="error-message">早見メモの保存に失敗しました。</p>
+    {% endif %}
+
+    <!-- 早見メモ -->
+    <details class="section-title kb-quick-memo">
+      <summary class="muted">早見メモ</summary>
+    
+      <form method="post" action="/kb/quick_memo">
+        <div class="form-row">
+          <textarea name="quick_memo" rows="10" placeholder="すぐ見たいメモ、候補整理、注意点など">{{ quick_memo or '' }}</textarea>
+        </div>
+        <div class="form-row">
+          <button type="submit" class="btn-primary">早見メモを保存</button>
+        </div>
+      </form>
+    </details>
+    
     <!-- 人物検索（詳細検索 + フリーワード） -->
     <div class="section-title">人物検索</div>
     <form method="get" action="/kb/search">

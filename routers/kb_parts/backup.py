@@ -13,7 +13,7 @@ from fastapi.responses import JSONResponse, RedirectResponse
 from sqlalchemy.orm import Session
 
 from db import get_db
-from models import KBPerson, KBRegion, KBStore, KBVisit, KBPriceTemplate
+from models import KBPerson, KBRegion, KBSetting, KBStore, KBVisit, KBPriceTemplate
 
 from .diary_core import (
     diary_state_enabled,
@@ -86,6 +86,7 @@ def kb_panic_delete_all(
         return RedirectResponse(url="/kb?panic=failed", status_code=303)
 
     try:
+        db.query(KBSetting).delete(synchronize_session=False)
         db.query(KBPriceTemplate).delete(synchronize_session=False)
         db.query(KBVisit).delete(synchronize_session=False)
         db.query(KBPerson).delete(synchronize_session=False)
@@ -113,6 +114,7 @@ def kb_export(db: Session = Depends(get_db)):
     persons = db.query(KBPerson).order_by(KBPerson.id.asc()).all()
     visits = db.query(KBVisit).order_by(KBVisit.id.asc()).all()
     price_templates = db.query(KBPriceTemplate).order_by(KBPriceTemplate.id.asc()).all()
+    settings = db.query(KBSetting).order_by(KBSetting.key.asc()).all()
 
     person_ids = [int(getattr(p, "id")) for p in persons if p and getattr(p, "id", None)]
     state_map = get_diary_state_map(db, person_ids)
@@ -221,9 +223,16 @@ def kb_export(db: Session = Depends(get_db)):
             "items": getattr(t, "items", None),
         }
 
+    def setting_to_dict(s: KBSetting) -> dict:
+        return {
+            "key": getattr(s, "key", None),
+            "value": getattr(s, "value", None),
+        }
+
     payload = {
-        "version": 7,
+        "version": 8,
         "exported_at_utc": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "settings": [setting_to_dict(s) for s in settings],
         "regions": [region_to_dict(r) for r in regions],
         "stores": [store_to_dict(s) for s in stores],
         "persons": [person_to_dict(p) for p in persons],
@@ -231,6 +240,9 @@ def kb_export(db: Session = Depends(get_db)):
         "price_templates": [tpl_to_dict(t) for t in price_templates],
     }
     return JSONResponse(payload, headers={"Cache-Control": "no-store"})
+
+
+
 
 
 @router.post("/kb/import")
@@ -268,6 +280,7 @@ def kb_import(
     if not isinstance(data, dict):
         return _redir("failed", "payload_not_object")
 
+    settings = data.get("settings", [])
     regions = data.get("regions", [])
     stores = data.get("stores", [])
     persons = data.get("persons", [])
@@ -275,6 +288,7 @@ def kb_import(
     price_templates = data.get("price_templates", data.get("templates", []))
 
     try:
+        db.query(KBSetting).delete(synchronize_session=False)
         db.query(KBPriceTemplate).delete(synchronize_session=False)
         db.query(KBVisit).delete(synchronize_session=False)
         db.query(KBPerson).delete(synchronize_session=False)
@@ -304,6 +318,20 @@ def kb_import(
     diary_payloads: list[dict] = []
 
     try:
+        for s in settings if isinstance(settings, list) else []:
+            if not isinstance(s, dict):
+                continue
+            key = (s.get("key", "") or "").strip()
+            if not key:
+                continue
+            obj = KBSetting(
+                key=key,
+                value=s.get("value", None),
+                updated_at=datetime.utcnow(),
+            )
+            db.add(obj)
+        db.flush()
+
         for r in regions if isinstance(regions, list) else []:
             if not isinstance(r, dict):
                 continue
