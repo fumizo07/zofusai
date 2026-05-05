@@ -444,7 +444,7 @@
             
               <select name="repeat_intent">
                 <option value="" {% if not p.repeat_intent %}selected{% endif %}>未判定</option>
-                <option value="yes"  {% if p.repeat_intent == 'yes' %}selected{% endif %}>リピ確</option>
+                <option value="yes"  {% if p.repeat_intent == 'yes' %}selected{% endif %}>リピ確定</option>
                 <option value="hold" {% if p.repeat_intent == 'hold' %}selected{% endif %}>リピ保留</option>
                 <option value="no"   {% if p.repeat_intent == 'no' %}selected{% endif %}>NG</option>
               </select>
