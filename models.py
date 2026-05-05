@@ -118,6 +118,14 @@ class KBStore(Base):
     )
 
 
+class KBSetting(Base):
+    __tablename__ = "kb_settings"
+
+    key = Column(Text, primary_key=True)
+    value = Column(Text, nullable=True)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+
 class KBPerson(Base):
     __tablename__ = "kb_persons"
 
