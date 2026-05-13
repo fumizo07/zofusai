@@ -234,7 +234,7 @@
               <option value="" {% if not person.repeat_intent %}selected{% endif %}>未判定</option>
               <option value="yes"  {% if person.repeat_intent == 'yes' %}selected{% endif %}>リピ確定</option>
               <option value="hold" {% if person.repeat_intent == 'hold' %}selected{% endif %}>リピ保留</option>
-              <option value="no"   {% if person.repeat_intent == 'no' %}selected{% endif %}>NG</option>
+              <option value="no"   {% if person.repeat_intent == 'no' %}selected{% endif %}>NG/辞めた</option>
             </select>
             {# repeat_intent の表示ラベル #}
             {% set repeat_label = "" %}

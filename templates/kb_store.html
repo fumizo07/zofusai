@@ -78,12 +78,12 @@
           <option value="" selected>（すべて）</option>
           <option value="yes">リピ確定</option>
           <option value="hold">リピ保留</option>
-          <option value="no">NG</option>
+          <option value="no">NG/辞めた</option>
         </select>
         
         <label class="sort-checkbox-label">
           <input type="checkbox" id="kb_hide_ng" value="1" checked>
-          NG非表示
+          NG/辞めた非表示
         </label>
 
         <label class="sort-checkbox-label">
@@ -258,7 +258,7 @@
                 <option value="" {% if not p.repeat_intent %}selected{% endif %}>未判定</option>
                 <option value="yes"  {% if p.repeat_intent == 'yes' %}selected{% endif %}>リピ確定</option>
                 <option value="hold" {% if p.repeat_intent == 'hold' %}selected{% endif %}>リピ保留</option>
-                <option value="no"   {% if p.repeat_intent == 'no' %}selected{% endif %}>NG</option>
+                <option value="no"   {% if p.repeat_intent == 'no' %}selected{% endif %}>NG/辞めた</option>
               </select>
             
               <select name="next_action">
