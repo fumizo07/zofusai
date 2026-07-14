@@ -185,8 +185,39 @@ def _looks_like_response_container(tag) -> bool:
     return any(word in marker for word in ("res_block", "res_list_article", "article", "response"))
 
 
+def _body_nodes(root) -> list:
+    """同じ本文を指す入れ子要素を除き、レス本文候補を1件ずつ返す。"""
+    nodes = []
+    seen = set()
+    for body in root.select("div.resbody, [itemprop='commentText'], dd.body"):
+        if body.name == "dd" and body.select_one("div.resbody, [itemprop='commentText']"):
+            continue
+        marker = id(body)
+        if marker in seen:
+            continue
+        seen.add(marker)
+        nodes.append(body)
+    return nodes
+
+
+def _find_response_container(body):
+    """本文要素から、レス番号と本文を1組だけ含む最も近い親要素を探す。"""
+    fallback = body.parent or body
+    for parent in body.parents:
+        if getattr(parent, "name", None) in ("body", "html"):
+            break
+
+        child_bodies = _body_nodes(parent)
+        if len(child_bodies) == 1 and _extract_post_no(parent) is not None:
+            return parent
+
+        if fallback is body.parent and _looks_like_response_container(parent):
+            fallback = parent
+    return fallback
+
+
 def _select_response_elements(soup: BeautifulSoup):
-    """既知セレクタに加え、本文要素から親レス要素を逆引きする。"""
+    """既知形式と本文起点の形式を合算し、混在ページでも全レスを拾う。"""
     selectors = (
         "dl#res_list div.article.res_list_article",
         "ul#res_list li.res_block",
@@ -194,29 +225,25 @@ def _select_response_elements(soup: BeautifulSoup):
         "#res_list article.res_list_article",
         "#res_list li.res_block",
     )
-    for selector in selectors:
-        elements = soup.select(selector)
-        if elements:
-            return elements
 
-    fallback = []
+    elements = []
     seen = set()
-    for body in soup.select("div.resbody, [itemprop='commentText'], dd.body"):
-        container = None
-        for parent in body.parents:
-            if getattr(parent, "name", None) in ("body", "html"):
-                break
-            if _looks_like_response_container(parent):
-                container = parent
-                break
-        if container is None:
-            container = body.parent or body
 
-        marker = id(container)
-        if marker not in seen:
-            seen.add(marker)
-            fallback.append(container)
-    return fallback
+    def add_element(element) -> None:
+        marker = id(element)
+        if marker in seen:
+            return
+        seen.add(marker)
+        elements.append(element)
+
+    for selector in selectors:
+        for element in soup.select(selector):
+            add_element(element)
+
+    for body in _body_nodes(soup):
+        add_element(_find_response_container(body))
+
+    return elements
 
 
 def _find_body_tag(element):
@@ -243,6 +270,9 @@ def _find_body_tag(element):
 
 def _parse_posts_from_soup(soup: BeautifulSoup) -> List[ScrapedPost]:
     posts: List[ScrapedPost] = []
+    seen_post_nos: set[int] = set()
+    seen_unknown: set[tuple[Optional[str], str]] = set()
+
     for element in _select_response_elements(soup):
         post_no = _extract_post_no(element)
 
@@ -262,6 +292,16 @@ def _parse_posts_from_soup(soup: BeautifulSoup) -> List[ScrapedPost]:
         body_text = "\n".join(line for line in lines if line)
         if not body_text:
             continue
+
+        if post_no is not None:
+            if post_no in seen_post_nos:
+                continue
+            seen_post_nos.add(post_no)
+        else:
+            unknown_key = (posted_at, body_text)
+            if unknown_key in seen_unknown:
+                continue
+            seen_unknown.add(unknown_key)
 
         posts.append(
             ScrapedPost(
