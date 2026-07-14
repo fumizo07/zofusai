@@ -7,6 +7,7 @@ from db import engine, Base, get_db
 from services import cleanup_thread_posts_duplicates, backfill_posted_at_dt, backfill_norm_columns
 from thread_refresh_fix import install_thread_refresh_fix
 from thread_refresh_browser import install_thread_refresh_browser_fallback
+from thread_cache_speedup import install_thread_cache_speedup
 
 
 def register_startup(app: FastAPI) -> None:
@@ -14,6 +15,7 @@ def register_startup(app: FastAPI) -> None:
     def on_startup():
         install_thread_refresh_fix()
         install_thread_refresh_browser_fallback()
+        install_thread_cache_speedup()
         Base.metadata.create_all(bind=engine)
 
         with engine.begin() as conn:
