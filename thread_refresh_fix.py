@@ -19,6 +19,14 @@ _INSTALLED = False
 _LOGGER = logging.getLogger(__name__)
 
 
+class CrawlPosts(list):
+    """取得失敗時の診断用に巡回履歴を保持する投稿リスト。"""
+
+    def __init__(self, values=(), *, trace: Optional[list[str]] = None):
+        super().__init__(values)
+        self.trace = list(trace or [])
+
+
 def _thread_id(url: str) -> Optional[str]:
     match = re.search(r"(?:^|/)tid=(\d+)(?:/|$)", url or "")
     return match.group(1) if match else None
@@ -46,6 +54,7 @@ def _thread_root(url: str) -> str:
 
 
 def _is_same_thread_page(original_url: str, candidate_url: str) -> bool:
+    """同じスレッドの通常ページャーだけを許可する。"""
     original_tid = _thread_id(original_url)
     candidate_tid = _thread_id(candidate_url)
     if not original_tid or original_tid != candidate_tid:
@@ -59,7 +68,9 @@ def _is_same_thread_page(original_url: str, candidate_url: str) -> bool:
         return False
 
     path = parts.path
-    if not path.startswith(("/thr_res/", "/thr_repo02/")):
+    if not path.startswith("/thr_res/"):
+        return False
+    if re.search(r"/rrid=\d+(?:/|$)", path):
         return False
     return bool(re.search(r"/p=\d+(?:/|$)", path))
 
@@ -69,32 +80,37 @@ def _page_number(url: str) -> int:
     return int(match.group(1)) if match else 10**9
 
 
+def _pager_priority(url: str) -> tuple[int, int, str]:
+    """同じページ番号ならtp=1付きの通常リンクを優先する。"""
+    path = urlsplit(url).path
+    has_tp = bool(re.search(r"/tp=1(?:/|$)", path))
+    has_ttgid = bool(re.search(r"/ttgid=\d+(?:/|$)", path))
+    return (0 if has_tp else 1, 1 if has_ttgid else 0, url)
+
+
 def _extract_pager_links(soup, original_url: str, response_url: str) -> list[str]:
-    """HTMLに実際に含まれる同一スレッドのページ送りURLだけを返す。"""
-    links: list[str] = []
-    seen_urls: set[str] = set()
-    seen_pages: set[tuple[str, int]] = set()
+    """HTMLに実際に含まれる通常ページ送りURLをページ番号ごとに返す。"""
+    best_by_page: dict[int, str] = {}
 
-    for node in soup.select("a[href]"):
-        href = (node.get("href") or "").strip()
-        if not href:
-            continue
-        absolute = _without_fragment(urljoin(response_url or original_url, href))
-        if absolute in seen_urls or not _is_same_thread_page(original_url, absolute):
-            continue
-
-        path = urlsplit(absolute).path
-        endpoint = "thr_repo02" if path.startswith("/thr_repo02/") else "thr_res"
-        page_identity = (endpoint, _page_number(absolute))
-        if page_identity in seen_pages:
+    for node in soup.select("a[href], option[value], form[action]"):
+        value = ""
+        for attr in ("href", "value", "action"):
+            value = (node.get(attr) or "").strip()
+            if value:
+                break
+        if not value:
             continue
 
-        seen_urls.add(absolute)
-        seen_pages.add(page_identity)
-        links.append(absolute)
+        absolute = _without_fragment(urljoin(response_url or original_url, value))
+        if not _is_same_thread_page(original_url, absolute):
+            continue
 
-    links.sort(key=lambda value: (_page_number(value), value))
-    return links
+        page_no = _page_number(absolute)
+        current = best_by_page.get(page_no)
+        if current is None or _pager_priority(absolute) < _pager_priority(current):
+            best_by_page[page_no] = absolute
+
+    return [best_by_page[page] for page in sorted(best_by_page)]
 
 
 def _number_range(posts: Iterable[object]) -> tuple[Optional[int], Optional[int], int]:
@@ -109,13 +125,29 @@ def _number_range(posts: Iterable[object]) -> tuple[Optional[int], Optional[int]
     return min(numbers), max(numbers), len(post_list)
 
 
-def _fetch_page(session, url: str, headers: dict):
-    """1ページを取得し、投稿とHTML内ページャーリンクを返す。"""
+def _trace_path(url: str) -> str:
+    parts = urlsplit(url or "")
+    path = parts.path or "/"
+    return f"{path}?{parts.query}" if parts.query else path
+
+
+def _fetch_page(
+    session,
+    url: str,
+    headers: dict,
+    *,
+    referer: Optional[str] = None,
+):
+    """1ページを取得し、投稿とHTML内の通常ページャーリンクを返す。"""
     last_error: Optional[Exception] = None
 
     for attempt in range(3):
         try:
-            response = session.get(url, headers=headers, timeout=10)
+            request_headers = dict(headers or {})
+            if referer:
+                request_headers["Referer"] = referer
+
+            response = session.get(url, headers=request_headers, timeout=10)
             if response.status_code != 200:
                 raise scraper.ScrapingError(
                     f"HTTPステータスコードが異常です: {response.status_code}"
@@ -127,6 +159,7 @@ def _fetch_page(session, url: str, headers: dict):
                 final_url = getattr(response, "url", "") or url
                 links = _extract_pager_links(soup, url, final_url)
                 return posts, final_url, links
+
             last_error = scraper.ScrapingError(
                 "投稿らしきテキストが見つかりませんでした。"
             )
@@ -147,10 +180,10 @@ def _crawl_thread_pages(
     stop_at_post_no: Optional[int] = None,
 ):
     """
-    URLを推測せず、爆サイがHTML内に出した同一スレッドのページャーをたどる。
+    爆サイがHTML内に出した通常ページャーだけを、同じセッションでたどる。
 
-    stop_at_post_noがある通常更新でも、最新側を取りこぼさないようページャー巡回を
-    完了してから重複を除去する。
+    特定レス用rridリンクと投稿用thr_repo02リンクはページャーではないため除外する。
+    リンク遷移時は実ブラウザと同様に直前ページをRefererとして送る。
     """
     root_url = _thread_root(url)
     if not root_url:
@@ -160,32 +193,45 @@ def _crawl_thread_pages(
     session = scraper.requests.Session()
     headers = scraper._build_headers()
 
-    queue = deque([root_url])
+    queue = deque([(root_url, None)])
     seen_urls: set[str] = set()
     seen_post_nos: set[int] = set()
     seen_unknown: set[tuple[Optional[str], str]] = set()
     all_posts = []
+    trace: list[str] = []
 
     while queue and len(seen_urls) < safe_max_pages:
-        request_url = queue.popleft()
+        request_url, referer = queue.popleft()
         normalized_url = _without_fragment(request_url)
         if normalized_url in seen_urls:
             continue
         seen_urls.add(normalized_url)
 
         try:
-            posts, final_url, links = _fetch_page(session, normalized_url, headers)
-        except scraper.ScrapingError:
+            posts, final_url, links = _fetch_page(
+                session,
+                normalized_url,
+                headers,
+                referer=referer,
+            )
+        except scraper.ScrapingError as exc:
+            trace.append(f"{_trace_path(normalized_url)} error={exc}")
             if len(seen_urls) == 1:
                 raise
             continue
 
         min_no, max_no, count = _number_range(posts)
+        link_paths = ",".join(_trace_path(link) for link in links) or "-"
+        trace.append(
+            f"{_trace_path(normalized_url)}->{_trace_path(final_url)} "
+            f"count={count} range={min_no}-{max_no} links={link_paths}"
+        )
         _LOGGER.info(
-            "[THREAD_REFRESH][page] request_url=%s final_url=%s count=%s "
+            "[THREAD_REFRESH][page] request_url=%s final_url=%s referer=%s count=%s "
             "min_no=%s max_no=%s pager_links=%s",
             normalized_url,
             final_url,
+            referer,
             count,
             min_no,
             max_no,
@@ -210,8 +256,11 @@ def _crawl_thread_pages(
             all_posts.append(post)
 
         for link in links:
-            if link not in seen_urls and link not in queue:
-                queue.append(link)
+            normalized_link = _without_fragment(link)
+            if normalized_link not in seen_urls and all(
+                normalized_link != queued_url for queued_url, _ in queue
+            ):
+                queue.append((normalized_link, final_url))
 
         time.sleep(random.uniform(0.1, 0.2))
 
@@ -221,7 +270,7 @@ def _crawl_thread_pages(
     numbered = [post for post in all_posts if getattr(post, "post_no", None) is not None]
     unknown = [post for post in all_posts if getattr(post, "post_no", None) is None]
     numbered.sort(key=lambda post: int(post.post_no))
-    return numbered + unknown
+    return CrawlPosts(numbered + unknown, trace=trace)
 
 
 def _guarded_refresh_cached_thread(
@@ -234,12 +283,12 @@ def _guarded_refresh_cached_thread(
     stop_at_post_no = None if full_refresh else services._max_cached_post_no(db, thread_url)
     effective_full_refresh = full_refresh or stop_at_post_no is None
 
-    post_list = list(
-        services.fetch_posts_from_thread(
-            thread_url,
-            stop_at_post_no=stop_at_post_no,
-        )
+    result = services.fetch_posts_from_thread(
+        thread_url,
+        stop_at_post_no=stop_at_post_no,
     )
+    trace = list(getattr(result, "trace", []) or [])
+    post_list = list(result)
 
     if effective_full_refresh and not any(
         getattr(post, "post_no", None) == 1 for post in post_list
@@ -250,11 +299,14 @@ def _guarded_refresh_cached_thread(
             if getattr(post, "post_no", None) is not None
         ]
         _LOGGER.warning(
-            "[THREAD_REFRESH][incomplete] url=%s count=%s min_no=%s max_no=%s",
+            "[THREAD_REFRESH][incomplete] url=%s count=%s min_no=%s max_no=%s "
+            "visited=%s trace=%s",
             thread_url,
             len(post_list),
             min(numbers) if numbers else None,
             max(numbers) if numbers else None,
+            len(trace),
+            " | ".join(trace) if trace else "-",
         )
         raise scraper.ScrapingError(
             "全件取得が#1へ到達しなかったため、キャッシュ更新を完了扱いにしません。"
@@ -269,7 +321,7 @@ def _guarded_refresh_cached_thread(
 
 
 def install_thread_refresh_fix() -> None:
-    """HTML内ページャー巡回と不完全更新防止を起動時に有効化する。"""
+    """HTML内の通常ページャー巡回と不完全更新防止を起動時に有効化する。"""
     global _INSTALLED
     if _INSTALLED:
         return
