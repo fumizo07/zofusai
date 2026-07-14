@@ -118,13 +118,10 @@ def _extract_ttgid_base_url(soup: BeautifulSoup, original_url: str, response_url
 
 def make_page_url(base_url: str, page: int) -> str:
     """
-    ページ指定なしURLとp=1は最新側を表示する。
-    p=2以降は数字が増えるほど古い側へ進む。
+    必ずp=1から開始し、p=2、p=3...と古い側へ進む。
     """
     base = _strip_page_segment(base_url)
     page_no = max(1, int(page))
-    if page_no == 1:
-        return base
     return f"{base}p={page_no}/"
 
 
@@ -403,7 +400,7 @@ def fetch_posts_from_thread(
     stop_at_post_no: Optional[int] = None,
 ) -> List[ScrapedPost]:
     """
-    ページ指定なし（p=1相当）の最新側から開始し、p=2、p=3...と古い側へ進む。
+    必ずp=1から開始し、p=2、p=3...と古い側へ進む。
 
     - 最初のレスポンスまたはHTML内リンクで判明したttgidを後続ページへ引き継ぐ。
     - 完走スレは最大20ページ。
