@@ -25,6 +25,13 @@ class ScrapedPost:
     anchors: List[int]
 
 
+@dataclass
+class PageFetchResult:
+    posts: List[ScrapedPost]
+    current_page: Optional[int]
+    last_page: Optional[int]
+
+
 anchor_pattern = re.compile(r">>(\d+)")
 
 
@@ -50,25 +57,23 @@ def parse_int_from_text(text: str) -> Optional[int]:
         return None
 
 
+def _strip_page_segment(url: str) -> str:
+    """スレURLから /p=数字/ を除き、ページ指定なしのURLへ戻す。"""
+    base = re.sub(r"/p=\d+/?", "/", (url or "").strip())
+    base = re.sub(r"/{2,}", "/", base.replace("https://", "https:__SLASH__"))
+    base = base.replace("https:__SLASH__", "https://")
+    if base and not base.endswith("/"):
+        base += "/"
+    return base
+
+
 def make_page_url(base_url: str, page: int) -> str:
     """
-    掲示板のスレURLからページ指定付きURLを作る。
-
-    - page == 1 のときは base_url をそのまま使う
-    - page >= 2 のときは
-        base_url が p=◯ を含んでいれば書き換え、
-        含んでいなければ末尾に /p=◯/ を付ける
+    爆サイのページ番号は古い側から p=1, p=2... と進む。
+    ページ指定なしURLは最新側を表示するため、p=1も必ず明示する。
     """
-    url = base_url
-    if page == 1:
-        return url
-
-    if "p=" in url:
-        return re.sub(r"p=\d+", f"p={page}", url)
-
-    if not url.endswith("/"):
-        url += "/"
-    return url + f"p={page}/"
+    base = _strip_page_segment(base_url)
+    return base + f"p={max(1, int(page))}/"
 
 
 def _build_headers() -> dict:
@@ -176,8 +181,20 @@ def _extract_post_no(el) -> Optional[int]:
     return None
 
 
+def _looks_like_response_container(tag) -> bool:
+    if not getattr(tag, "name", None):
+        return False
+    if tag.name in ("article", "li"):
+        return True
+
+    tag_id = (tag.get("id") or "").lower()
+    classes = " ".join(tag.get("class") or []).lower()
+    marker = f"{tag_id} {classes}"
+    return any(word in marker for word in ("res_block", "res_list_article", "article", "response"))
+
+
 def _select_response_elements(soup: BeautifulSoup):
-    """PC版・スマホ版・軽微なクラス変更を吸収してレス外側要素を探す。"""
+    """既知セレクタに加え、本文要素から親レス要素を逆引きする。"""
     selectors = (
         "dl#res_list div.article.res_list_article",
         "ul#res_list li.res_block",
@@ -189,14 +206,87 @@ def _select_response_elements(soup: BeautifulSoup):
         elements = soup.select(selector)
         if elements:
             return elements
-    return []
+
+    fallback = []
+    seen = set()
+    for body in soup.select("div.resbody, [itemprop='commentText'], dd.body"):
+        container = None
+        for parent in body.parents:
+            if getattr(parent, "name", None) in ("body", "html"):
+                break
+            if _looks_like_response_container(parent):
+                container = parent
+                break
+        if container is None:
+            container = body.parent or body
+
+        marker = id(container)
+        if marker not in seen:
+            seen.add(marker)
+            fallback.append(container)
+
+    return fallback
 
 
-def _fetch_single_page(session: requests.Session, url: str, headers: dict) -> List[ScrapedPost]:
-    """
-    指定URL（1ページ分）からレス一覧を取得。
-    レスがない場合は空リストを返す。
-    """
+def _find_body_tag(el):
+    classes = el.get("class") or []
+    if el.name == "div" and "resbody" in classes:
+        return el
+    if el.get("itemprop") == "commentText":
+        return el
+    if el.name == "dd" and "body" in classes:
+        nested = el.select_one("div.resbody, [itemprop='commentText']")
+        return nested or el
+
+    for selector in (
+        "dd.body > div.resbody",
+        "div.resbody",
+        "[itemprop='commentText']",
+        "dd.body",
+    ):
+        body_tag = el.select_one(selector)
+        if body_tag is not None:
+            return body_tag
+    return None
+
+
+def _extract_pager_state(soup: BeautifulSoup, response_url: str) -> tuple[Optional[int], Optional[int]]:
+    """レスページ内のリンクと最終URLから現在ページ・最大ページを取得する。"""
+    current_page = None
+    page_numbers: set[int] = set()
+
+    match = re.search(r"(?:^|/)p=(\d+)(?:/|$)", response_url or "")
+    if match:
+        current_page = int(match.group(1))
+        page_numbers.add(current_page)
+
+    tid_match = re.search(r"(?:^|/)tid=(\d+)(?:/|$)", response_url or "")
+    current_tid = tid_match.group(1) if tid_match else None
+
+    for node in soup.select("[href], [value], [data-page], [data-p]"):
+        values = [node.get("href"), node.get("value"), node.get("data-page"), node.get("data-p")]
+        for value in values:
+            text = str(value or "")
+            if not text:
+                continue
+            if current_tid and "tid=" in text and f"tid={current_tid}" not in text:
+                continue
+
+            page_match = re.search(r"(?:^|/)p=(\d+)(?:/|$)", text)
+            if page_match:
+                page_numbers.add(int(page_match.group(1)))
+                continue
+
+            if node.get("data-page") == value or node.get("data-p") == value:
+                if text.isdigit():
+                    page_numbers.add(int(text))
+
+    last_page = max(page_numbers) if page_numbers else None
+    return current_page, last_page
+
+
+def _fetch_page(session: requests.Session, url: str, headers: dict) -> PageFetchResult:
+    """指定URLからレスとページャー情報を取得する。"""
     try:
         resp = session.get(url, headers=headers, timeout=10)
     except Exception as exc:
@@ -236,13 +326,19 @@ def _fetch_single_page(session: requests.Session, url: str, headers: dict) -> Li
             except Exception:
                 title = ""
             logging.info(
-                "[SCRAPER][empty_res] url=%s status=%s title=%s len=%d",
+                "[SCRAPER][empty_res] url=%s final_url=%s status=%s title=%s len=%d "
+                "resbody=%d comment_text=%d dd_body=%d",
                 url,
+                getattr(resp, "url", ""),
                 getattr(resp, "status_code", None),
                 title,
                 len(html) if html else 0,
+                len(soup.select("div.resbody")),
+                len(soup.select("[itemprop='commentText']")),
+                len(soup.select("dd.body")),
             )
-            return []
+            current_page, last_page = _extract_pager_state(soup, getattr(resp, "url", url))
+            return PageFetchResult([], current_page, last_page)
 
     posts: List[ScrapedPost] = []
 
@@ -256,14 +352,7 @@ def _fetch_single_page(session: requests.Session, url: str, headers: dict) -> Li
             time_tag = el.select_one(".resdate, .res_date")
         posted_at = time_tag.get_text(" ", strip=True) if time_tag else None
 
-        body_tag = el.select_one("dd.body > div.resbody")
-        if body_tag is None:
-            body_tag = el.select_one("div.resbody")
-        if body_tag is None:
-            body_tag = el.select_one("[itemprop='commentText']")
-        if body_tag is None:
-            body_tag = el.select_one("dd.body")
-
+        body_tag = _find_body_tag(el)
         if body_tag is None:
             continue
 
@@ -283,66 +372,119 @@ def _fetch_single_page(session: requests.Session, url: str, headers: dict) -> Li
             )
         )
 
-    return posts
+    current_page, last_page = _extract_pager_state(soup, getattr(resp, "url", url))
+    return PageFetchResult(posts, current_page, last_page)
+
+
+def _fetch_single_page(session: requests.Session, url: str, headers: dict) -> List[ScrapedPost]:
+    """既存呼び出しとの互換用。"""
+    return _fetch_page(session, url, headers).posts
 
 
 def fetch_posts_from_thread(
     url: str,
-    max_pages: int = 20,
+    max_pages: int = 100,
     stop_at_post_no: Optional[int] = None,
 ) -> List[ScrapedPost]:
     """
-    スレURLから最大 max_pages ページまで巡回してレスを取得する。
+    全件取得時は古い側のp=1から最終ページまで巡回する。
+    増分取得時は最新ページから古い側へ戻り、保存済みレスに到達したら終了する。
 
-    stop_at_post_no が指定された場合は、保存済み最大レス番号以下のレスを含む
-    ページに到達した時点で終了する。これにより通常更新は新着ページだけで済む。
-
-    途中1ページだけ空になった場合は次ページも確認し、2ページ連続で空に
-    なった時点で終端と判断する。
+    1ページのレス数は固定ではないため、ページャーから最大ページを更新しながら巡回する。
+    max_pagesは異常なページャーによる無限取得を防ぐ安全上限。
     """
     all_posts: List[ScrapedPost] = []
     session = requests.Session()
     headers = _build_headers()
+    base_url = _strip_page_segment(url)
+    safe_max_pages = max(1, int(max_pages))
 
     seen_post_nos: set[int] = set()
     seen_unknown: set[tuple[Optional[str], str]] = set()
-    consecutive_empty_pages = 0
 
-    for page in range(1, max_pages + 1):
-        page_url = make_page_url(url, page)
-        posts = _fetch_single_page(session, page_url, headers)
-
-        if not posts:
-            if page == 1:
-                raise ScrapingError("投稿らしきテキストが見つかりませんでした。")
-
-            consecutive_empty_pages += 1
-            if consecutive_empty_pages >= 2:
-                break
-            continue
-
-        consecutive_empty_pages = 0
-        reached_saved_post = False
-
+    def add_posts(posts: List[ScrapedPost], *, detect_saved: bool) -> bool:
+        reached_saved = False
         for post in posts:
             if post.post_no is not None:
                 if post.post_no in seen_post_nos:
                     continue
                 seen_post_nos.add(post.post_no)
-                if stop_at_post_no is not None and post.post_no <= stop_at_post_no:
-                    reached_saved_post = True
+                if detect_saved and stop_at_post_no is not None and post.post_no <= stop_at_post_no:
+                    reached_saved = True
             else:
                 unknown_key = (post.posted_at, post.body)
                 if unknown_key in seen_unknown:
                     continue
                 seen_unknown.add(unknown_key)
-
             all_posts.append(post)
+        return reached_saved
 
-        if stop_at_post_no is not None and reached_saved_post:
-            break
+    if stop_at_post_no is None:
+        first = _fetch_page(session, make_page_url(base_url, 1), headers)
+        if not first.posts:
+            raise ScrapingError("1ページ目から投稿らしきテキストが見つかりませんでした。")
+        add_posts(first.posts, detect_saved=False)
 
-        time.sleep(random.uniform(0.1, 0.2))
+        target_last_page = min(first.last_page or safe_max_pages, safe_max_pages)
+        page = 2
+        consecutive_empty_pages = 0
+
+        while page <= target_last_page:
+            result = _fetch_page(session, make_page_url(base_url, page), headers)
+            if result.last_page:
+                target_last_page = min(max(target_last_page, result.last_page), safe_max_pages)
+
+            if not result.posts:
+                consecutive_empty_pages += 1
+                if first.last_page is None and consecutive_empty_pages >= 2:
+                    break
+            else:
+                consecutive_empty_pages = 0
+                add_posts(result.posts, detect_saved=False)
+
+            page += 1
+            time.sleep(random.uniform(0.1, 0.2))
+
+    else:
+        # 旧実装ではページ指定なしURLだけを1ページ目として扱い、p=1の古いレスが欠けた。
+        # 増分取得時もp=1を境界確認し、既存キャッシュの先頭欠落を自然に補修する。
+        oldest = _fetch_page(session, make_page_url(base_url, 1), headers)
+        if oldest.posts:
+            add_posts(oldest.posts, detect_saved=False)
+
+        latest = _fetch_page(session, base_url, headers)
+        if not latest.posts:
+            raise ScrapingError("最新ページから投稿らしきテキストが見つかりませんでした。")
+
+        latest_page = latest.current_page or latest.last_page
+        if latest.current_page is None and latest.last_page and latest.last_page > 1:
+            explicit_latest = _fetch_page(session, make_page_url(base_url, latest.last_page), headers)
+            if explicit_latest.posts:
+                latest = explicit_latest
+                latest_page = explicit_latest.current_page or latest.last_page
+
+        if add_posts(latest.posts, detect_saved=True):
+            return all_posts
+
+        if latest_page is not None and latest_page > 1:
+            for page in range(min(latest_page - 1, safe_max_pages), 1, -1):
+                result = _fetch_page(session, make_page_url(base_url, page), headers)
+                if result.posts and add_posts(result.posts, detect_saved=True):
+                    break
+                time.sleep(random.uniform(0.1, 0.2))
+        else:
+            # ページャーを解析できない場合は、欠落を避けるため全ページ方向へフォールバックする。
+            consecutive_empty_pages = 0
+            for page in range(2, safe_max_pages + 1):
+                result = _fetch_page(session, make_page_url(base_url, page), headers)
+                if not result.posts:
+                    consecutive_empty_pages += 1
+                    if consecutive_empty_pages >= 2:
+                        break
+                    continue
+                consecutive_empty_pages = 0
+                add_posts(result.posts, detect_saved=False)
+                time.sleep(random.uniform(0.1, 0.2))
 
     if not all_posts:
         raise ScrapingError("投稿らしきテキストが見つかりませんでした。")
