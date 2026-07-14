@@ -1,9 +1,9 @@
 # 001
 # scraper.py
+import logging
+import random
 import re
 import time
-import random
-import logging
 
 from dataclasses import dataclass
 from typing import List, Optional
@@ -27,48 +27,54 @@ class ScrapedPost:
 
 anchor_pattern = re.compile(r">>(\d+)")
 
+# Renderのプロセス起動後、各スレッドで一度だけ全ページ補修を行う。
+# 再起動後に再度補修されてもUPSERTなので既存キャッシュは壊れない。
+_REPAIRED_THREAD_URLS: set[str] = set()
+
 
 def extract_anchors(text: str) -> List[int]:
-    """
-    本文中の >>123 のようなアンカーをすべて整数リストで返す。
-    重複は削除する。
-    """
-    nums = [int(m.group(1)) for m in anchor_pattern.finditer(text)]
+    """本文中の >>123 のようなアンカーを整数リストで返す。"""
+    nums = [int(match.group(1)) for match in anchor_pattern.finditer(text)]
     return sorted(set(nums))
 
 
 def parse_int_from_text(text: str) -> Optional[int]:
-    """
-    '#55' や 'res55_block' のような文字列から 55 を取り出す補助関数。
-    """
-    m = re.search(r"(\d+)", text or "")
-    if not m:
+    """'#55' や 'res55_block' のような文字列から整数を取り出す。"""
+    match = re.search(r"(\d+)", text or "")
+    if not match:
         return None
     try:
-        return int(m.group(1))
+        return int(match.group(1))
     except ValueError:
         return None
 
 
+def _strip_page_segment(url: str) -> str:
+    """スレURLから /p=数字/ を除き、ページ指定なしURLへ統一する。"""
+    raw = (url or "").strip()
+    if not raw:
+        return ""
+
+    scheme_marker = "__SCHEME_SLASHES__"
+    base = raw.replace("://", scheme_marker)
+    base = re.sub(r"/p=\d+/?", "/", base)
+    base = re.sub(r"/{2,}", "/", base)
+    base = base.replace(scheme_marker, "://")
+    if not base.endswith("/"):
+        base += "/"
+    return base
+
+
 def make_page_url(base_url: str, page: int) -> str:
     """
-    掲示板のスレURLからページ指定付きURLを作る。
-
-    - page == 1 のときは base_url をそのまま使う
-    - page >= 2 のときは
-        base_url が p=◯ を含んでいれば書き換え、
-        含んでいなければ末尾に /p=◯/ を付ける
+    ページ指定なしURLとp=1は最新側を表示する。
+    p=2以降は数字が増えるほど古い側へ進む。
     """
-    url = base_url
-    if page == 1:
-        return url
-
-    if "p=" in url:
-        return re.sub(r"p=\d+", f"p={page}", url)
-
-    if not url.endswith("/"):
-        url += "/"
-    return url + f"p={page}/"
+    base = _strip_page_segment(base_url)
+    page_no = max(1, int(page))
+    if page_no == 1:
+        return base
+    return f"{base}p={page_no}/"
 
 
 def _build_headers() -> dict:
@@ -83,20 +89,16 @@ def _build_headers() -> dict:
 
 
 def get_thread_title(url: str) -> Optional[str]:
-    """
-    スレッドページのタイトル文字列を取得する。
-    失敗した場合は None を返す。
-    """
-    headers = _build_headers()
+    """スレッドページのタイトル文字列を取得する。"""
     try:
-        resp = requests.get(url, headers=headers, timeout=10)
+        response = requests.get(url, headers=_build_headers(), timeout=10)
     except Exception:
         return None
 
-    if resp.status_code != 200:
+    if response.status_code != 200:
         return None
 
-    soup = BeautifulSoup(resp.text, "html.parser")
+    soup = BeautifulSoup(response.text, "html.parser")
     if soup.title and soup.title.string:
         return soup.title.string.strip()
 
@@ -105,12 +107,11 @@ def get_thread_title(url: str) -> Optional[str]:
         title = h1.get_text(strip=True)
         if title:
             return title
-
     return None
 
 
 def _parse_post_no_candidate(value: Optional[str]) -> Optional[int]:
-    """レス番号候補から、過度に広い数字抽出を避けつつ番号を取り出す。"""
+    """レス番号候補から、無関係な数字を避けながら番号を取り出す。"""
     value = (value or "").strip()
     if not value:
         return None
@@ -130,11 +131,8 @@ def _parse_post_no_candidate(value: Optional[str]) -> Optional[int]:
     return None
 
 
-def _extract_post_no(el) -> Optional[int]:
-    """
-    爆サイ側のHTML表現揺れを考慮してレス番号を取得する。
-    日時などの無関係な数字を拾わないよう、番号用要素・属性・rridを優先する。
-    """
+def _extract_post_no(element) -> Optional[int]:
+    """HTML表現の揺れを考慮してレス番号を取得する。"""
     selectors = (
         "span.resnumb a",
         "span.resnumb",
@@ -146,7 +144,7 @@ def _extract_post_no(el) -> Optional[int]:
     )
 
     for selector in selectors:
-        node = el.select_one(selector)
+        node = element.select_one(selector)
         if not node:
             continue
 
@@ -160,11 +158,11 @@ def _extract_post_no(el) -> Optional[int]:
             return post_no
 
     for attr in ("data-res-no", "data-resno", "data-post-no", "data-no", "id"):
-        post_no = _parse_post_no_candidate(el.get(attr))
+        post_no = _parse_post_no_candidate(element.get(attr))
         if post_no is not None:
             return post_no
 
-    for link in el.select("a[href]"):
+    for link in element.select("a[href]"):
         href = link.get("href") or ""
         match = re.search(r"(?:^|/)rrid=(\d+)(?:/|$)", href)
         if match:
@@ -172,12 +170,23 @@ def _extract_post_no(el) -> Optional[int]:
                 return int(match.group(1))
             except ValueError:
                 pass
-
     return None
 
 
+def _looks_like_response_container(tag) -> bool:
+    if not getattr(tag, "name", None):
+        return False
+    if tag.name in ("article", "li"):
+        return True
+
+    tag_id = (tag.get("id") or "").lower()
+    classes = " ".join(tag.get("class") or []).lower()
+    marker = f"{tag_id} {classes}"
+    return any(word in marker for word in ("res_block", "res_list_article", "article", "response"))
+
+
 def _select_response_elements(soup: BeautifulSoup):
-    """PC版・スマホ版・軽微なクラス変更を吸収してレス外側要素を探す。"""
+    """既知セレクタに加え、本文要素から親レス要素を逆引きする。"""
     selectors = (
         "dl#res_list div.article.res_list_article",
         "ul#res_list li.res_block",
@@ -189,88 +198,68 @@ def _select_response_elements(soup: BeautifulSoup):
         elements = soup.select(selector)
         if elements:
             return elements
-    return []
 
-
-def _fetch_single_page(session: requests.Session, url: str, headers: dict) -> List[ScrapedPost]:
-    """
-    指定URL（1ページ分）からレス一覧を取得。
-    レスがない場合は空リストを返す。
-    """
-    try:
-        resp = session.get(url, headers=headers, timeout=10)
-    except Exception as exc:
-        raise ScrapingError(f"ページ取得に失敗しました: {exc}")
-
-    if resp.status_code != 200:
-        raise ScrapingError(f"HTTPステータスコードが異常です: {resp.status_code}")
-
-    html = resp.text
-    soup = BeautifulSoup(html, "html.parser")
-    res_elems = _select_response_elements(soup)
-
-    if not res_elems:
-        for attempt in range(3):
-            wait_s = 0.6 * (attempt + 1) + random.uniform(0.0, 0.4)
-            time.sleep(wait_s)
-
-            try:
-                resp2 = session.get(url, headers=headers, timeout=10)
-            except Exception:
-                continue
-
-            if resp2.status_code != 200:
-                continue
-
-            soup2 = BeautifulSoup(resp2.text, "html.parser")
-            res_elems = _select_response_elements(soup2)
-            if res_elems:
-                resp = resp2
-                html = resp2.text
-                soup = soup2
+    fallback = []
+    seen = set()
+    for body in soup.select("div.resbody, [itemprop='commentText'], dd.body"):
+        container = None
+        for parent in body.parents:
+            if getattr(parent, "name", None) in ("body", "html"):
                 break
+            if _looks_like_response_container(parent):
+                container = parent
+                break
+        if container is None:
+            container = body.parent or body
 
-        if not res_elems:
-            try:
-                title = soup.title.string.strip() if soup.title and soup.title.string else ""
-            except Exception:
-                title = ""
-            logging.info(
-                "[SCRAPER][empty_res] url=%s status=%s title=%s len=%d",
-                url,
-                getattr(resp, "status_code", None),
-                title,
-                len(html) if html else 0,
-            )
-            return []
+        marker = id(container)
+        if marker not in seen:
+            seen.add(marker)
+            fallback.append(container)
+    return fallback
 
+
+def _find_body_tag(element):
+    classes = element.get("class") or []
+    if element.name == "div" and "resbody" in classes:
+        return element
+    if element.get("itemprop") == "commentText":
+        return element
+    if element.name == "dd" and "body" in classes:
+        nested = element.select_one("div.resbody, [itemprop='commentText']")
+        return nested or element
+
+    for selector in (
+        "dd.body > div.resbody",
+        "div.resbody",
+        "[itemprop='commentText']",
+        "dd.body",
+    ):
+        body_tag = element.select_one(selector)
+        if body_tag is not None:
+            return body_tag
+    return None
+
+
+def _parse_posts_from_soup(soup: BeautifulSoup) -> List[ScrapedPost]:
     posts: List[ScrapedPost] = []
+    for element in _select_response_elements(soup):
+        post_no = _extract_post_no(element)
 
-    for el in res_elems:
-        post_no = _extract_post_no(el)
-
-        time_tag = el.select_one("span[itemprop='commentTime']")
+        time_tag = element.select_one("span[itemprop='commentTime']")
         if time_tag is None:
-            time_tag = el.select_one("time")
+            time_tag = element.select_one("time")
         if time_tag is None:
-            time_tag = el.select_one(".resdate, .res_date")
+            time_tag = element.select_one(".resdate, .res_date")
         posted_at = time_tag.get_text(" ", strip=True) if time_tag else None
 
-        body_tag = el.select_one("dd.body > div.resbody")
-        if body_tag is None:
-            body_tag = el.select_one("div.resbody")
-        if body_tag is None:
-            body_tag = el.select_one("[itemprop='commentText']")
-        if body_tag is None:
-            body_tag = el.select_one("dd.body")
-
+        body_tag = _find_body_tag(element)
         if body_tag is None:
             continue
 
         raw_text = body_tag.get_text(separator="\n", strip=True)
         lines = [line.strip() for line in raw_text.splitlines()]
         body_text = "\n".join(line for line in lines if line)
-
         if not body_text:
             continue
 
@@ -282,8 +271,71 @@ def _fetch_single_page(session: requests.Session, url: str, headers: dict) -> Li
                 anchors=extract_anchors(body_text),
             )
         )
-
     return posts
+
+
+def _fetch_single_page(session: requests.Session, url: str, headers: dict) -> List[ScrapedPost]:
+    """指定URLから1ページ分のレスを取得する。"""
+    try:
+        response = session.get(url, headers=headers, timeout=10)
+    except Exception as exc:
+        raise ScrapingError(f"ページ取得に失敗しました: {exc}")
+
+    if response.status_code != 200:
+        raise ScrapingError(f"HTTPステータスコードが異常です: {response.status_code}")
+
+    html = response.text
+    soup = BeautifulSoup(html, "html.parser")
+    posts = _parse_posts_from_soup(soup)
+
+    if not posts:
+        for attempt in range(3):
+            time.sleep(0.6 * (attempt + 1) + random.uniform(0.0, 0.4))
+            try:
+                retry = session.get(url, headers=headers, timeout=10)
+            except Exception:
+                continue
+            if retry.status_code != 200:
+                continue
+
+            retry_soup = BeautifulSoup(retry.text, "html.parser")
+            retry_posts = _parse_posts_from_soup(retry_soup)
+            if retry_posts:
+                response = retry
+                html = retry.text
+                soup = retry_soup
+                posts = retry_posts
+                break
+
+    if not posts:
+        try:
+            title = soup.title.string.strip() if soup.title and soup.title.string else ""
+        except Exception:
+            title = ""
+        logging.info(
+            "[SCRAPER][empty_res] url=%s final_url=%s status=%s title=%s len=%d "
+            "resbody=%d comment_text=%d dd_body=%d",
+            url,
+            getattr(response, "url", ""),
+            getattr(response, "status_code", None),
+            title,
+            len(html) if html else 0,
+            len(soup.select("div.resbody")),
+            len(soup.select("[itemprop='commentText']")),
+            len(soup.select("dd.body")),
+        )
+    return posts
+
+
+def _page_signature(posts: List[ScrapedPost]) -> tuple:
+    """範囲外ページが同じ内容を返す場合に重複ページを検出する。"""
+    numbered = tuple(sorted(post.post_no for post in posts if post.post_no is not None))
+    if numbered:
+        return ("numbered", numbered)
+    return (
+        "unknown",
+        tuple(sorted((post.posted_at or "", post.body) for post in posts)),
+    )
 
 
 def fetch_posts_from_thread(
@@ -292,45 +344,53 @@ def fetch_posts_from_thread(
     stop_at_post_no: Optional[int] = None,
 ) -> List[ScrapedPost]:
     """
-    スレURLから最大 max_pages ページまで巡回してレスを取得する。
+    ページ指定なし（p=1相当）の最新側から開始し、p=2、p=3...と古い側へ進む。
 
-    stop_at_post_no が指定された場合は、保存済み最大レス番号以下のレスを含む
-    ページに到達した時点で終了する。これにより通常更新は新着ページだけで済む。
-
-    途中1ページだけ空になった場合は次ページも確認し、2ページ連続で空に
-    なった時点で終端と判断する。
+    - 完走スレは最大20ページ。
+    - #1を含むページ、空ページ、同一内容の再返却で終了する。
+    - 既存キャッシュがある場合、通常は保存済み最大レス番号に到達したら終了する。
+    - プロセス起動後の初回だけ全ページを確認し、旧キャッシュの欠落を補修する。
     """
-    all_posts: List[ScrapedPost] = []
+    base_url = _strip_page_segment(url)
+    if not base_url:
+        raise ScrapingError("スレURLが空です。")
+
+    safe_max_pages = min(max(1, int(max_pages)), 20)
     session = requests.Session()
     headers = _build_headers()
 
+    repair_required = stop_at_post_no is None or base_url not in _REPAIRED_THREAD_URLS
+    all_posts: List[ScrapedPost] = []
     seen_post_nos: set[int] = set()
     seen_unknown: set[tuple[Optional[str], str]] = set()
-    consecutive_empty_pages = 0
+    seen_page_signatures: set[tuple] = set()
 
-    for page in range(1, max_pages + 1):
-        page_url = make_page_url(url, page)
+    for page in range(1, safe_max_pages + 1):
+        page_url = make_page_url(base_url, page)
         posts = _fetch_single_page(session, page_url, headers)
 
         if not posts:
-            if page == 1:
-                raise ScrapingError("投稿らしきテキストが見つかりませんでした。")
+            if page == 1 and not all_posts:
+                raise ScrapingError("最新ページから投稿らしきテキストが見つかりませんでした。")
+            break
 
-            consecutive_empty_pages += 1
-            if consecutive_empty_pages >= 2:
-                break
-            continue
+        signature = _page_signature(posts)
+        if signature in seen_page_signatures:
+            break
+        seen_page_signatures.add(signature)
 
-        consecutive_empty_pages = 0
         reached_saved_post = False
+        reached_oldest_post = False
 
         for post in posts:
             if post.post_no is not None:
+                if post.post_no == 1:
+                    reached_oldest_post = True
+                if stop_at_post_no is not None and post.post_no <= stop_at_post_no:
+                    reached_saved_post = True
                 if post.post_no in seen_post_nos:
                     continue
                 seen_post_nos.add(post.post_no)
-                if stop_at_post_no is not None and post.post_no <= stop_at_post_no:
-                    reached_saved_post = True
             else:
                 unknown_key = (post.posted_at, post.body)
                 if unknown_key in seen_unknown:
@@ -339,12 +399,30 @@ def fetch_posts_from_thread(
 
             all_posts.append(post)
 
-        if stop_at_post_no is not None and reached_saved_post:
+        logging.info(
+            "[SCRAPER][page] url=%s page=%d posts=%d min_no=%s max_no=%s repair=%s",
+            base_url,
+            page,
+            len(posts),
+            min((post.post_no for post in posts if post.post_no is not None), default=None),
+            max((post.post_no for post in posts if post.post_no is not None), default=None),
+            repair_required,
+        )
+
+        if reached_oldest_post:
+            _REPAIRED_THREAD_URLS.add(base_url)
+            break
+
+        if not repair_required and reached_saved_post:
             break
 
         time.sleep(random.uniform(0.1, 0.2))
+    else:
+        _REPAIRED_THREAD_URLS.add(base_url)
+
+    if repair_required and all_posts:
+        _REPAIRED_THREAD_URLS.add(base_url)
 
     if not all_posts:
         raise ScrapingError("投稿らしきテキストが見つかりませんでした。")
-
     return all_posts
