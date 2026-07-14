@@ -364,6 +364,7 @@ def fetch_posts_from_thread(
     seen_post_nos: set[int] = set()
     seen_unknown: set[tuple[Optional[str], str]] = set()
     seen_page_signatures: set[tuple] = set()
+    repair_completed = False
 
     for page in range(1, safe_max_pages + 1):
         page_url = make_page_url(base_url, page)
@@ -399,18 +400,8 @@ def fetch_posts_from_thread(
 
             all_posts.append(post)
 
-        logging.info(
-            "[SCRAPER][page] url=%s page=%d posts=%d min_no=%s max_no=%s repair=%s",
-            base_url,
-            page,
-            len(posts),
-            min((post.post_no for post in posts if post.post_no is not None), default=None),
-            max((post.post_no for post in posts if post.post_no is not None), default=None),
-            repair_required,
-        )
-
         if reached_oldest_post:
-            _REPAIRED_THREAD_URLS.add(base_url)
+            repair_completed = True
             break
 
         if not repair_required and reached_saved_post:
@@ -418,9 +409,9 @@ def fetch_posts_from_thread(
 
         time.sleep(random.uniform(0.1, 0.2))
     else:
-        _REPAIRED_THREAD_URLS.add(base_url)
+        repair_completed = True
 
-    if repair_required and all_posts:
+    if repair_required and repair_completed:
         _REPAIRED_THREAD_URLS.add(base_url)
 
     if not all_posts:
