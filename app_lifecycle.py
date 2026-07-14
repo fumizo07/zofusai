@@ -13,6 +13,30 @@ def register_startup(app: FastAPI) -> None:
         Base.metadata.create_all(bind=engine)
 
         with engine.begin() as conn:
+            # #1がないキャッシュは、最新1ページ分だけ取得された可能性が高い。
+            # レス本文は削除せず、次回アクセス時に全ページ補修が走るよう
+            # 最終全件取得日時だけを古い値へ戻す。
+            conn.execute(
+                text(
+                    """
+                    UPDATE cached_threads AS ct
+                    SET fetched_at = TIMESTAMP '1970-01-01 00:00:00'
+                    WHERE EXISTS (
+                        SELECT 1
+                        FROM cached_posts AS cp
+                        WHERE cp.thread_url = ct.thread_url
+                          AND cp.post_no IS NOT NULL
+                    )
+                      AND NOT EXISTS (
+                        SELECT 1
+                        FROM cached_posts AS cp
+                        WHERE cp.thread_url = ct.thread_url
+                          AND cp.post_no = 1
+                    )
+                    """
+                )
+            )
+
             # =========================
             # Thread 系
             # =========================
