@@ -6,12 +6,14 @@ from sqlalchemy import text
 from db import engine, Base, get_db
 from services import cleanup_thread_posts_duplicates, backfill_posted_at_dt, backfill_norm_columns
 from thread_refresh_fix import install_thread_refresh_fix
+from thread_refresh_browser import install_thread_refresh_browser_fallback
 
 
 def register_startup(app: FastAPI) -> None:
     @app.on_event("startup")
     def on_startup():
         install_thread_refresh_fix()
+        install_thread_refresh_browser_fallback()
         Base.metadata.create_all(bind=engine)
 
         with engine.begin() as conn:
