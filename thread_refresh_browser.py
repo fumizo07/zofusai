@@ -39,49 +39,81 @@ def _merge_posts(target, posts, seen_post_nos, seen_unknown) -> None:
         target.append(post)
 
 
-def _click_target(page, target_url: str) -> bool:
-    """現在ページ内の同一URLリンクを実際にクリックする。"""
+def _error_text(exc: Exception) -> str:
+    """ログ用に例外の種類と内容を短く整形する。"""
+    message = " ".join(str(exc).split())
+    if len(message) > 400:
+        message = message[:397] + "..."
+    return f"{type(exc).__name__}: {message}" if message else type(exc).__name__
+
+
+def _configure_page(page) -> None:
+    page.set_default_navigation_timeout(25_000)
+    page.set_default_timeout(25_000)
     try:
-        return bool(
-            page.evaluate(
-                """
-                target => {
-                    for (const node of document.querySelectorAll('a[href]')) {
-                        const url = new URL(node.getAttribute('href'), window.location.href);
-                        url.hash = '';
-                        if (url.href === target) {
-                            node.click();
-                            return true;
-                        }
-                    }
-                    return false;
-                }
-                """,
-                target_url,
-            )
+        page.route(
+            "**/*",
+            lambda route: route.abort()
+            if route.request.resource_type in ("image", "media", "font")
+            else route.continue_(),
         )
     except Exception:
-        return False
+        pass
 
 
-def _navigate(page, target_url: str, source_url: Optional[str]) -> None:
-    """リンク元がある場合はgotoではなく実クリックを優先する。"""
-    if source_url:
+def _read_page(context, target_url: str, source_url: Optional[str]):
+    """
+    同じブラウザコンテキスト内の新しいページでURLを直接開く。
+
+    以前の実装はリンクをクリックした直後に別のgotoを重ねる可能性があり、
+    Playwrightのナビゲーション同士が競合していた。
+    """
+    page = context.new_page()
+    _configure_page(page)
+    response = None
+    navigation_error: Optional[Exception] = None
+
+    try:
         try:
-            page.goto(source_url, wait_until="domcontentloaded")
-            clicked = _click_target(page, target_url)
-            if clicked:
-                try:
-                    page.wait_for_load_state("domcontentloaded", timeout=10_000)
-                except Exception:
-                    pass
+            goto_options = {"wait_until": "domcontentloaded"}
+            if source_url:
+                goto_options["referer"] = source_url
+            response = page.goto(target_url, **goto_options)
+        except Exception as exc:
+            navigation_error = exc
+            try:
                 page.wait_for_timeout(800)
-                return
+            except Exception:
+                pass
+
+        final_url = page.url or target_url
+        html = page.content() or ""
+        soup = scraper.BeautifulSoup(html, "html.parser")
+        posts = scraper._parse_posts_from_soup(soup)
+
+        if not posts:
+            status = getattr(response, "status", None) if response is not None else None
+            if navigation_error is not None:
+                raise scraper.ScrapingError(
+                    "ページ遷移後も投稿を取得できませんでした: "
+                    f"{_error_text(navigation_error)}"
+                ) from navigation_error
+            raise scraper.ScrapingError(
+                f"ブラウザページから投稿を取得できませんでした。status={status}"
+            )
+
+        links = refresh_fix._extract_pager_links(
+            soup,
+            target_url,
+            final_url,
+        )
+        status = getattr(response, "status", None) if response is not None else None
+        return posts, final_url, links, status, navigation_error
+    finally:
+        try:
+            page.close()
         except Exception:
             pass
-
-    page.goto(target_url, wait_until="domcontentloaded")
-    page.wait_for_timeout(500)
 
 
 def _crawl_with_browser(
@@ -97,7 +129,7 @@ def _crawl_with_browser(
         from playwright.sync_api import sync_playwright
     except Exception as exc:
         raise scraper.ScrapingError(
-            f"Playwrightを読み込めませんでした: {type(exc).__name__}"
+            f"Playwrightを読み込めませんでした: {_error_text(exc)}"
         ) from exc
 
     safe_max_pages = min(max(1, int(max_pages)), 20)
@@ -143,87 +175,92 @@ def _crawl_with_browser(
         except Exception:
             pass
 
-        page = context.new_page()
-        page.set_default_navigation_timeout(25_000)
-        page.set_default_timeout(25_000)
-
         try:
-            page.route(
-                "**/*",
-                lambda route: route.abort()
-                if route.request.resource_type in ("image", "media", "font")
-                else route.continue_(),
-            )
-        except Exception:
-            pass
+            while queue and len(seen_targets) < safe_max_pages:
+                target_url, source_url = queue.popleft()
+                normalized_target = refresh_fix._without_fragment(target_url)
+                if normalized_target in seen_targets:
+                    continue
+                seen_targets.add(normalized_target)
 
-        while queue and len(seen_targets) < safe_max_pages:
-            target_url, source_url = queue.popleft()
-            normalized_target = refresh_fix._without_fragment(target_url)
-            if normalized_target in seen_targets:
-                continue
-            seen_targets.add(normalized_target)
+                try:
+                    posts, final_url, links, status, navigation_error = _read_page(
+                        context,
+                        normalized_target,
+                        source_url,
+                    )
+                except Exception as exc:
+                    detail = _error_text(exc)
+                    trace.append(
+                        f"{refresh_fix._trace_path(normalized_target)} error={detail}"
+                    )
+                    _LOGGER.warning(
+                        "[THREAD_BROWSER][page_error] target_url=%s source_url=%s error=%s",
+                        normalized_target,
+                        source_url,
+                        detail,
+                    )
+                    if len(seen_targets) == 1:
+                        raise scraper.ScrapingError(
+                            f"ブラウザ取得に失敗しました: {detail}"
+                        ) from exc
+                    continue
 
-            try:
-                _navigate(page, normalized_target, source_url)
-                final_url = page.url or normalized_target
-                html = page.content() or ""
-                soup = scraper.BeautifulSoup(html, "html.parser")
-                posts = scraper._parse_posts_from_soup(soup)
-                links = refresh_fix._extract_pager_links(
-                    soup,
-                    normalized_target,
-                    final_url,
+                min_no, max_no, count = refresh_fix._number_range(posts)
+                link_paths = ",".join(
+                    refresh_fix._trace_path(link) for link in links
+                ) or "-"
+                navigation_note = (
+                    f" nav_error={_error_text(navigation_error)}"
+                    if navigation_error is not None
+                    else ""
                 )
-            except Exception as exc:
                 trace.append(
-                    f"{refresh_fix._trace_path(normalized_target)} "
-                    f"error={type(exc).__name__}"
+                    f"{refresh_fix._trace_path(normalized_target)}"
+                    f"->{refresh_fix._trace_path(final_url)} "
+                    f"status={status} count={count} range={min_no}-{max_no} "
+                    f"links={link_paths}{navigation_note}"
                 )
-                if len(seen_targets) == 1:
-                    raise scraper.ScrapingError(
-                        f"ブラウザ取得に失敗しました: {type(exc).__name__}"
-                    ) from exc
-                continue
+                _LOGGER.info(
+                    "[THREAD_BROWSER][page] target_url=%s source_url=%s final_url=%s "
+                    "status=%s count=%s min_no=%s max_no=%s pager_links=%s "
+                    "navigation_error=%s",
+                    normalized_target,
+                    source_url,
+                    final_url,
+                    status,
+                    count,
+                    min_no,
+                    max_no,
+                    len(links),
+                    _error_text(navigation_error)
+                    if navigation_error is not None
+                    else "-",
+                )
 
-            min_no, max_no, count = refresh_fix._number_range(posts)
-            link_paths = ",".join(refresh_fix._trace_path(link) for link in links) or "-"
-            trace.append(
-                f"{refresh_fix._trace_path(normalized_target)}"
-                f"->{refresh_fix._trace_path(final_url)} "
-                f"count={count} range={min_no}-{max_no} links={link_paths}"
-            )
-            _LOGGER.info(
-                "[THREAD_BROWSER][page] target_url=%s source_url=%s final_url=%s "
-                "count=%s min_no=%s max_no=%s pager_links=%s",
-                normalized_target,
-                source_url,
-                final_url,
-                count,
-                min_no,
-                max_no,
-                len(links),
-            )
+                _merge_posts(all_posts, posts, seen_post_nos, seen_unknown)
 
-            _merge_posts(all_posts, posts, seen_post_nos, seen_unknown)
-
-            for link in links:
-                normalized_link = refresh_fix._without_fragment(link)
-                if normalized_link not in seen_targets and all(
-                    normalized_link != queued_url for queued_url, _ in queue
-                ):
-                    queue.append((normalized_link, final_url))
-
-        try:
-            context.close()
+                for link in links:
+                    normalized_link = refresh_fix._without_fragment(link)
+                    if normalized_link not in seen_targets and all(
+                        normalized_link != queued_url for queued_url, _ in queue
+                    ):
+                        queue.append((normalized_link, final_url))
         finally:
-            browser.close()
+            try:
+                context.close()
+            finally:
+                browser.close()
 
     if not all_posts:
         raise scraper.ScrapingError("ブラウザでも投稿を取得できませんでした。")
 
-    numbered = [post for post in all_posts if getattr(post, "post_no", None) is not None]
-    unknown = [post for post in all_posts if getattr(post, "post_no", None) is None]
+    numbered = [
+        post for post in all_posts if getattr(post, "post_no", None) is not None
+    ]
+    unknown = [
+        post for post in all_posts if getattr(post, "post_no", None) is None
+    ]
     numbered.sort(key=lambda post: int(post.post_no))
     return refresh_fix.CrawlPosts(numbered + unknown, trace=trace)
 
@@ -264,7 +301,7 @@ def install_thread_refresh_browser_fallback() -> None:
             _LOGGER.warning(
                 "[THREAD_BROWSER][fallback_failed] url=%s error=%s",
                 url,
-                exc,
+                _error_text(exc),
             )
             return result
 
