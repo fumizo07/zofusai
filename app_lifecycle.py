@@ -4,12 +4,14 @@ from fastapi import FastAPI
 from sqlalchemy import text
 
 from db import engine, Base, get_db
+from scraper_diagnostics import install_scraper_diagnostics
 from services import cleanup_thread_posts_duplicates, backfill_posted_at_dt, backfill_norm_columns
 
 
 def register_startup(app: FastAPI) -> None:
     @app.on_event("startup")
     def on_startup():
+        install_scraper_diagnostics()
         Base.metadata.create_all(bind=engine)
 
         with engine.begin() as conn:
