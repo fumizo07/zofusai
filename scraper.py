@@ -25,6 +25,12 @@ class ScrapedPost:
     anchors: List[int]
 
 
+@dataclass
+class PageFetchResult:
+    posts: List[ScrapedPost]
+    final_url: str
+
+
 anchor_pattern = re.compile(r">>(\d+)")
 
 # Renderのプロセス起動後、各スレッドで一度だけ全ページ補修を行う。
@@ -63,6 +69,17 @@ def _strip_page_segment(url: str) -> str:
     if not base.endswith("/"):
         base += "/"
     return base
+
+
+def _same_bakusai_thread(original_url: str, resolved_url: str) -> bool:
+    """リダイレクト後URLが同じ爆サイスレッドを指すか確認する。"""
+    original_tid = re.search(r"(?:^|/)tid=(\d+)(?:/|$)", original_url or "")
+    resolved_tid = re.search(r"(?:^|/)tid=(\d+)(?:/|$)", resolved_url or "")
+    if not original_tid or not resolved_tid:
+        return False
+    if original_tid.group(1) != resolved_tid.group(1):
+        return False
+    return resolved_url.startswith(("https://bakusai.com/", "https://www.bakusai.com/"))
 
 
 def make_page_url(base_url: str, page: int) -> str:
@@ -274,8 +291,8 @@ def _parse_posts_from_soup(soup: BeautifulSoup) -> List[ScrapedPost]:
     return posts
 
 
-def _fetch_single_page(session: requests.Session, url: str, headers: dict) -> List[ScrapedPost]:
-    """指定URLから1ページ分のレスを取得する。"""
+def _fetch_single_page(session: requests.Session, url: str, headers: dict) -> PageFetchResult:
+    """指定URLから1ページ分のレスと、リダイレクト後の最終URLを取得する。"""
     try:
         response = session.get(url, headers=headers, timeout=10)
     except Exception as exc:
@@ -324,7 +341,11 @@ def _fetch_single_page(session: requests.Session, url: str, headers: dict) -> Li
             len(soup.select("[itemprop='commentText']")),
             len(soup.select("dd.body")),
         )
-    return posts
+
+    return PageFetchResult(
+        posts=posts,
+        final_url=getattr(response, "url", "") or url,
+    )
 
 
 def _page_signature(posts: List[ScrapedPost]) -> tuple:
@@ -346,20 +367,22 @@ def fetch_posts_from_thread(
     """
     ページ指定なし（p=1相当）の最新側から開始し、p=2、p=3...と古い側へ進む。
 
+    - 最初のレスポンスで爆サイが補完したttgidを後続ページへ引き継ぐ。
     - 完走スレは最大20ページ。
     - #1を含むページ、空ページ、同一内容の再返却で終了する。
     - 既存キャッシュがある場合、通常は保存済み最大レス番号に到達したら終了する。
     - プロセス起動後の初回だけ全ページを確認し、旧キャッシュの欠落を補修する。
     """
-    base_url = _strip_page_segment(url)
-    if not base_url:
+    cache_key_url = _strip_page_segment(url)
+    if not cache_key_url:
         raise ScrapingError("スレURLが空です。")
 
+    request_base_url = cache_key_url
     safe_max_pages = min(max(1, int(max_pages)), 20)
     session = requests.Session()
     headers = _build_headers()
 
-    repair_required = stop_at_post_no is None or base_url not in _REPAIRED_THREAD_URLS
+    repair_required = stop_at_post_no is None or cache_key_url not in _REPAIRED_THREAD_URLS
     all_posts: List[ScrapedPost] = []
     seen_post_nos: set[int] = set()
     seen_unknown: set[tuple[Optional[str], str]] = set()
@@ -367,8 +390,14 @@ def fetch_posts_from_thread(
     repair_completed = False
 
     for page in range(1, safe_max_pages + 1):
-        page_url = make_page_url(base_url, page)
-        posts = _fetch_single_page(session, page_url, headers)
+        page_url = make_page_url(request_base_url, page)
+        page_result = _fetch_single_page(session, page_url, headers)
+        posts = page_result.posts
+
+        if page == 1:
+            resolved_base_url = _strip_page_segment(page_result.final_url)
+            if _same_bakusai_thread(cache_key_url, resolved_base_url):
+                request_base_url = resolved_base_url
 
         if not posts:
             if page == 1 and not all_posts:
@@ -412,7 +441,7 @@ def fetch_posts_from_thread(
         repair_completed = True
 
     if repair_required and repair_completed:
-        _REPAIRED_THREAD_URLS.add(base_url)
+        _REPAIRED_THREAD_URLS.add(cache_key_url)
 
     if not all_posts:
         raise ScrapingError("投稿らしきテキストが見つかりませんでした。")
