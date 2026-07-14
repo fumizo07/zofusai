@@ -72,17 +72,6 @@ def _strip_page_segment(url: str) -> str:
     return base
 
 
-def _extract_page_number(url: str) -> Optional[int]:
-    """URLの /p=数字/ からページ番号を取得する。"""
-    match = re.search(r"(?:^|/)p=(\d+)(?:/|$)", url or "")
-    if not match:
-        return None
-    try:
-        return int(match.group(1))
-    except ValueError:
-        return None
-
-
 def _same_bakusai_thread(original_url: str, resolved_url: str) -> bool:
     """解決後URLが同じ爆サイスレッドを指すか確認する。"""
     original_tid = re.search(r"(?:^|/)tid=(\d+)(?:/|$)", original_url or "")
@@ -129,13 +118,10 @@ def _extract_ttgid_base_url(soup: BeautifulSoup, original_url: str, response_url
 
 def make_page_url(base_url: str, page: int) -> str:
     """
-    ページ指定なしURLは爆サイ側で現在の開始ページへ解決される。
-    解決されたページ番号より大きい数字ほど古い側へ進む。
+    必ずp=1から開始し、p=2、p=3...と古い側へ進む。
     """
     base = _strip_page_segment(base_url)
     page_no = max(1, int(page))
-    if page_no == 1:
-        return base
     return f"{base}p={page_no}/"
 
 
@@ -414,10 +400,9 @@ def fetch_posts_from_thread(
     stop_at_post_no: Optional[int] = None,
 ) -> List[ScrapedPost]:
     """
-    ページ指定なしURLから開始し、爆サイ側で解決されたページの次から古い側へ進む。
+    必ずp=1から開始し、p=2、p=3...と古い側へ進む。
 
     - 最初のレスポンスまたはHTML内リンクで判明したttgidを後続ページへ引き継ぐ。
-    - 最初のURLがp=2へ解決された場合、次はp=3を取得する。
     - 完走スレは最大20ページ。
     - #1を含むページ、空ページ、同一内容の再返却で終了する。
     - 既存キャッシュがある場合、通常は保存済み最大レス番号に到達したら終了する。
@@ -428,7 +413,6 @@ def fetch_posts_from_thread(
         raise ScrapingError("スレURLが空です。")
 
     request_base_url = cache_key_url
-    next_page_no: Optional[int] = None
     safe_max_pages = min(max(1, int(max_pages)), 20)
     session = requests.Session()
     headers = _build_headers()
@@ -440,28 +424,18 @@ def fetch_posts_from_thread(
     seen_page_signatures: set[tuple] = set()
     repair_completed = False
 
-    for request_index in range(1, safe_max_pages + 1):
-        if request_index == 1:
-            page_url = cache_key_url
-        else:
-            page_url = make_page_url(request_base_url, next_page_no or request_index)
-
+    for page in range(1, safe_max_pages + 1):
+        page_url = make_page_url(request_base_url, page)
         page_result = _fetch_single_page(session, page_url, headers)
         posts = page_result.posts
 
-        if request_index == 1:
+        if page == 1:
             resolved_base_url = _strip_page_segment(page_result.final_url)
             if _same_bakusai_thread(cache_key_url, resolved_base_url):
                 request_base_url = resolved_base_url
 
-            resolved_page_no = _extract_page_number(page_result.final_url)
-            next_page_no = (resolved_page_no or 1) + 1
-        else:
-            requested_page_no = _extract_page_number(page_url)
-            next_page_no = (requested_page_no or next_page_no or request_index) + 1
-
         if not posts:
-            if request_index == 1 and not all_posts:
+            if page == 1 and not all_posts:
                 raise ScrapingError("最新ページから投稿らしきテキストが見つかりませんでした。")
             break
 
