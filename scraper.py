@@ -400,9 +400,9 @@ def fetch_posts_from_thread(
     stop_at_post_no: Optional[int] = None,
 ) -> List[ScrapedPost]:
     """
-    必ずp=1から開始し、p=2、p=3...と古い側へ進む。
+    ttgidを解決した後、必ずttgid付きp=1から開始し、p=2、p=3...と古い側へ進む。
 
-    - 最初のレスポンスまたはHTML内リンクで判明したttgidを後続ページへ引き継ぐ。
+    - ttgidなしp=1のレス内容は採用せず、同一スレッドのttgid解決だけに使う。
     - 完走スレは最大20ページ。
     - #1を含むページ、空ページ、同一内容の再返却で終了する。
     - 既存キャッシュがある場合、通常は保存済み最大レス番号に到達したら終了する。
@@ -417,6 +417,22 @@ def fetch_posts_from_thread(
     session = requests.Session()
     headers = _build_headers()
 
+    resolver_url = make_page_url(cache_key_url, 1)
+    resolver_result = _fetch_single_page(session, resolver_url, headers)
+    resolved_base_url = _strip_page_segment(resolver_result.final_url)
+
+    first_page_result = resolver_result
+    if (
+        _same_bakusai_thread(cache_key_url, resolved_base_url)
+        and resolved_base_url != cache_key_url
+    ):
+        request_base_url = resolved_base_url
+        first_page_result = _fetch_single_page(
+            session,
+            make_page_url(request_base_url, 1),
+            headers,
+        )
+
     repair_required = stop_at_post_no is None or cache_key_url not in _REPAIRED_THREAD_URLS
     all_posts: List[ScrapedPost] = []
     seen_post_nos: set[int] = set()
@@ -425,14 +441,12 @@ def fetch_posts_from_thread(
     repair_completed = False
 
     for page in range(1, safe_max_pages + 1):
-        page_url = make_page_url(request_base_url, page)
-        page_result = _fetch_single_page(session, page_url, headers)
-        posts = page_result.posts
-
         if page == 1:
-            resolved_base_url = _strip_page_segment(page_result.final_url)
-            if _same_bakusai_thread(cache_key_url, resolved_base_url):
-                request_base_url = resolved_base_url
+            page_result = first_page_result
+        else:
+            page_url = make_page_url(request_base_url, page)
+            page_result = _fetch_single_page(session, page_url, headers)
+        posts = page_result.posts
 
         if not posts:
             if page == 1 and not all_posts:
