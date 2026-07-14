@@ -21,7 +21,7 @@ def _strip_paging_segments(url: str) -> str:
     scheme_marker = "__SCHEME_SLASHES__"
     base = raw.split("#", 1)[0].split("?", 1)[0]
     base = base.replace("://", scheme_marker)
-    base = re.sub(r"/(?:p|tp|ttgid)=\d+/?", "/", base)
+    base = re.sub(r"/(?:p|tp|ttgid)=\d+", "", base)
     base = re.sub(r"/{2,}", "/", base)
     base = base.replace(scheme_marker, "://")
     if not base.endswith("/"):
