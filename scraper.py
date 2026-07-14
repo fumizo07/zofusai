@@ -7,6 +7,7 @@ import time
 
 from dataclasses import dataclass
 from typing import List, Optional
+from urllib.parse import urljoin
 
 import requests
 from bs4 import BeautifulSoup
@@ -72,7 +73,7 @@ def _strip_page_segment(url: str) -> str:
 
 
 def _same_bakusai_thread(original_url: str, resolved_url: str) -> bool:
-    """リダイレクト後URLが同じ爆サイスレッドを指すか確認する。"""
+    """解決後URLが同じ爆サイスレッドを指すか確認する。"""
     original_tid = re.search(r"(?:^|/)tid=(\d+)(?:/|$)", original_url or "")
     resolved_tid = re.search(r"(?:^|/)tid=(\d+)(?:/|$)", resolved_url or "")
     if not original_tid or not resolved_tid:
@@ -80,6 +81,39 @@ def _same_bakusai_thread(original_url: str, resolved_url: str) -> bool:
     if original_tid.group(1) != resolved_tid.group(1):
         return False
     return resolved_url.startswith(("https://bakusai.com/", "https://www.bakusai.com/"))
+
+
+def _extract_ttgid_base_url(soup: BeautifulSoup, original_url: str, response_url: str) -> str:
+    """
+    HTTPリダイレクトが発生しない場合に、HTML内の同一スレッドリンクから
+    ttgid付きの基準URLを取得する。
+    """
+    candidate_values: List[str] = []
+
+    for selector, attr in (
+        ("link[rel='canonical'][href]", "href"),
+        ("meta[property='og:url'][content]", "content"),
+        ("a[href*='ttgid='][href*='tid=']", "href"),
+        ("form[action*='ttgid='][action*='tid=']", "action"),
+    ):
+        for node in soup.select(selector):
+            value = (node.get(attr) or "").strip()
+            if value:
+                candidate_values.append(value)
+
+    for value in candidate_values:
+        absolute = urljoin(response_url or original_url, value)
+        match = re.match(
+            r"^(https://(?:www\.)?bakusai\.com/.+?/tid=\d+/ttgid=\d+/)",
+            absolute,
+        )
+        if not match:
+            continue
+        base = match.group(1)
+        if _same_bakusai_thread(original_url, base):
+            return base
+
+    return ""
 
 
 def make_page_url(base_url: str, page: int) -> str:
@@ -292,7 +326,7 @@ def _parse_posts_from_soup(soup: BeautifulSoup) -> List[ScrapedPost]:
 
 
 def _fetch_single_page(session: requests.Session, url: str, headers: dict) -> PageFetchResult:
-    """指定URLから1ページ分のレスと、リダイレクト後の最終URLを取得する。"""
+    """指定URLから1ページ分のレスと、後続ページ用の解決済みURLを取得する。"""
     try:
         response = session.get(url, headers=headers, timeout=10)
     except Exception as exc:
@@ -324,6 +358,10 @@ def _fetch_single_page(session: requests.Session, url: str, headers: dict) -> Pa
                 posts = retry_posts
                 break
 
+    response_url = getattr(response, "url", "") or url
+    html_thread_url = _extract_ttgid_base_url(soup, url, response_url)
+    resolved_url = html_thread_url or response_url
+
     if not posts:
         try:
             title = soup.title.string.strip() if soup.title and soup.title.string else ""
@@ -333,7 +371,7 @@ def _fetch_single_page(session: requests.Session, url: str, headers: dict) -> Pa
             "[SCRAPER][empty_res] url=%s final_url=%s status=%s title=%s len=%d "
             "resbody=%d comment_text=%d dd_body=%d",
             url,
-            getattr(response, "url", ""),
+            resolved_url,
             getattr(response, "status_code", None),
             title,
             len(html) if html else 0,
@@ -344,7 +382,7 @@ def _fetch_single_page(session: requests.Session, url: str, headers: dict) -> Pa
 
     return PageFetchResult(
         posts=posts,
-        final_url=getattr(response, "url", "") or url,
+        final_url=resolved_url,
     )
 
 
@@ -367,7 +405,7 @@ def fetch_posts_from_thread(
     """
     ページ指定なし（p=1相当）の最新側から開始し、p=2、p=3...と古い側へ進む。
 
-    - 最初のレスポンスで爆サイが補完したttgidを後続ページへ引き継ぐ。
+    - 最初のレスポンスまたはHTML内リンクで判明したttgidを後続ページへ引き継ぐ。
     - 完走スレは最大20ページ。
     - #1を含むページ、空ページ、同一内容の再返却で終了する。
     - 既存キャッシュがある場合、通常は保存済み最大レス番号に到達したら終了する。
