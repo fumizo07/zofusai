@@ -6,6 +6,7 @@ import scraper
 
 
 _INSTALLED = False
+_LOGGER = logging.getLogger("uvicorn.error")
 
 
 def _post_number_range(posts):
@@ -29,7 +30,7 @@ def install_scraper_diagnostics() -> None:
         try:
             result = original_fetch_single_page(session, url, headers)
         except Exception as exc:
-            logging.exception(
+            _LOGGER.exception(
                 "[SCRAPER_DIAG][page_error] request_url=%s elapsed=%.2f error=%s",
                 url,
                 time.monotonic() - started,
@@ -38,7 +39,7 @@ def install_scraper_diagnostics() -> None:
             raise
 
         min_no, max_no = _post_number_range(result.posts)
-        logging.info(
+        _LOGGER.info(
             "[SCRAPER_DIAG][page] request_url=%s final_url=%s count=%d "
             "min_no=%s max_no=%s elapsed=%.2f",
             url,
@@ -57,7 +58,7 @@ def install_scraper_diagnostics() -> None:
     @wraps(original_fetch_posts)
     def logged_fetch_posts(url, max_pages=20, stop_at_post_no=None):
         started = time.monotonic()
-        logging.info(
+        _LOGGER.info(
             "[SCRAPER_DIAG][start] url=%s max_pages=%s stop_at_post_no=%s",
             url,
             max_pages,
@@ -70,7 +71,7 @@ def install_scraper_diagnostics() -> None:
                 stop_at_post_no=stop_at_post_no,
             )
         except Exception as exc:
-            logging.exception(
+            _LOGGER.exception(
                 "[SCRAPER_DIAG][fetch_error] url=%s elapsed=%.2f error=%s",
                 url,
                 time.monotonic() - started,
@@ -79,7 +80,7 @@ def install_scraper_diagnostics() -> None:
             raise
 
         min_no, max_no = _post_number_range(posts)
-        logging.info(
+        _LOGGER.info(
             "[SCRAPER_DIAG][finish] url=%s count=%d min_no=%s max_no=%s "
             "reached_oldest=%s elapsed=%.2f",
             url,
@@ -98,4 +99,4 @@ def install_scraper_diagnostics() -> None:
 
     services.fetch_posts_from_thread = logged_fetch_posts
     _INSTALLED = True
-    logging.info("[SCRAPER_DIAG][installed]")
+    _LOGGER.info("[SCRAPER_DIAG][installed]")
