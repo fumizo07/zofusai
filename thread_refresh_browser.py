@@ -16,6 +16,7 @@ _LOGGER = logging.getLogger(__name__)
 _INSTALLED = False
 _FETCH_BATCH_SIZE = 3
 _FETCH_TIMEOUT_MS = 15_000
+_URL_ATTEMPT_MULTIPLIER = 2
 
 
 def _has_oldest(posts) -> bool:
@@ -207,6 +208,9 @@ def _append_trace_and_log(
     links,
     mode: str,
     navigation_error: Optional[Exception],
+    new_numbered: int,
+    unique_page_count: int,
+    attempt_count: int,
 ) -> None:
     min_no, max_no, count = refresh_fix._number_range(posts)
     link_paths = ",".join(refresh_fix._trace_path(link) for link in links) or "-"
@@ -219,12 +223,13 @@ def _append_trace_and_log(
         f"{refresh_fix._trace_path(target_url)}"
         f"->{refresh_fix._trace_path(final_url)} "
         f"mode={mode} status={status} count={count} range={min_no}-{max_no} "
-        f"links={link_paths}{navigation_note}"
+        f"new={new_numbered} unique_pages={unique_page_count} "
+        f"attempts={attempt_count} links={link_paths}{navigation_note}"
     )
     _LOGGER.info(
         "[THREAD_BROWSER][page] mode=%s target_url=%s source_url=%s final_url=%s "
-        "status=%s count=%s min_no=%s max_no=%s pager_links=%s "
-        "navigation_error=%s",
+        "status=%s count=%s min_no=%s max_no=%s new_numbered=%s "
+        "unique_pages=%s attempts=%s pager_links=%s navigation_error=%s",
         mode,
         target_url,
         source_url,
@@ -233,6 +238,9 @@ def _append_trace_and_log(
         count,
         min_no,
         max_no,
+        new_numbered,
+        unique_page_count,
+        attempt_count,
         len(links),
         _error_text(navigation_error) if navigation_error is not None else "-",
     )
@@ -255,6 +263,10 @@ def _crawl_with_browser(
         ) from exc
 
     safe_max_pages = min(max(1, int(max_pages)), 20)
+    safe_max_attempts = max(
+        safe_max_pages + 1,
+        safe_max_pages * _URL_ATTEMPT_MULTIPLIER,
+    )
     queue: deque[tuple[str, Optional[str]]] = deque()
     seen_targets: set[str] = set()
     seen_page_numbers: set[int] = set()
@@ -262,6 +274,7 @@ def _crawl_with_browser(
     seen_unknown: set[tuple[Optional[str], str]] = set()
     all_posts = []
     trace: list[str] = []
+    unique_page_count = 0
 
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch(
@@ -309,6 +322,12 @@ def _crawl_with_browser(
             root_page_no = refresh_fix._page_number(root_final_url)
             if root_page_no < 10**9:
                 seen_page_numbers.add(root_page_no)
+
+            root_new_numbered = _count_new_numbered(root_posts, seen_post_nos)
+            _merge_posts(all_posts, root_posts, seen_post_nos, seen_unknown)
+            if root_new_numbered > 0:
+                unique_page_count += 1
+
             _append_trace_and_log(
                 trace=trace,
                 target_url=root_url,
@@ -319,24 +338,32 @@ def _crawl_with_browser(
                 links=root_links,
                 mode="navigation",
                 navigation_error=root_nav_error,
+                new_numbered=root_new_numbered,
+                unique_page_count=unique_page_count,
+                attempt_count=len(seen_targets),
             )
-            _merge_posts(all_posts, root_posts, seen_post_nos, seen_unknown)
 
-            for link in root_links:
-                normalized_link = refresh_fix._without_fragment(link)
-                page_no = refresh_fix._page_number(normalized_link)
-                if normalized_link in seen_targets or page_no in seen_page_numbers:
-                    continue
-                if any(refresh_fix._page_number(item[0]) == page_no for item in queue):
-                    continue
-                queue.append((normalized_link, root_final_url))
+            if 1 not in seen_post_nos:
+                for link in root_links:
+                    normalized_link = refresh_fix._without_fragment(link)
+                    page_no = refresh_fix._page_number(normalized_link)
+                    if normalized_link in seen_targets or page_no in seen_page_numbers:
+                        continue
+                    if any(refresh_fix._page_number(item[0]) == page_no for item in queue):
+                        continue
+                    queue.append((normalized_link, root_final_url))
 
-            while queue and len(seen_targets) < safe_max_pages:
+            while (
+                queue
+                and unique_page_count < safe_max_pages
+                and len(seen_targets) < safe_max_attempts
+                and 1 not in seen_post_nos
+            ):
                 batch: list[tuple[str, Optional[str]]] = []
                 while (
                     queue
                     and len(batch) < _FETCH_BATCH_SIZE
-                    and len(seen_targets) + len(batch) < safe_max_pages
+                    and len(seen_targets) + len(batch) < safe_max_attempts
                 ):
                     target_url, source_url = queue.popleft()
                     normalized_target = refresh_fix._without_fragment(target_url)
@@ -412,6 +439,11 @@ def _crawl_with_browser(
                             )
                             continue
 
+                    new_numbered = _count_new_numbered(posts, seen_post_nos)
+                    _merge_posts(all_posts, posts, seen_post_nos, seen_unknown)
+                    if new_numbered > 0:
+                        unique_page_count += 1
+
                     _append_trace_and_log(
                         trace=trace,
                         target_url=target_url,
@@ -422,8 +454,13 @@ def _crawl_with_browser(
                         links=links,
                         mode=mode,
                         navigation_error=navigation_error,
+                        new_numbered=new_numbered,
+                        unique_page_count=unique_page_count,
+                        attempt_count=len(seen_targets),
                     )
-                    _merge_posts(all_posts, posts, seen_post_nos, seen_unknown)
+
+                    if 1 in seen_post_nos or unique_page_count >= safe_max_pages:
+                        break
 
                     for link in links:
                         normalized_link = refresh_fix._without_fragment(link)
