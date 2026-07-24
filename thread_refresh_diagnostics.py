@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import random
 import re
 import time
 from typing import Optional
@@ -184,7 +185,7 @@ def _fetch_page_diagnostic(
             last_error = exc
 
         if attempt < 2:
-            time.sleep(0.6 * (attempt + 1))
+            time.sleep(0.6 * (attempt + 1) + random.uniform(0.0, 0.4))
 
     if isinstance(last_error, scraper.ScrapingError):
         raise last_error
