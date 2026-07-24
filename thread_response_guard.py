@@ -10,6 +10,7 @@ import time
 from typing import Optional
 
 import scraper
+import services
 import thread_refresh_browser as browser_refresh
 import thread_refresh_fix as refresh_fix
 
@@ -267,6 +268,40 @@ def _parse_fetched_html_guarded(result: dict, target_url: str):
     return posts, final_url, links, status, None
 
 
+def _install_fetch_error_fallback() -> None:
+    """requests側が例外でも、初回全件取得ならPlaywrightへ切り替える。"""
+    current_fetch = services.fetch_posts_from_thread
+
+    def fetch_posts_with_error_fallback(
+        url: str,
+        max_pages: int = 20,
+        stop_at_post_no: Optional[int] = None,
+    ):
+        try:
+            return current_fetch(
+                url,
+                max_pages=max_pages,
+                stop_at_post_no=stop_at_post_no,
+            )
+        except scraper.ScrapingError as exc:
+            if stop_at_post_no is not None:
+                raise
+
+            _LOGGER.warning(
+                "[THREAD_GUARD][requests_failed_browser_start] url=%s error=%s",
+                url,
+                exc,
+            )
+            return browser_refresh._crawl_with_browser(
+                url,
+                max_pages=max_pages,
+                stop_at_post_no=stop_at_post_no,
+            )
+
+    services.fetch_posts_from_thread = fetch_posts_with_error_fallback
+    scraper.fetch_posts_from_thread = fetch_posts_with_error_fallback
+
+
 def install_thread_response_guard() -> None:
     """requestsとPlaywrightの取得HTML検証を起動時に有効化する。"""
     global _INSTALLED
@@ -276,4 +311,5 @@ def install_thread_response_guard() -> None:
     refresh_fix._fetch_page = _fetch_page_guarded
     browser_refresh._navigate_and_parse = _navigate_and_parse_guarded
     browser_refresh._parse_fetched_html = _parse_fetched_html_guarded
+    _install_fetch_error_fallback()
     _INSTALLED = True
