@@ -17,6 +17,7 @@ import services
 
 _INSTALLED = False
 _LOGGER = logging.getLogger(__name__)
+_URL_ATTEMPT_MULTIPLIER = 2
 
 
 class CrawlPosts(list):
@@ -131,6 +132,39 @@ def _trace_path(url: str) -> str:
     return f"{path}?{parts.query}" if parts.query else path
 
 
+def _merge_posts(
+    target,
+    posts,
+    seen_post_nos: set[int],
+    seen_unknown: set[tuple[Optional[str], str]],
+) -> tuple[int, int]:
+    """新規投稿数と、新しいレス番号を含む投稿数を返す。"""
+    added = 0
+    added_numbered = 0
+
+    for post in posts:
+        post_no = getattr(post, "post_no", None)
+        if post_no is not None:
+            post_no = int(post_no)
+            if post_no in seen_post_nos:
+                continue
+            seen_post_nos.add(post_no)
+            added_numbered += 1
+        else:
+            unknown_key = (
+                getattr(post, "posted_at", None),
+                getattr(post, "body", "") or "",
+            )
+            if unknown_key in seen_unknown:
+                continue
+            seen_unknown.add(unknown_key)
+
+        target.append(post)
+        added += 1
+
+    return added, added_numbered
+
+
 def _fetch_page(
     session,
     url: str,
@@ -184,12 +218,17 @@ def _crawl_thread_pages(
 
     特定レス用rridリンクと投稿用thr_repo02リンクはページャーではないため除外する。
     リンク遷移時は実ブラウザと同様に直前ページをRefererとして送る。
+    URLが異なっても同じレス範囲なら実ページ上限を消費しない。
     """
     root_url = _thread_root(url)
     if not root_url:
         raise scraper.ScrapingError("スレURLが空です。")
 
     safe_max_pages = min(max(1, int(max_pages)), 20)
+    safe_max_attempts = max(
+        safe_max_pages + 1,
+        safe_max_pages * _URL_ATTEMPT_MULTIPLIER,
+    )
     session = scraper.requests.Session()
     headers = scraper._build_headers()
 
@@ -199,8 +238,13 @@ def _crawl_thread_pages(
     seen_unknown: set[tuple[Optional[str], str]] = set()
     all_posts = []
     trace: list[str] = []
+    unique_page_count = 0
 
-    while queue and len(seen_urls) < safe_max_pages:
+    while (
+        queue
+        and unique_page_count < safe_max_pages
+        and len(seen_urls) < safe_max_attempts
+    ):
         request_url, referer = queue.popleft()
         normalized_url = _without_fragment(request_url)
         if normalized_url in seen_urls:
@@ -220,40 +264,40 @@ def _crawl_thread_pages(
                 raise
             continue
 
+        _, new_numbered = _merge_posts(
+            all_posts,
+            posts,
+            seen_post_nos,
+            seen_unknown,
+        )
+        if new_numbered > 0:
+            unique_page_count += 1
+
         min_no, max_no, count = _number_range(posts)
         link_paths = ",".join(_trace_path(link) for link in links) or "-"
         trace.append(
             f"{_trace_path(normalized_url)}->{_trace_path(final_url)} "
-            f"count={count} range={min_no}-{max_no} links={link_paths}"
+            f"count={count} range={min_no}-{max_no} new={new_numbered} "
+            f"unique_pages={unique_page_count} links={link_paths}"
         )
         _LOGGER.info(
             "[THREAD_REFRESH][page] request_url=%s final_url=%s referer=%s count=%s "
-            "min_no=%s max_no=%s pager_links=%s",
+            "min_no=%s max_no=%s new_numbered=%s unique_pages=%s attempts=%s "
+            "pager_links=%s",
             normalized_url,
             final_url,
             referer,
             count,
             min_no,
             max_no,
+            new_numbered,
+            unique_page_count,
+            len(seen_urls),
             len(links),
         )
 
-        for post in posts:
-            post_no = getattr(post, "post_no", None)
-            if post_no is not None:
-                post_no = int(post_no)
-                if post_no in seen_post_nos:
-                    continue
-                seen_post_nos.add(post_no)
-            else:
-                unknown_key = (
-                    getattr(post, "posted_at", None),
-                    getattr(post, "body", "") or "",
-                )
-                if unknown_key in seen_unknown:
-                    continue
-                seen_unknown.add(unknown_key)
-            all_posts.append(post)
+        if 1 in seen_post_nos:
+            break
 
         for link in links:
             normalized_link = _without_fragment(link)
