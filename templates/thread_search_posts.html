@@ -27,7 +27,7 @@
 
         <div class="thread-info">
             <div>タイトル：{{ thread_title or "（取得できませんでした）" }}</div>
-            <div class="thread-url">URL：{{ thread_url }}</div>
+            <div class="thread-url">URL：<a href="{{ thread_url }}" target="_blank" rel="noopener noreferrer">{{ thread_url }}</a></div>
             <div>
                 カテゴリ：<strong>{{ board_category_label or '（未指定）' }}</strong><br>
                 板：<strong>{{ board_label or '（未指定）' }}</strong>
@@ -246,7 +246,7 @@
 
         <div class="thread-info">
             <div>タイトル：{{ thread_title or "（取得できませんでした）" }}</div>
-            <div class="thread-url">URL：{{ thread_url }}</div>
+            <div class="thread-url">URL：<a href="{{ thread_url }}" target="_blank" rel="noopener noreferrer">{{ thread_url }}</a></div>
             <div>
                 カテゴリ：<strong>{{ board_category_label or '（未指定）' }}</strong><br>
                 板：<strong>{{ board_label or '（未指定）' }}</strong>
