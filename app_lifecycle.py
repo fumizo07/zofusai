@@ -8,6 +8,7 @@ from services import cleanup_thread_posts_duplicates, backfill_posted_at_dt, bac
 from thread_refresh_fix import install_thread_refresh_fix
 from thread_refresh_stability import install_thread_refresh_stability
 from thread_refresh_browser import install_thread_refresh_browser_fallback
+from thread_refresh_legacy_completion import install_legacy_thread_completion
 from thread_cache_speedup import install_thread_cache_speedup
 
 
@@ -17,6 +18,7 @@ def register_startup(app: FastAPI) -> None:
         install_thread_refresh_fix()
         install_thread_refresh_stability()
         install_thread_refresh_browser_fallback()
+        install_legacy_thread_completion()
         install_thread_cache_speedup()
         Base.metadata.create_all(bind=engine)
 
@@ -41,6 +43,45 @@ def register_startup(app: FastAPI) -> None:
                         WHERE cp.thread_url = ct.thread_url
                           AND cp.post_no = 1
                     )
+                    """
+                )
+            )
+
+            # 旧実装では#1を含む先頭ページだけでも全件取得済みになった。
+            # 修正導入前に作られた、#1から連続する1000未満のキャッシュを
+            # 一度だけ補修対象へ戻す。本文は削除せず、取得成功後にUPSERTする。
+            conn.execute(
+                text(
+                    """
+                    UPDATE cached_threads AS ct
+                    SET fetched_at = TIMESTAMP '1970-01-01 00:00:00'
+                    WHERE ct.fetched_at < TIMESTAMP '2026-07-29 13:45:00'
+                      AND EXISTS (
+                          SELECT 1
+                          FROM cached_posts AS cp
+                          WHERE cp.thread_url = ct.thread_url
+                            AND cp.post_no = 1
+                      )
+                      AND COALESCE(
+                          (
+                              SELECT MAX(cp.post_no)
+                              FROM cached_posts AS cp
+                              WHERE cp.thread_url = ct.thread_url
+                                AND cp.post_no IS NOT NULL
+                          ),
+                          0
+                      ) BETWEEN 1 AND 999
+                      AND (
+                          SELECT COUNT(DISTINCT cp.post_no)
+                          FROM cached_posts AS cp
+                          WHERE cp.thread_url = ct.thread_url
+                            AND cp.post_no IS NOT NULL
+                      ) = (
+                          SELECT MAX(cp.post_no)
+                          FROM cached_posts AS cp
+                          WHERE cp.thread_url = ct.thread_url
+                            AND cp.post_no IS NOT NULL
+                      )
                     """
                 )
             )
