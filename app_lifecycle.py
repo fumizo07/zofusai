@@ -9,6 +9,7 @@ from thread_refresh_fix import install_thread_refresh_fix
 from thread_refresh_stability import install_thread_refresh_stability
 from thread_refresh_browser import install_thread_refresh_browser_fallback
 from thread_refresh_legacy_completion import install_legacy_thread_completion
+from thread_incremental_fastpath import install_incremental_thread_fastpath
 from thread_cache_speedup import install_thread_cache_speedup
 
 
@@ -19,6 +20,7 @@ def register_startup(app: FastAPI) -> None:
         install_thread_refresh_stability()
         install_thread_refresh_browser_fallback()
         install_legacy_thread_completion()
+        install_incremental_thread_fastpath()
         install_thread_cache_speedup()
         Base.metadata.create_all(bind=engine)
 
